@@ -1,0 +1,5 @@
+use_case,eval_id,tag,type,fixture_id,run,passed,score,floor_hit,skipped,detail,error
+check_content,has_hello,right,regex,fixture_a,1,true,,false,false,pattern 'hello' found,
+check_content,has_hello,right,regex,fixture_a,2,true,,false,false,pattern 'hello' found,
+check_content,no_forbidden,safe,reference,fixture_a,1,true,,false,false,all checks passed,
+check_content,no_forbidden,safe,reference,fixture_a,2,true,,false,false,all checks passed,

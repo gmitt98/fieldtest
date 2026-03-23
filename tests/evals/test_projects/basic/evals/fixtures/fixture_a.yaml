@@ -1,0 +1,11 @@
+id: fixture_a
+description: a passing fixture — output has hello, no forbidden strings
+
+inputs:
+  text: say hello to the world
+
+expected:
+  contains:
+    - hello
+  not_contains:
+    - forbidden_word

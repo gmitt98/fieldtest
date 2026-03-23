@@ -1,0 +1,11 @@
+id: score_with_judge_errors
+description: >
+  fieldtest scores a run where some LLM judge calls fail — errors surface in
+  result rows but run completes successfully (exit 0)
+
+inputs:
+  config:      tests/evals/test_projects/with_errors/evals/config.yaml
+  set:         full
+  results_dir: tests/evals/test_projects/with_errors/evals/results/
+
+# Note: no expected block — rule evals inspect JSON directly

@@ -1,0 +1,16 @@
+id: score_basic
+description: >
+  fieldtest scores a fixture set where all outputs are present and judges produce
+  deterministic results (regex/reference only — no LLM calls in this fixture)
+
+inputs:
+  config:      tests/evals/test_projects/basic/evals/config.yaml
+  set:         smoke
+  results_dir: tests/evals/test_projects/basic/evals/results/
+
+expected:
+  contains:
+    - '"failure_rate"'
+    - '"summary"'
+    - '"delta"'
+    - '"rows"'

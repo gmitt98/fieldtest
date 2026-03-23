@@ -1,0 +1,5 @@
+id: fixture_b
+description: a mixed fixture — output has hello, reference eval will skip (no expected block)
+
+inputs:
+  text: say hello again

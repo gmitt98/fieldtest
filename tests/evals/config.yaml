@@ -1,0 +1,83 @@
+schema_version: 1
+
+system:
+  name: fieldtest
+  domain: CLI eval tool — scores AI system outputs, writes results files (json + md + csv)
+
+use_cases:
+
+  - id: correct_aggregation
+    description: fieldtest score produces numerically correct results
+
+    evals:
+      - id: failure_rate_accurate
+        tag: right
+        type: rule
+        description: failure_rate in JSON matches hand-computed expected value for the fixture set
+
+      - id: error_rows_excluded
+        tag: right
+        type: rule
+        description: rows with error set are excluded from failure_rate and counted in error_count
+
+      - id: delta_direction_correct
+        tag: right
+        type: rule
+        description: increased/decreased arrays reflect actual direction of change vs baseline fixture
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        smoke: [score_basic, score_with_judge_errors]
+        full:  all
+      runs: 3
+
+  - id: valid_output_files
+    description: fieldtest score writes well-formed result files
+
+    evals:
+      - id: report_header_present
+        tag: good
+        type: regex
+        pattern: "^# Eval Report"
+        match: true
+        description: markdown report starts with correct H1 header
+
+      - id: csv_header_correct
+        tag: good
+        type: regex
+        pattern: "^use_case,eval_id,tag,type,fixture_id,run,passed"
+        match: true
+        description: CSV first line matches expected column order
+
+      - id: json_keys_present
+        tag: good
+        type: rule
+        description: result JSON contains run_id, rows, summary, delta keys and parses without error
+
+      - id: exit_0_on_success
+        tag: safe
+        type: rule
+        description: fieldtest score exits 0 when all outputs present and no config errors
+
+      - id: no_files_on_config_error
+        tag: safe
+        type: rule
+        description: no files written to results/ when config is invalid — exit 1 cleanly
+
+      - id: no_files_on_missing_output
+        tag: safe
+        type: rule
+        description: no files written to results/ when outputs missing (no --allow-partial)
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        smoke: [score_basic]
+        full:  all
+      runs: 3
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-3-5-20251001
+  runs: 3

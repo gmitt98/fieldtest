@@ -1,0 +1,34 @@
+schema_version: 1
+
+system:
+  name: basic test project
+  domain: a minimal controlled eval project used by the fieldtest dogfood suite
+
+use_cases:
+  - id: check_content
+    description: output contains expected content
+
+    evals:
+      - id: has_hello
+        tag: right
+        type: regex
+        description: output contains the word hello
+        pattern: "hello"
+        match: true
+
+      - id: no_forbidden
+        tag: safe
+        type: reference
+        description: output does not contain forbidden strings
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        smoke: [fixture_a]
+        full:  [fixture_a, fixture_b]
+      runs: 2
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-3-5-20251001
+  runs: 2
