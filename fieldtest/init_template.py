@@ -76,7 +76,7 @@ use_cases:
 # Set ANTHROPIC_API_KEY in your environment.
 defaults:
   provider: anthropic
-  model: claude-haiku-3-5-20251001
+  model: claude-sonnet-4-20250514   # confirmed working; switch to a Haiku model for cost
   runs: 5
 """
 

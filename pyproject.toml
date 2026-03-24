@@ -8,12 +8,33 @@ version = "0.1.0"
 description = "Structured AI eval practice for any project"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Galen Mittermann" }
+]
+keywords = ["evals", "llm", "ai", "testing", "evaluation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "anthropic>=0.20.0",
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "click>=8.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/gmitt98/fieldtest"
+Repository = "https://github.com/gmitt98/fieldtest"
+Issues = "https://github.com/gmitt98/fieldtest"
 
 [project.scripts]
 fieldtest = "fieldtest.cli:main"
