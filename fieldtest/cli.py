@@ -141,7 +141,7 @@ def validate(config_path: Optional[str]):
 @click.option("--allow-partial", is_flag=True, default=False,
               help="Warn and skip missing outputs instead of failing")
 @click.option("--concurrency", default=5, type=int,
-              help="Max parallel judge calls (default: 5; 1 = sequential)")
+              help="Max parallel judge calls (default: 5; 1 = sequential with per-judge output)")
 def score(
     set_name: str,
     set_name_opt: Optional[str],
@@ -167,6 +167,9 @@ def score(
 
     baseline = Path(baseline_path) if baseline_path else None
 
+    # verbose = per-judge output; only useful when sequential (concurrency 1)
+    verbose = concurrency == 1
+
     from fieldtest.runner import score as _score
     try:
         run_id, rows = _score(
@@ -176,6 +179,7 @@ def score(
             baseline_path=baseline,
             allow_partial=allow_partial,
             concurrency=concurrency,
+            verbose=verbose,
         )
     except Exception as e:
         _handle_error(e)

@@ -2,11 +2,11 @@
 
 The eval landscape is crowded at the execution layer and nearly empty at the practice layer.
 
-Most eval tools assume you already know what to evaluate. You install a framework, run some metrics, see numbers. The numbers feel like quality. They're not. They're measurements without meaning — because nobody defined what the measurements are supposed to catch before running them.
+Most eval tools assume you already know what to evaluate. You install a framework, run some metrics, see numbers. The numbers feel like quality yet they're not: they are measurements without meaning, because nobody defined what the measurements are supposed to catch before running them.
 
 **fieldtest is a tool for the layer that's missing: the reasoning that produces the evals.**
 
-The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. That sequence is the thing most teams skip, which is why they end up with evals that measure what's easy rather than what matters. The structure enforces the reasoning. You cannot skip to measurement without first doing the definitional work.
+The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. That sequence is the thing most teams skip, which is why they end up with evals that measure what's easy rather than what matters. The structure of the testing enforces the reasoning. With fieldtest, cannot skip to measurement without first doing the definitional work. How well you do that is up to you, but we provide the scaffolding to reason about what you are actually trying to measure.
 
 ---
 
@@ -389,23 +389,24 @@ Use this when you're iterating on evals and don't have a complete runner output 
 
 ### `fieldtest score --concurrency 1`
 
-By default fieldtest dispatches judge calls in parallel (5 threads). Use `--concurrency 1` to run judges sequentially — useful when debugging a judge error to see the exact failure without interleaved output.
+By default fieldtest dispatches judge calls in parallel (5 threads) and prints the full report only at the end. `--concurrency 1` runs judges sequentially and prints each result as it completes — useful when debugging a judge error.
 
 ```bash
 fieldtest score --concurrency 1
 ```
 
 ```
-scoring tailor_resume: 3 fixtures × 3 runs = 9 evaluations per eval
-  judging no_fabrication / experienced-swe__senior-swe run 1... ✓ pass
-  judging no_fabrication / experienced-swe__senior-swe run 2... ✓ pass
-  judging no_fabrication / experienced-swe__senior-swe run 3... ✓ pass
-  judging bullet_quality / experienced-swe__senior-swe run 1... ✗ fail
+  no_fabrication                 experienced-swe__senior-swe  run 1  ✓ pass
+  no_fabrication                 experienced-swe__senior-swe  run 2  ✓ pass
+  no_fabrication                 experienced-swe__senior-swe  run 3  ✓ pass
+  contact_preserved              experienced-swe__senior-swe  run 1  ✓ pass
+  bullet_quality                 recent-grad__data-scientist  run 1  ✗ fail
+  bullet_quality                 recent-grad__data-scientist  run 2  ✓ pass
+  no_fabrication                 marketing-manager__pm        run 1  ⚠ error
   ...
-✓ results written to evals/results/2026-03-24T14-30-00-a3f9
 ```
 
-If a judge is erroring (API failure, malformed response), `--concurrency 1` isolates which fixture and run is triggering it. With parallel execution, the errors appear jumbled; sequential makes them readable.
+When a judge is erroring (API failure, malformed response), `--concurrency 1` shows you exactly which fixture and run is triggering it. With parallel execution the errors surface only in the final report, mixed with everything else.
 
 ---
 

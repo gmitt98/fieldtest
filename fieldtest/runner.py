@@ -7,7 +7,7 @@ This is NOT the user's runner. This is the eval tool's scoring engine.
 from __future__ import annotations
 
 import secrets
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -39,6 +39,7 @@ def score(
     baseline_path: Optional[Path] = None,
     allow_partial: bool = False,
     concurrency: int = 5,
+    verbose: bool = False,
 ) -> tuple[str, list[ResultRow]]:
     """
     Core scoring logic. Returns (run_id, rows).
@@ -102,11 +103,26 @@ def score(
     # -------------------------------------------------------------------
     all_results: list[ResultRow] = []
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futures = [
-            pool.submit(dispatch_judge, uc_id, ev, output, fixture, run, config)
+        future_map = {
+            pool.submit(dispatch_judge, uc_id, ev, output, fixture, run, config): None
             for (uc_id, ev, output, fixture, run) in judge_tasks
-        ]
-        all_results = [f.result() for f in futures]
+        }
+        for future in as_completed(future_map):
+            result = future.result()
+            all_results.append(result)
+            if verbose:
+                if result.error:
+                    status = "⚠ error"
+                elif result.skipped:
+                    status = "— skip"
+                elif result.passed:
+                    status = "✓ pass"
+                else:
+                    status = "✗ fail"
+                print(
+                    f"  {result.eval_id:<30} {result.fixture_id}  run {result.run}  {status}",
+                    flush=True,
+                )
 
     # -------------------------------------------------------------------
     # AGGREGATE

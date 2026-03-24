@@ -233,7 +233,7 @@ def test_duplicate_fixture_ids(tmp_path):
 def test_defaults_applied_when_absent(tmp_path):
     cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
     assert cfg.defaults.provider == "anthropic"
-    assert cfg.defaults.model == "claude-haiku-3-5-20251001"
+    assert cfg.defaults.model == "claude-sonnet-4-20250514"
     assert cfg.defaults.runs == 5
 
 

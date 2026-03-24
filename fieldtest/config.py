@@ -111,10 +111,24 @@ class SystemConfig(BaseModel):
     domain: str
 
 
+VALID_PROVIDERS = {"anthropic"}
+
+
 class Defaults(BaseModel):
     provider: str = "anthropic"
-    model:    str = "claude-haiku-3-5-20251001"
+    model:    str = "claude-sonnet-4-20250514"
     runs:     int = 5
+
+    @field_validator("provider")
+    @classmethod
+    def provider_must_be_supported(cls, v: str) -> str:
+        if v not in VALID_PROVIDERS:
+            supported = ", ".join(sorted(VALID_PROVIDERS))
+            raise ValueError(
+                f"Unknown provider '{v}'. v1 supports: {supported}. "
+                f"Check defaults.provider in config.yaml."
+            )
+        return v
 
 
 class Config(BaseModel):
