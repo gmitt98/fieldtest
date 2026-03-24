@@ -19,6 +19,23 @@ export ANTHROPIC_API_KEY=sk-ant-...   # for LLM judge calls
 
 ---
 
+## How it works
+
+fieldtest expects your project to have an `evals/` directory with a `config.yaml` file. All commands default to `evals/config.yaml` relative to your working directory. Use `--config <path>` to override.
+
+```
+your-project/
+  evals/
+    config.yaml        ← fieldtest reads this
+    fixtures/          ← your test inputs
+    outputs/           ← your runner writes here
+    results/           ← fieldtest score writes here
+```
+
+Run all fieldtest commands from your project root (the directory that contains `evals/`).
+
+---
+
 ## Quickstart
 
 ### 1. Scaffold your eval directory

@@ -206,12 +206,19 @@ def history(config_path: Optional[str]):
     results_dir = base_dir / "results"
 
     if not results_dir.exists():
-        click.echo("No results found in evals/results/")
+        click.echo(
+            f"No results found at {results_dir}.\n"
+            f"  Run 'fieldtest score' to generate results, or\n"
+            f"  'fieldtest init' if you haven't set up a project yet."
+        )
         return
 
     result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
     if not result_files:
-        click.echo("No results found in evals/results/")
+        click.echo(
+            f"No results found at {results_dir}.\n"
+            f"  Run 'fieldtest score' to generate results."
+        )
         return
 
     # Header
@@ -281,12 +288,18 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     results_dir = base_dir / "results"
 
     if not results_dir.exists():
-        click.echo("No results found.")
+        click.echo(
+            f"No results found at {results_dir}.\n"
+            f"  Run 'fieldtest score' to generate results."
+        )
         return
 
     result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
     if not result_files:
-        click.echo("No results found.")
+        click.echo(
+            f"No results found at {results_dir}.\n"
+            f"  Run 'fieldtest score' to generate results."
+        )
         return
 
     # Resolve current and baseline

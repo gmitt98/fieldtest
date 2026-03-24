@@ -207,6 +207,12 @@ def parse_and_validate(config_path: Path) -> Config:
     """Load and validate config.yaml. Raises ConfigError (never raw ValidationError)."""
     try:
         raw = yaml.safe_load(config_path.read_text())
+    except FileNotFoundError:
+        raise ConfigError(
+            f"Config not found: {config_path}\n"
+            f"  Run 'fieldtest init' to scaffold a new project, or\n"
+            f"  use --config to specify a different path."
+        )
     except Exception as e:
         raise ConfigError(f"Config error at {config_path}: {e}") from e
 
