@@ -5,10 +5,136 @@ write_markdown() / format_report() — generates the human-readable eval report.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
 from fieldtest.config import Config, ResultRow
+
+
+# ---------------------------------------------------------------------------
+# Section helpers — each returns a list[str] of markdown lines
+# ---------------------------------------------------------------------------
+
+
+def _format_tag_summary(rows: list[ResultRow], use_case_id: str) -> list[str]:
+    """
+    Tag health summary — one pass rate per tag (RIGHT / GOOD / SAFE).
+    Only counts non-skipped, non-error rows.
+    """
+    tag_totals: dict[str, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+    for r in rows:
+        if r.use_case != use_case_id or r.skipped or r.error:
+            continue
+        tag = (r.tag or "untagged").upper()
+        tag_totals[tag]["total"] += 1
+        if r.passed:
+            tag_totals[tag]["passed"] += 1
+
+    if not any(v["total"] for v in tag_totals.values()):
+        return []
+
+    lines = [
+        "### Tag Health",
+        "| tag | pass rate | passed / total |",
+        "|-----|-----------|----------------|",
+    ]
+    for tag in ["RIGHT", "GOOD", "SAFE"]:
+        if tag not in tag_totals:
+            continue
+        d = tag_totals[tag]
+        pct = f"{round(d['passed'] / d['total'] * 100)}%" if d["total"] else "—"
+        lines.append(f"| {tag} | {pct} | {d['passed']} / {d['total']} |")
+    return lines
+
+
+def _format_fixture_matrix(
+    rows: list[ResultRow], use_case_id: str, eval_ids: list[str]
+) -> list[str]:
+    """
+    Fixture × eval matrix.
+    Rows = fixture IDs (sorted), columns = eval IDs (config order).
+    Cell values:
+      "X/N"       — X passes out of N judged runs
+      "err"       — all runs returned judge errors
+      "X/N+err"   — some passes, some errors
+      "—"         — no data (all skipped or eval not run on fixture)
+    """
+    uc_rows = [r for r in rows if r.use_case == use_case_id]
+    fixture_ids = sorted({r.fixture_id for r in uc_rows if not r.skipped})
+    active_evals = [e for e in eval_ids if any(r.eval_id == e for r in uc_rows)]
+
+    if not fixture_ids or not active_evals:
+        return []
+
+    # Accumulate per (fixture_id, eval_id)
+    cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0})
+    for r in uc_rows:
+        if r.skipped:
+            continue
+        key = (r.fixture_id, r.eval_id)
+        if r.error:
+            cell[key]["errors"] += 1
+        else:
+            cell[key]["total"] += 1
+            if r.passed:
+                cell[key]["passed"] += 1
+
+    header = "| fixture | " + " | ".join(active_evals) + " |"
+    sep = "| --- |" + " --- |" * len(active_evals)
+    lines = ["### Fixture × Eval Matrix", header, sep]
+
+    for fid in fixture_ids:
+        cells = []
+        for eid in active_evals:
+            d = cell[(fid, eid)]
+            if d["errors"] > 0 and d["total"] == 0:
+                cells.append("err")
+            elif d["errors"] > 0:
+                cells.append(f"{d['passed']}/{d['total']}+err")
+            elif d["total"] == 0:
+                cells.append("—")
+            else:
+                cells.append(f"{d['passed']}/{d['total']}")
+        lines.append("| " + fid + " | " + " | ".join(cells) + " |")
+
+    return lines
+
+
+def _format_failure_details(rows: list[ResultRow], use_case_id: str) -> list[str]:
+    """
+    Failure detail list — one entry per failing run, grouped by eval.
+    Shows: fixture_id, run number, and judge reasoning (detail field).
+    Errors and skipped rows are excluded — this is only judged failures.
+    """
+    failing = [
+        r
+        for r in rows
+        if r.use_case == use_case_id
+        and not r.skipped
+        and not r.error
+        and r.passed is False
+    ]
+    if not failing:
+        return []
+
+    by_eval: dict[str, list[ResultRow]] = defaultdict(list)
+    for r in failing:
+        by_eval[r.eval_id].append(r)
+
+    lines = ["### Failure Details"]
+    for eval_id in sorted(by_eval):
+        lines.append(f"\n**{eval_id}**")
+        for r in sorted(by_eval[eval_id], key=lambda x: (x.fixture_id, x.run)):
+            detail = (r.detail or "").strip().replace("\n", " ") or "no detail"
+            lines.append(f"- `{r.fixture_id}` run {r.run}: {detail}")
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Main report builder
+# ---------------------------------------------------------------------------
 
 
 def format_report(
@@ -23,6 +149,13 @@ def format_report(
 ) -> str:
     """
     Build the full markdown report as a string.
+
+    Sections per use case:
+      1. Tag Health summary (RIGHT / GOOD / SAFE pass rates at a glance)
+      2. Per-eval RIGHT / GOOD / SAFE tables with failure rates and delta
+      3. Floor hits and judge error notices
+      4. Fixture × Eval matrix (rows=fixtures, cols=evals, cells=pass rate)
+      5. Failure Details (per failing run with judge reasoning)
     """
     fixture_ids = sorted({r.fixture_id for r in rows if not r.skipped})
     fixture_count = len(fixture_ids)
@@ -35,7 +168,7 @@ def format_report(
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    lines = []
+    lines: list[str] = []
 
     # Header
     lines.append("# Eval Report")
@@ -68,8 +201,15 @@ def format_report(
         lines.append("")
         lines.append(f"## {uc.id}")
         lines.append(uc.description)
+        lines.append("")
 
-        # Delta index: eval_id → {previous, current, delta}
+        # --- Tag Health Summary -------------------------------------------
+        tag_summary_lines = _format_tag_summary(rows, uc.id)
+        if tag_summary_lines:
+            lines.extend(tag_summary_lines)
+            lines.append("")
+
+        # --- Per-eval RIGHT / GOOD / SAFE tables --------------------------
         delta_idx: dict[str, dict] = {}
         for item in delta.get("increased", []):
             delta_idx[item["eval_id"]] = item
@@ -84,70 +224,65 @@ def format_report(
             if not tag_stats:
                 continue
 
-            lines.append("")
             lines.append(f"### {tag.upper()}")
             lines.append("| eval | failure rate | mean | floor hits | errors | vs prior |")
             lines.append("|------|-------------|------|-----------|--------|---------|")
 
             for eval_id, stats in tag_stats.items():
-                fr      = stats.get("failure_rate")
-                mean    = stats.get("mean")
-                fh      = stats.get("floor_hits", 0)
-                errs    = stats.get("error_count", 0)
-                total   = stats.get("total_runs", 0)
+                fr    = stats.get("failure_rate")
+                mean  = stats.get("mean")
+                fh    = stats.get("floor_hits", 0)
+                errs  = stats.get("error_count", 0)
 
                 fr_str   = f"{round(fr * 100)}%" if fr is not None else "—"
-                mean_str = f"{mean}/{config.use_cases[0].evals[0].scale[1] if False else '?'}" if mean is not None else "—"
-                # Find the eval's scale for mean display
-                for ev in uc.evals:
-                    if ev.id == eval_id and ev.scale:
-                        mean_str = f"{mean}/{ev.scale[1]}"
-                        break
+                mean_str = "—"
+                if mean is not None:
+                    for ev in uc.evals:
+                        if ev.id == eval_id and ev.scale:
+                            mean_str = f"{mean}/{ev.scale[1]}"
+                            break
 
                 # vs prior
                 if eval_id in delta_idx:
                     d = delta_idx[eval_id]["delta"]
-                    vs_str = f"+{round(d * 100 if fr is not None else d, 2)}%" if d > 0 else f"{round(d * 100 if fr is not None else d, 2)}%"
                     if mean is not None:
                         vs_str = f"+{round(d, 2)}" if d > 0 else f"{round(d, 2)}"
+                    else:
+                        vs_str = f"+{round(d * 100, 2)}%" if d > 0 else f"{round(d * 100, 2)}%"
                 elif eval_id in delta.get("unchanged", []):
                     vs_str = "↔"
                 else:
                     vs_str = "—"
 
-                lines.append(f"| {eval_id} | {fr_str} | {mean_str} | {fh} | {errs} | {vs_str} |")
+                lines.append(
+                    f"| {eval_id} | {fr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
+                )
 
                 if errs > 0:
                     error_eval_ids.append((eval_id, errs))
-
                 if fh > 0:
-                    # Find the floor-hit rows
                     for row in rows:
                         if row.eval_id == eval_id and row.floor_hit:
                             floor_hit_rows.append(
                                 f"outputs/{row.fixture_id}/run-{row.run}.txt"
                             )
 
-        # Floor hits section
-        if floor_hit_rows:
             lines.append("")
-            lines.append("---")
-            eval_id_fh = next(
-                (r.eval_id for r in rows if r.floor_hit), "scored_eval"
-            )
-            lines.append(f"⚠ floor hits — {', '.join(floor_hit_rows)}")
-            if floor_hit_rows:
-                scale_str = ""
-                for ev in uc.evals:
-                    if ev.id == eval_id_fh and ev.scale:
-                        scale_str = f"{ev.scale[0]}/{ev.scale[1]}"
-                        break
-                lines.append(f"  eval: {eval_id_fh} scored {scale_str} — review these outputs")
 
-        # Judge errors section
-        if error_eval_ids:
+        # Floor hits
+        if floor_hit_rows:
+            eval_id_fh = next((r.eval_id for r in rows if r.floor_hit), "scored_eval")
+            lines.append(f"⚠ floor hits — {', '.join(floor_hit_rows)}")
+            scale_str = ""
+            for ev in uc.evals:
+                if ev.id == eval_id_fh and ev.scale:
+                    scale_str = f"{ev.scale[0]}/{ev.scale[1]}"
+                    break
+            lines.append(f"  eval: {eval_id_fh} scored {scale_str} — review these outputs")
             lines.append("")
-            lines.append("---")
+
+        # Judge errors
+        if error_eval_ids:
             for eval_id, count in error_eval_ids:
                 lines.append(
                     f"⚠ judge errors — {count} calls failed for {eval_id}; "
@@ -157,5 +292,19 @@ def format_report(
                 "  re-run with --concurrency 1 to isolate; "
                 "check ANTHROPIC_API_KEY if errors persist"
             )
+            lines.append("")
+
+        # --- Fixture × Eval Matrix ----------------------------------------
+        eval_ids = [ev.id for ev in uc.evals]
+        matrix_lines = _format_fixture_matrix(rows, uc.id, eval_ids)
+        if matrix_lines:
+            lines.extend(matrix_lines)
+            lines.append("")
+
+        # --- Failure Details ----------------------------------------------
+        detail_lines = _format_failure_details(rows, uc.id)
+        if detail_lines:
+            lines.extend(detail_lines)
+            lines.append("")
 
     return "\n".join(lines)
