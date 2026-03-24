@@ -42,7 +42,7 @@ def run_fieldtest_score(config_path: str, set_name: str, results_dir: str) -> st
     results_path.mkdir(parents=True, exist_ok=True)
 
     # Clear existing results so we capture only this run
-    for old in results_path.glob("*.json"):
+    for old in results_path.glob("*-data.json"):
         old.unlink()
 
     proc = subprocess.run(
@@ -52,7 +52,7 @@ def run_fieldtest_score(config_path: str, set_name: str, results_dir: str) -> st
     )
 
     # Find the result JSON written
-    results = sorted(results_path.glob("*.json"), reverse=True)
+    results = sorted(results_path.glob("*-data.json"), reverse=True)
     if results:
         return results[0].read_text()
     else:

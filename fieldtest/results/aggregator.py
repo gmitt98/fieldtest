@@ -191,8 +191,8 @@ def find_baseline(results_dir: Path, current_run_id: str) -> Optional[Path]:
     """
     if not results_dir.exists():
         return None
-    candidates = sorted(results_dir.glob("*.json"), reverse=True)
+    candidates = sorted(results_dir.glob("*-data.json"), reverse=True)
     for p in candidates:
-        if p.stem != current_run_id:
+        if p.stem.removesuffix("-data") != current_run_id:
             return p
     return None

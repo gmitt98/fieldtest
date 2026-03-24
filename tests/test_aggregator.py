@@ -171,7 +171,7 @@ def _write_baseline(tmp_path: Path, run_id: str, failure_rate: float | None = No
             }
         }
     }
-    p = tmp_path / f"{run_id}.json"
+    p = tmp_path / f"{run_id}-data.json"
     p.write_text(json.dumps(data))
     return p
 

@@ -1,8 +1,13 @@
 """
 fieldtest/results/writer.py
 
-write_results() — writes {run_id}.json, {run_id}.md, {run_id}.csv to output_dir.
-All three written atomically or none (failure raises and no partial files persist).
+write_results() — writes four files per run to output_dir:
+  {run_id}-data.json    full result data (rows + summary + delta)
+  {run_id}-data.csv     flat rows, one per fixture × eval × run
+  {run_id}-report.md    human-readable markdown report
+  {run_id}-report.csv   spreadsheet-friendly report (tag health / matrix / failures)
+
+All four written atomically — content is built before any file is touched.
 """
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from fieldtest.config import Config, ResultRow
-from fieldtest.results.report import format_report
+from fieldtest.results.report import format_report, format_report_csv
 
 
 def write_results(
@@ -28,27 +33,30 @@ def write_results(
     partial_details: Optional[list[str]] = None,
 ) -> None:
     """
-    Write {run_id}.json, {run_id}.md, {run_id}.csv to output_dir.
-    Creates output_dir if it doesn't exist.
-    All three written together — either all succeed or none written.
+    Write {run_id}-data.json, {run_id}-data.csv, {run_id}-report.md,
+    {run_id}-report.csv to output_dir. Creates output_dir if it doesn't exist.
+    All four built before any file is written — fail fast on build errors.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    json_path = output_dir / f"{run_id}.json"
-    md_path   = output_dir / f"{run_id}.md"
-    csv_path  = output_dir / f"{run_id}.csv"
+    json_path        = output_dir / f"{run_id}-data.json"
+    data_csv_path    = output_dir / f"{run_id}-data.csv"
+    md_path          = output_dir / f"{run_id}-report.md"
+    report_csv_path  = output_dir / f"{run_id}-report.csv"
 
     # Build all content before writing — fail fast before any file is created
-    json_content = _build_json(rows, summary, delta, config, run_id, set_name)
-    md_content   = format_report(
+    json_content        = _build_json(rows, summary, delta, config, run_id, set_name)
+    data_csv_content    = _build_data_csv(rows)
+    md_content          = format_report(
         rows, summary, delta, config, run_id, set_name, partial, partial_details
     )
-    csv_content  = _build_csv(rows)
+    report_csv_content  = format_report_csv(rows, config)
 
-    # Write all three
+    # Write all four
     json_path.write_text(json_content)
+    data_csv_path.write_text(data_csv_content)
     md_path.write_text(md_content)
-    csv_path.write_text(csv_content)
+    report_csv_path.write_text(report_csv_content)
 
 
 def _build_json(
@@ -78,8 +86,8 @@ def _build_json(
     return json.dumps(data, indent=2, default=str)
 
 
-def _build_csv(rows: list[ResultRow]) -> str:
-    """Build CSV string — flat rows, one per fixture × eval × run."""
+def _build_data_csv(rows: list[ResultRow]) -> str:
+    """Build data CSV string — flat rows, one per fixture × eval × run."""
     output = io.StringIO()
     fieldnames = [
         "use_case", "eval_id", "tag", "type", "fixture_id", "run",

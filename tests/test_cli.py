@@ -121,11 +121,12 @@ def test_score_exits_0_on_success(tmp_path):
     _write_outputs(evals_dir, "fix2", runs=2)
     result = _run_score(evals_dir)
     assert result.exit_code == 0
-    # All three result files written
-    results = list((evals_dir / "results").glob("*.json"))
+    # All four result files written
+    results = list((evals_dir / "results").glob("*-data.json"))
     assert len(results) == 1
-    assert any((evals_dir / "results").glob("*.md"))
-    assert any((evals_dir / "results").glob("*.csv"))
+    assert any((evals_dir / "results").glob("*-report.md"))
+    assert any((evals_dir / "results").glob("*-data.csv"))
+    assert any((evals_dir / "results").glob("*-report.csv"))
 
 
 def test_score_exit_0_despite_high_failure(tmp_path):
@@ -238,7 +239,7 @@ def test_concurrency_1_same_results(tmp_path):
     _write_outputs(evals_dir, "fix2", runs=2)
     result = _run_score(evals_dir, extra_args=["--concurrency", "1"])
     assert result.exit_code == 0
-    results = list((evals_dir / "results").glob("*.json"))
+    results = list((evals_dir / "results").glob("*-data.json"))
     assert len(results) == 1
 
 
@@ -313,7 +314,7 @@ defaults:
     )
     # Provider error surfaces in result row (not run-aborting), so exit 0
     # but the error should appear in the JSON
-    results = list((evals_dir2 / "results").glob("*.json"))
+    results = list((evals_dir2 / "results").glob("*-data.json"))
     if results:
         data = json.loads(results[0].read_text())
         errors = [r for r in data["rows"] if r.get("error")]

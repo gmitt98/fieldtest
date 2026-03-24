@@ -5,6 +5,8 @@ write_markdown() / format_report() — generates the human-readable eval report.
 """
 from __future__ import annotations
 
+import csv
+import io
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional
@@ -308,3 +310,109 @@ def format_report(
             lines.append("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CSV report builder
+# ---------------------------------------------------------------------------
+
+
+def format_report_csv(rows: list[ResultRow], config: Config) -> str:
+    """
+    Build the report CSV — three labeled sections separated by blank rows,
+    designed to be opened in a spreadsheet.
+
+    Section 1 — Tag Health
+      use_case, tag, pass_rate_pct, passed, total
+
+    Section 2 — Fixture × Eval Matrix
+      use_case, fixture_id, eval_id, tag, passes, total, errors, cell
+
+    Section 3 — Failures
+      use_case, eval_id, tag, fixture_id, run, detail
+
+    Cells in the matrix:
+      "X/N"       — X passes out of N judged runs
+      "err"       — all judge calls errored
+      "X/N+err"   — some passes, some errors
+      ""          — no data (all skipped or eval not run on this fixture)
+    """
+    output = io.StringIO()
+    w = csv.writer(output, lineterminator="\n")
+
+    for uc in config.use_cases:
+        uc_rows = [r for r in rows if r.use_case == uc.id]
+        if not uc_rows:
+            continue
+
+        # ----------------------------------------------------------------
+        # Section 1: Tag Health
+        # ----------------------------------------------------------------
+        w.writerow(["## Tag Health", uc.id])
+        w.writerow(["use_case", "tag", "pass_rate_pct", "passed", "total"])
+        tag_totals: dict[str, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+        for r in uc_rows:
+            if r.skipped or r.error:
+                continue
+            tag = (r.tag or "untagged").upper()
+            tag_totals[tag]["total"] += 1
+            if r.passed:
+                tag_totals[tag]["passed"] += 1
+        for tag in ["RIGHT", "GOOD", "SAFE"]:
+            if tag in tag_totals:
+                d = tag_totals[tag]
+                pct = round(d["passed"] / d["total"] * 100) if d["total"] else ""
+                w.writerow([uc.id, tag, pct, d["passed"], d["total"]])
+        w.writerow([])
+
+        # ----------------------------------------------------------------
+        # Section 2: Fixture × Eval Matrix
+        # ----------------------------------------------------------------
+        w.writerow(["## Fixture x Eval Matrix", uc.id])
+        w.writerow(["use_case", "fixture_id", "eval_id", "tag", "passes", "total", "errors", "cell"])
+
+        eval_ids = [ev.id for ev in uc.evals]
+        fixture_ids = sorted({r.fixture_id for r in uc_rows if not r.skipped})
+        tag_map: dict[str, str] = {ev.id: (ev.tag or "") for ev in uc.evals}
+
+        cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0})
+        for r in uc_rows:
+            if r.skipped:
+                continue
+            key = (r.fixture_id, r.eval_id)
+            if r.error:
+                cell[key]["errors"] += 1
+            else:
+                cell[key]["total"] += 1
+                if r.passed:
+                    cell[key]["passed"] += 1
+
+        for fid in fixture_ids:
+            for eid in eval_ids:
+                d = cell[(fid, eid)]
+                if d["errors"] > 0 and d["total"] == 0:
+                    cell_str = "err"
+                elif d["errors"] > 0:
+                    cell_str = f"{d['passed']}/{d['total']}+err"
+                elif d["total"] == 0:
+                    cell_str = ""
+                else:
+                    cell_str = f"{d['passed']}/{d['total']}"
+                w.writerow([uc.id, fid, eid, tag_map.get(eid, ""),
+                            d["passed"], d["total"], d["errors"], cell_str])
+        w.writerow([])
+
+        # ----------------------------------------------------------------
+        # Section 3: Failures
+        # ----------------------------------------------------------------
+        w.writerow(["## Failures", uc.id])
+        w.writerow(["use_case", "eval_id", "tag", "fixture_id", "run", "detail"])
+        failing = [
+            r for r in uc_rows
+            if not r.skipped and not r.error and r.passed is False
+        ]
+        for r in sorted(failing, key=lambda x: (x.eval_id, x.fixture_id, x.run)):
+            w.writerow([uc.id, r.eval_id, r.tag or "", r.fixture_id, r.run, r.detail or ""])
+        w.writerow([])
+
+    return output.getvalue()
