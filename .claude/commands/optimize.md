@@ -49,7 +49,7 @@ Tell the user what you found and ask:
    - right (correctness): suggest 0%
    - safe (safety/boundary): suggest 0%
    - good (quality): suggest 20%
-   Ask if these defaults work or if they want different values per eval.
+   Ask if these defaults work or if they want different values per eval. Suggest that different use cases may have different tolerances for each.
 
 4. **Max cycles** — how many optimization cycles to run before stopping (suggest 3).
 
@@ -158,8 +158,7 @@ Produce a summary covering:
 change and what prompt edit drove the improvement.
 
 **What didn't converge:** evals still failing after all cycles. For each, your best
-hypothesis for why — is this a prompt problem, a fixture problem, or an eval definition
-problem?
+hypothesis for why — is this a prompt problem, a fixture problem, or an eval definition problem? Is the threshold not achievable with LLMs, or with the variance in the data or type of data? Help the user reason about what is achievable given their system design.
 
 **Regressions introduced (if any):** evals that were passing before but degraded.
 

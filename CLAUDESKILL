@@ -1,0 +1,9 @@
+Anyone who clones the fieldtest repo and opens it in Claude Code gets the /optimize skill automatically. For users of the package, copy .claude/commands/optimize.md into your own project root — then it works there.
+
+Design decisions worth noting:
+
+- User stays in control at every cycle — it confirms diagnosis before editing, confirms before each loop. It's a collaborator, not an autopilot.
+- Never touches config or fixtures — only edits prompts. The measurement layer is read-only.
+- Regression detection built in — the delta table shows if a fix for one eval broke another.
+- Explicit stop conditions — if delta is 0% on a cycle, it stops rather than spinning. If it can't converge, it tells you why rather than just failing silently.
+- The overfitting warning is mandatory in step 2, not optional — you have to acknowledge it before it starts.
