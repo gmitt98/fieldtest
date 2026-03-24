@@ -118,11 +118,14 @@ fieldtest init                        # scaffold new project
 
 ## Results
 
-Three files per run — `results/[run-id].{json,md,csv}`:
+Four files per run in `results/`:
 
-- **JSON** — full detail, machine-readable, CI-parseable
-- **Markdown** — human report grouped by right/good/safe with delta vs prior
-- **CSV** — flat rows, analyst-ready
+| file | what it is |
+|------|-----------|
+| `[run-id]-data.json` | Full result data — rows, summary, delta. Machine-readable, CI-parseable. |
+| `[run-id]-data.csv` | Flat rows, one per fixture × eval × run. Analyst-ready. |
+| `[run-id]-report.md` | Human report — tag health, per-eval tables, fixture matrix, failure details. |
+| `[run-id]-report.csv` | Spreadsheet report — same three views as the MD, designed to open in Excel/Numbers. |
 
 The tool does **not** pass or fail your system. It measures distributions. You judge.
 
@@ -161,11 +164,12 @@ def check_no_fabrication(output: str, inputs: dict) -> dict:
     return {"passed": True, "detail": "no fabrication detected"}
 ```
 
-## Reference runners
+## Reference runners and patterns
 
 - `examples/runner_anthropic.py` — calls Claude directly
 - `examples/runner_openai.py` — calls OpenAI
 - `examples/runner_subprocess.py` — calls any CLI tool
+- `examples/eval-patterns.md` — cookbook: refusals, format compliance, forbidden content, conditional behavior, and more
 
 ## Environment
 
