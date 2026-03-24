@@ -31,7 +31,7 @@ class AnthropicAdapter(ProviderAdapter):
             client = _anthropic.Anthropic(api_key=api_key)
             message = client.messages.create(
                 model=model,
-                max_tokens=512,
+                max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
             )
             content = message.content[0].text.strip()

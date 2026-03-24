@@ -184,15 +184,28 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     }
 
 
-def find_baseline(results_dir: Path, current_run_id: str) -> Optional[Path]:
+def find_baseline(results_dir: Path, current_run_id: str, set_name: str) -> Optional[Path]:
     """
-    Find the most recent results JSON in results_dir that is not the current run.
-    Returns None if not found.
+    Find the most recent results JSON in results_dir that:
+      - is not the current run
+      - was scored on the same set (smoke/full/regression/etc.)
+
+    Filtering by set prevents misleading deltas when fixture populations differ
+    between runs — e.g. comparing a full-set run against a smoke-set baseline
+    would show movement that's purely an artifact of coverage, not model behavior.
+
+    Returns None if no matching baseline found.
     """
     if not results_dir.exists():
         return None
     candidates = sorted(results_dir.glob("*-data.json"), reverse=True)
     for p in candidates:
-        if p.stem.removesuffix("-data") != current_run_id:
-            return p
+        if p.stem.removesuffix("-data") == current_run_id:
+            continue
+        try:
+            data = json.loads(p.read_text())
+            if data.get("set") == set_name:
+                return p
+        except Exception:
+            continue
     return None

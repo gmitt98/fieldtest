@@ -182,7 +182,7 @@ def score(
 
     # Print report to terminal
     results_dir = path.resolve().parent / "results"
-    md_path     = results_dir / f"{run_id}.md"
+    md_path     = results_dir / f"{run_id}-report.md"
     if md_path.exists():
         click.echo(md_path.read_text())
     click.echo(f"\nResults written to: {results_dir / run_id}")
@@ -355,17 +355,24 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
     results_dir = base_dir / "results"
 
     if not outputs and not results:
-        # Interactive mode
+        # Interactive mode — show only what actually needs cleaning,
+        # then set flags based on what was shown (not unconditionally).
         to_remove = []
+        output_files: list = []
+        old_results: list  = []
+
         if outputs_dir.exists():
             output_files = list(outputs_dir.rglob("*.txt"))
             if output_files:
                 to_remove.append(f"  outputs/: {len(output_files)} run files")
+
         if results_dir.exists():
-            result_files = sorted(results_dir.glob("*.json"), reverse=True)
+            result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
             old_results  = result_files[keep:]
             if old_results:
-                to_remove.append(f"  results/: {len(old_results)} old result sets (keeping {keep})")
+                to_remove.append(
+                    f"  results/: {len(old_results)} old result sets (keeping {keep})"
+                )
 
         if not to_remove:
             click.echo("Nothing to clean.")
@@ -375,8 +382,9 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         for line in to_remove:
             click.echo(line)
         if click.confirm("Proceed?"):
-            outputs = True
-            results = True
+            # Only act on what was described in the prompt above
+            outputs = bool(output_files)
+            results = bool(old_results)
         else:
             click.echo("Cancelled.")
             return
@@ -385,16 +393,15 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         import shutil
         shutil.rmtree(outputs_dir)
         outputs_dir.mkdir(parents=True, exist_ok=True)
-        click.echo(f"✓ outputs/ cleared")
+        click.echo("✓ outputs/ cleared")
 
     if results and results_dir.exists():
-        result_files = sorted(results_dir.glob("*.json"), reverse=True)
+        result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
         removed = 0
         for p in result_files[keep:]:
-            for ext in [".json", ".md", ".csv"]:
-                fp = results_dir / (p.stem + ext)
-                if fp.exists():
-                    fp.unlink()
+            run_id = p.stem.removesuffix("-data")
+            for fp in results_dir.glob(f"{run_id}-*"):
+                fp.unlink()
             removed += 1
         click.echo(f"✓ results/ pruned — kept {min(keep, len(result_files))}, removed {removed}")
 

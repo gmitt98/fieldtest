@@ -113,10 +113,10 @@ def score(
     # -------------------------------------------------------------------
     summary = build_summary(all_results, config)
 
-    # Auto-detect baseline
+    # Auto-detect baseline — same set only, to avoid misleading cross-set deltas
     run_id = make_run_id()
     if baseline_path is None:
-        baseline_path = find_baseline(results_dir, run_id)
+        baseline_path = find_baseline(results_dir, run_id, set_name)
 
     delta = build_delta(summary, baseline_path)
 
