@@ -205,7 +205,7 @@ def history(config_path: Optional[str]):
         click.echo("No results found in evals/results/")
         return
 
-    result_files = sorted(results_dir.glob("*.json"), reverse=True)
+    result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
     if not result_files:
         click.echo("No results found in evals/results/")
         return
@@ -280,19 +280,19 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo("No results found.")
         return
 
-    result_files = sorted(results_dir.glob("*.json"), reverse=True)
+    result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
     if not result_files:
         click.echo("No results found.")
         return
 
     # Resolve current and baseline
     if run_id:
-        current_path = results_dir / f"{run_id}.json"
+        current_path = results_dir / f"{run_id}-data.json"
     else:
         current_path = result_files[0]
 
     if baseline_id:
-        baseline_path = results_dir / f"{baseline_id}.json"
+        baseline_path = results_dir / f"{baseline_id}-data.json"
     else:
         # most recent that isn't current
         others = [f for f in result_files if f != current_path]
