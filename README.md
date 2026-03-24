@@ -169,6 +169,7 @@ def check_no_fabrication(output: str, inputs: dict) -> dict:
 - `examples/runner_anthropic.py` — calls Claude directly
 - `examples/runner_openai.py` — calls OpenAI
 - `examples/runner_subprocess.py` — calls any CLI tool
+- `examples/runner-patterns.md` — sets, CI integration, cron/on-demand triggers, multiple runners, production traffic sampling
 - `examples/eval-patterns.md` — cookbook: refusals, format compliance, forbidden content, conditional behavior, and more
 
 ## Environment
