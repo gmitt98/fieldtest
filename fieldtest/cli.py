@@ -446,3 +446,7 @@ def init_cmd(target_dir: str, force: bool):
     click.echo(f"  2. Add fixtures to {evals_dir}/fixtures/")
     click.echo(f"  3. Run your system → write outputs to {evals_dir}/outputs/")
     click.echo(f"  4. fieldtest score")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,11 +1,13 @@
 id: score_basic
 description: >
-  fieldtest scores a fixture set where all outputs are present and judges produce
-  deterministic results (regex/reference only — no LLM calls in this fixture)
+  fieldtest scores the full fixture set (fixture_a + fixture_b) where all outputs
+  are present and judges are deterministic (regex + reference only, no LLM calls).
+  fixture_a has an expected block (reference eval passes). fixture_b has no expected
+  block (reference eval skips). Tests both pass and skip paths in one run.
 
 inputs:
   config:      tests/evals/test_projects/basic/evals/config.yaml
-  set:         smoke
+  set:         full
   results_dir: tests/evals/test_projects/basic/evals/results/
 
 expected:
@@ -14,3 +16,6 @@ expected:
     - '"summary"'
     - '"delta"'
     - '"rows"'
+    - '"fixture_a"'
+    - '"fixture_b"'
+    - '"no expected block in fixture"'

@@ -1,0 +1,7 @@
+id: fixture_c
+description: >
+  a fixture with known output for testing judge error handling;
+  regex eval passes, LLM eval errors when API key absent
+
+inputs:
+  text: here is some content for testing

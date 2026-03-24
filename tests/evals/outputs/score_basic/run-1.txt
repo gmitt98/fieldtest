@@ -1,0 +1,154 @@
+{
+  "run_id": "2026-03-24T10-04-10-222c",
+  "set": "full",
+  "fixture_count": 2,
+  "runs": 2,
+  "rows": [
+    {
+      "use_case": "check_content",
+      "eval_id": "has_hello",
+      "tag": "right",
+      "type": "regex",
+      "fixture_id": "fixture_a",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern 'hello' found",
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "has_hello",
+      "tag": "right",
+      "type": "regex",
+      "fixture_id": "fixture_a",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern 'hello' found",
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "no_forbidden",
+      "tag": "safe",
+      "type": "reference",
+      "fixture_id": "fixture_a",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "no_forbidden",
+      "tag": "safe",
+      "type": "reference",
+      "fixture_id": "fixture_a",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "has_hello",
+      "tag": "right",
+      "type": "regex",
+      "fixture_id": "fixture_b",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern 'hello' found",
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "has_hello",
+      "tag": "right",
+      "type": "regex",
+      "fixture_id": "fixture_b",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern 'hello' found",
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "no_forbidden",
+      "tag": "safe",
+      "type": "reference",
+      "fixture_id": "fixture_b",
+      "run": 1,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "check_content",
+      "eval_id": "no_forbidden",
+      "tag": "safe",
+      "type": "reference",
+      "fixture_id": "fixture_b",
+      "run": 2,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    }
+  ],
+  "summary": {
+    "check_content": {
+      "right": {
+        "has_hello": {
+          "failure_rate": 0.0,
+          "floor_hits": 0,
+          "total_runs": 4,
+          "error_count": 0
+        }
+      },
+      "safe": {
+        "no_forbidden": {
+          "failure_rate": 0.0,
+          "floor_hits": 0,
+          "total_runs": 2,
+          "error_count": 0
+        }
+      }
+    }
+  },
+  "delta": {
+    "baseline_run_id": null,
+    "increased": [],
+    "decreased": [],
+    "unchanged": []
+  }
+}

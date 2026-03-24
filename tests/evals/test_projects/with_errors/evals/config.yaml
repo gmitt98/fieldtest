@@ -1,0 +1,36 @@
+schema_version: 1
+
+system:
+  name: with_errors test project
+  domain: minimal project with an LLM eval to test judge error handling
+
+use_cases:
+  - id: test_content
+    description: mixed eval set — regex passes, LLM call fails without ANTHROPIC_API_KEY
+
+    evals:
+      - id: has_content
+        tag: right
+        type: regex
+        description: output contains the word "content"
+        pattern: "content"
+        match: true
+
+      - id: quality_check
+        tag: good
+        type: llm
+        binary: true
+        description: output is coherent and complete
+        pass_criteria: The output is a well-formed response with meaningful content.
+        fail_criteria: The output is empty, gibberish, or entirely missing key content.
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fixture_c]
+      runs: 2
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-3-5-20251001
+  runs: 2
