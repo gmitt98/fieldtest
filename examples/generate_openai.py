@@ -1,11 +1,11 @@
 """
-examples/runner_openai.py
+examples/generate_openai.py
 
-Reference runner: calls OpenAI directly for each fixture.
-Conforms to the fieldtest runner contract (§14).
+Reference generator: calls OpenAI directly for each fixture and
+writes outputs to evals/outputs/ for fieldtest to score.
 
 Usage:
-  python examples/runner_openai.py [set_name]
+  python examples/generate_openai.py [set_name]
 
 Requires: OPENAI_API_KEY in environment.
 Replace the prompt in call_system() with your actual system prompt.

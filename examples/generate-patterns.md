@@ -1,11 +1,11 @@
-# Runner Patterns
+# Generator Patterns
 
-The runner is a script you own. fieldtest never calls it — it only reads the outputs
-the runner writes. This separation is intentional: you control when the system runs,
+The generator is a script you own. fieldtest never calls it — it only reads the outputs
+the generator writes. This separation is intentional: you control when the system runs,
 on what fixtures, and how it's triggered. `fieldtest score` is always independent.
 
 ```
-YOUR RUNNER  →  outputs/[fixture-id]/run-N.txt  →  fieldtest score  →  results/
+YOUR GENERATOR  →  outputs/[fixture-id]/run-N.txt  →  fieldtest score  →  results/
 ```
 
 ---
@@ -22,10 +22,10 @@ fixtures:
     full:       all                                  # everything
 ```
 
-Then the runner and scorer both take a `--set` argument:
+Then the generator and scorer both take a `--set` argument:
 
 ```bash
-python3 evals/runner.py smoke
+python3 evals/generate.py smoke
 fieldtest score --set smoke
 ```
 
@@ -41,8 +41,8 @@ No LLM judge cost. Run in CI on every PR.
 
 ## Common trigger patterns
 
-| trigger | runner set | score | purpose |
-|---------|-----------|-------|---------|
+| trigger | generate set | score | purpose |
+|---------|-------------|-------|---------|
 | Every PR (CI) | `regression` | yes | catch regressions cheaply — no LLM judge cost |
 | After a prompt change | `smoke` → review → `full` | yes both | fast feedback before full regeneration |
 | Nightly cron | `full` | yes | capture model drift and long-tail failures |
@@ -51,7 +51,7 @@ No LLM judge cost. Run in CI on every PR.
 
 ---
 
-## Re-scoring without re-running
+## Re-scoring without re-generating
 
 When you change an eval (update judge criteria, fix a rule, add a new eval), you do
 not need to re-run your system. The outputs on disk are unchanged — just re-dispatch
@@ -59,34 +59,34 @@ the judges:
 
 ```bash
 # edit evals/config.yaml or evals/rules.py
-fieldtest score --set full    # no runner needed
+fieldtest score --set full    # no regeneration needed
 ```
 
-This is the most important operational pattern. Re-running the runner costs money and
+This is the most important operational pattern. Re-generating costs money and
 time. Re-scoring is cheap — only judge API calls.
 
-**Re-run the runner** when the system changes: prompt update, new fixture, new source files.
+**Regenerate outputs** when the system changes: prompt update, new fixture, new source files.
 **Re-run only `fieldtest score`** when an eval changes: new eval, updated criteria, fixed rule.
 
 ---
 
-## Multiple runners for different scenarios
+## Multiple generators for different scenarios
 
-Nothing stops you from having more than one runner script. Each writes to the same
+Nothing stops you from having more than one generator script. Each writes to the same
 `outputs/` directory. `fieldtest score` reads whatever is there.
 
 ```
 evals/
-  runner.py           # standard: calls your production system
-  runner_shadow.py    # shadow: calls a candidate model or new prompt
-  runner_local.py     # local: calls a local model for cheap iteration
+  generate.py           # standard: calls your production system
+  generate_shadow.py    # shadow: calls a candidate model or new prompt
+  generate_local.py     # local: calls a local model for cheap iteration
 ```
 
 Run whichever is appropriate:
 
 ```bash
-python3 evals/runner_shadow.py smoke   # test a new prompt variant on the smoke set
-fieldtest score --set smoke            # score the outputs it wrote
+python3 evals/generate_shadow.py smoke   # test a new prompt variant on the smoke set
+fieldtest score --set smoke              # score the outputs it wrote
 ```
 
 ---
@@ -144,10 +144,10 @@ for row in data['rows']:
 ## Production traffic sampling
 
 Static fixtures test known cases. For coverage of the actual distribution of inputs
-your system receives in production, write a runner that pulls real traffic:
+your system receives in production, write a generator that pulls real traffic:
 
 ```python
-# evals/runner_production.py
+# evals/generate_production.py
 # Pulls recent production requests, runs them through the system,
 # writes outputs — fieldtest score handles the rest.
 

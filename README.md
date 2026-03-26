@@ -28,7 +28,7 @@ your-project/
   evals/
     config.yaml        ← fieldtest reads this
     fixtures/          ← your test inputs
-    outputs/           ← your runner writes here
+    outputs/           ← your generator writes here
     results/           ← fieldtest score writes here
 ```
 
@@ -52,7 +52,7 @@ evals/
   fixtures/
     golden/                ← fixtures with expected output (used for regression)
     variations/            ← fixtures without expected output
-  outputs/                 ← your runner writes here (git-ignored)
+  outputs/                 ← your generator writes here (git-ignored)
   results/                 ← fieldtest score writes here
   .gitignore               ← outputs/ excluded from git
 ```
@@ -196,13 +196,13 @@ expected:
 
 A fixture without an `expected` block is a **variation fixture** — only rule, regex, and LLM evals run on it. Use variations when you don't have reviewed expected output yet. Add them to `golden/` once you've reviewed outputs and written the `expected` block.
 
-The `inputs` block is yours to define. Whatever your runner needs — file paths, flags, metadata — put it here. Your runner reads `inputs` directly.
+The `inputs` block is yours to define. Whatever your generator needs — file paths, flags, metadata — put it here. Your generator reads `inputs` directly.
 
-### 4. Write your runner
+### 4. Write your generator
 
-The runner is a script you write (~30 lines). It calls your system and writes outputs to `evals/outputs/[fixture-id]/run-N.txt`. fieldtest only reads those files — it never calls your system directly.
+The generator is a script you write (~30 lines). It calls your system and writes outputs to `evals/outputs/[fixture-id]/run-N.txt`. fieldtest only reads those files — it never calls your system directly.
 
-**`evals/runner.py`:**
+**`evals/generate.py`:**
 
 ```python
 import os
@@ -257,8 +257,8 @@ if __name__ == "__main__":
 Run it for a specific set:
 
 ```bash
-python3 evals/runner.py smoke    # run only the smoke set
-python3 evals/runner.py full     # run everything
+python3 evals/generate.py smoke    # run only the smoke set
+python3 evals/generate.py full     # run everything
 ```
 
 ### 5. Score
@@ -400,7 +400,7 @@ scoring tailor_resume: 2 fixtures × 3 runs (PARTIAL — 2 outputs missing, skip
 
 Skipped runs are excluded from failure rates — they don't count as passes or failures. The report header flags the run as partial so you know the rates are based on incomplete data. All available outputs are still scored normally.
 
-Use this when you're iterating on evals and don't have a complete runner output yet, or when a runner run partially failed.
+Use this when you're iterating on evals and don't have complete generated outputs yet, or when a generator run partially failed.
 
 ---
 
@@ -482,7 +482,7 @@ Remove accumulated run artifacts.
 # Interactive — shows what would be removed, asks to confirm
 fieldtest clean
 
-# Clear outputs/ (your runner's generated files)
+# Clear outputs/ (your generator's output files)
 fieldtest clean --outputs
 
 # Prune old results, keeping the 10 most recent
@@ -578,14 +578,14 @@ def check_contact(output: str, inputs: dict) -> dict:
 
 ## Two LLMs, two purposes
 
-Your runner calls **your system**. `fieldtest score` calls its own **judge LLM**. Completely separate — different models, different credentials, different purposes.
+Your generator calls **your system**. `fieldtest score` calls its own **judge LLM**. Completely separate — different models, different credentials, different purposes.
 
 ```
-YOUR SYSTEM (runner)              JUDGE (fieldtest score)
-──────────────────────────────    ──────────────────────────────────
-calls your model or pipeline      calls a judge LLM to score outputs
-configured by: your runner code   configured by: defaults.model in config.yaml
-auth: your credentials            auth: ANTHROPIC_API_KEY in environment
+YOUR SYSTEM (generator)              JUDGE (fieldtest score)
+─────────────────────────────────    ──────────────────────────────────
+calls your model or pipeline         calls a judge LLM to score outputs
+configured by: your generator code   configured by: defaults.model in config.yaml
+auth: your credentials               auth: ANTHROPIC_API_KEY in environment
 ```
 
 `defaults.model` in config is the judge model. Set it independently of whatever your system uses.
@@ -621,10 +621,10 @@ if failures:
 
 ## Examples and patterns
 
-- `examples/runner_anthropic.py` — complete runner calling Claude directly
-- `examples/runner_openai.py` — complete runner calling OpenAI
-- `examples/runner_subprocess.py` — complete runner calling any CLI tool
-- `examples/runner-patterns.md` — sets, CI integration, scheduling, multiple runners, production traffic sampling
+- `examples/generate_anthropic.py` — complete generator calling Claude directly
+- `examples/generate_openai.py` — complete generator calling OpenAI
+- `examples/generate_subprocess.py` — complete generator calling any CLI tool
+- `examples/generate-patterns.md` — sets, CI integration, scheduling, multiple generators, production traffic sampling
 - `examples/eval-patterns.md` — eval design cookbook: refusals, format compliance, forbidden content, conditional behavior, classification, and more
 
 ---

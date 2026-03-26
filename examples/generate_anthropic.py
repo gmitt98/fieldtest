@@ -1,64 +1,65 @@
 """
-examples/runner_subprocess.py
+examples/generate_anthropic.py
 
-Reference runner: calls any CLI tool, captures stdout as output.
-Conforms to the fieldtest runner contract.
+Reference generator: calls Anthropic Claude directly for each fixture and
+writes outputs to evals/outputs/ for fieldtest to score.
 
 Usage:
-  python examples/runner_subprocess.py [set_name]
+  python examples/generate_anthropic.py [set_name]
+  python examples/generate_anthropic.py smoke
+  python examples/generate_anthropic.py full
 
-Setup:
-  1. Replace CMD with your actual command
-  2. Your tool receives fixture inputs as JSON on stdin
-  3. Your tool should write its output to stdout
+Requires:
+  pip install anthropic pyyaml
+  export ANTHROPIC_API_KEY=sk-ant-...
 
-Fixture inputs are passed as JSON via stdin.
+Note: this is YOUR system's model — completely separate from the judge model
+that fieldtest uses internally. Change the model here freely; it has no effect
+on how your outputs are scored. The judge model is set in evals/config.yaml
+under defaults.model.
 """
-import json
+import os
 import pathlib
-import subprocess
 import sys
 import yaml
+import anthropic
 
 
 # ---------------------------------------------------------------------------
-# Replace this with your actual command.
-# Your tool will receive fixture inputs as JSON on stdin and should write
-# its output to stdout.
+# Your system logic — replace with your actual implementation
 # ---------------------------------------------------------------------------
-CMD = ["your-cli-tool", "--flag"]
 
+client = anthropic.Anthropic()
+
+# YOUR system prompt — replace with your actual prompt
+SYSTEM_PROMPT = """You are a helpful assistant."""
 
 def call_system(inputs: dict) -> str:
-    """Call a CLI tool with fixture inputs via stdin. Capture stdout."""
-    if CMD == ["your-cli-tool", "--flag"]:
-        print(
-            "Error: CMD is still the placeholder value. "
-            "Replace CMD at the top of this file with your actual command.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    """
+    Call your LLM system with fixture inputs. Return output as plain text.
 
-    try:
-        result = subprocess.run(
-            CMD,
-            input=json.dumps(inputs),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        print(f"Error: command failed (exit {e.returncode}): {' '.join(CMD)}", file=sys.stderr)
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"Error: command not found: {CMD[0]}", file=sys.stderr)
-        sys.exit(1)
+    inputs is the 'inputs' block from your fixture YAML — whatever fields
+    you defined there are available here.
+    """
+    # Build your user message from fixture inputs.
+    # Replace this with your actual message construction.
+    user_message = str(inputs)
 
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",   # your system model — change freely
+        max_tokens=4096,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    return message.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# Runner boilerplate — conforms to fieldtest runner contract
+# ---------------------------------------------------------------------------
 
 def resolve_set(set_name: str, fixtures_cfg: dict) -> list[str]:
+    """Resolve fixture set name to list of IDs."""
     sets  = fixtures_cfg.get("sets", {})
     value = sets.get(set_name, sets.get("full", []))
     if value == "all":
@@ -72,6 +73,10 @@ def resolve_set(set_name: str, fixtures_cfg: dict) -> list[str]:
 
 
 def main():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Error: ANTHROPIC_API_KEY not set in environment", file=sys.stderr)
+        sys.exit(1)
+
     config_path = pathlib.Path("evals/config.yaml")
     if not config_path.exists():
         print(f"Error: config not found at {config_path}. Run from your project root.", file=sys.stderr)
@@ -100,9 +105,10 @@ def main():
             out_dir.mkdir(parents=True, exist_ok=True)
 
             for run in range(1, runs + 1):
+                print(f"  {fixture_id} run {run}/{runs}...", end=" ", flush=True)
                 output = call_system(fixture["inputs"])
                 (out_dir / f"run-{run}.txt").write_text(output)
-                print(f"  {fixture_id} run {run}/{runs} ✓")
+                print("✓")
 
 
 if __name__ == "__main__":
