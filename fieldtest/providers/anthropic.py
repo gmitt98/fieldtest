@@ -35,6 +35,12 @@ class AnthropicAdapter(ProviderAdapter):
                 messages=[{"role": "user", "content": prompt}],
             )
             content = message.content[0].text.strip()
+            # Some models (e.g. Haiku) wrap JSON in markdown code fences.
+            # Strip them before parsing so json.loads() doesn't fail.
+            if content.startswith("```"):
+                lines = content.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                content = "\n".join(lines).strip()
             return json.loads(content)
         except json.JSONDecodeError as e:
             return {"error": f"Judge returned non-JSON response: {e}"}
