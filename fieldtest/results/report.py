@@ -227,8 +227,8 @@ def format_report(
                 continue
 
             lines.append(f"### {tag.upper()}")
-            lines.append("| eval | failure rate | mean | floor hits | errors | vs prior |")
-            lines.append("|------|-------------|------|-----------|--------|---------|")
+            lines.append("| eval | pass rate | mean | floor hits | errors | vs prior |")
+            lines.append("|------|----------|------|-----------|--------|---------|")
 
             for eval_id, stats in tag_stats.items():
                 fr    = stats.get("failure_rate")
@@ -236,7 +236,8 @@ def format_report(
                 fh    = stats.get("floor_hits", 0)
                 errs  = stats.get("error_count", 0)
 
-                fr_str   = f"{round(fr * 100)}%" if fr is not None else "—"
+                # Display pass rate (1 - failure_rate) so higher = better
+                pr_str   = f"{round((1 - fr) * 100)}%" if fr is not None else "—"
                 mean_str = "—"
                 if mean is not None:
                     for ev in uc.evals:
@@ -244,20 +245,22 @@ def format_report(
                             mean_str = f"{mean}/{ev.scale[1]}"
                             break
 
-                # vs prior
+                # vs prior — delta is stored as (cur_failure_rate - prev_failure_rate),
+                # so negate it to express as pass rate delta: positive = improvement.
                 if eval_id in delta_idx:
                     d = delta_idx[eval_id]["delta"]
                     if mean is not None:
                         vs_str = f"+{round(d, 2)}" if d > 0 else f"{round(d, 2)}"
                     else:
-                        vs_str = f"+{round(d * 100, 2)}%" if d > 0 else f"{round(d * 100, 2)}%"
+                        pd = -d  # pass rate delta = negated failure rate delta
+                        vs_str = f"+{round(pd * 100, 2)}%" if pd > 0 else f"{round(pd * 100, 2)}%"
                 elif eval_id in delta.get("unchanged", []):
                     vs_str = "↔"
                 else:
                     vs_str = "—"
 
                 lines.append(
-                    f"| {eval_id} | {fr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
+                    f"| {eval_id} | {pr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
                 )
 
                 if errs > 0:
@@ -288,7 +291,7 @@ def format_report(
             for eval_id, count in error_eval_ids:
                 lines.append(
                     f"⚠ judge errors — {count} calls failed for {eval_id}; "
-                    f"excluded from failure rate"
+                    f"excluded from pass rate"
                 )
             lines.append(
                 "  re-run with --concurrency 1 to isolate; "
