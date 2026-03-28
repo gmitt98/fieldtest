@@ -17,3 +17,4 @@ venv/
 htmlcov/
 .DS_Store
 ROADMAP.md
+docs/case-study-*.md
