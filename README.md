@@ -629,4 +629,13 @@ if failures:
 
 ---
 
+## Why upfront reasoning
+
+Engineering teams will say: *we figure out what "good" means as we go.* This sounds like pragmatism. It isn't.
+
+[Read the full argument →](docs/philosophy.md)
+
+---
+
+
 *The practice is the point. The tool makes the practice tractable.*
