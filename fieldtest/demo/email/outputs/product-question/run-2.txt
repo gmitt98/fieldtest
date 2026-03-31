@@ -1,0 +1,14 @@
+Hi Marcus,
+
+Yes, Clearbook supports importing from QuickBooks! Here's how it works:
+
+1. Export from QuickBooks: Go to File > Export and select your date range
+2. Import in Clearbook: Use Settings > Data Import > QuickBooks
+3. Review and confirm: Map your accounts and verify the transaction count
+
+You can bring in your full chart of accounts and transaction history. Most migrations complete in under an hour.
+
+Let me know if you have any questions about the process!
+
+Best regards,
+Clearbook Support

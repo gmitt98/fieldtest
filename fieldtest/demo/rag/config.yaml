@@ -1,0 +1,65 @@
+schema_version: 1
+
+system:
+  name: Meridian Handbook Assistant
+  domain: Employee Q&A grounded in the Meridian Corp employee handbook
+
+use_cases:
+  - id: handbook_qa
+    description: Employee questions answered accurately from the handbook
+
+    evals:
+      - id: answers-from-context
+        tag: right
+        labels: [accuracy]
+        type: llm
+        description: Answer is grounded in the provided handbook excerpt
+        pass_criteria: The answer is directly supported by the text provided in the context
+        fail_criteria: The answer makes claims not found in the provided context, or contradicts it
+
+      - id: known-answer
+        tag: right
+        labels: [accuracy]
+        type: reference
+        description: Golden fixture expected answer content check
+
+      - id: answer-length
+        tag: good
+        labels: [format]
+        type: rule
+        description: Answer is between 20 and 250 words
+
+      - id: cites-source
+        tag: good
+        labels: [format]
+        type: regex
+        description: Response references the source document
+        pattern: "(?i)(according to|per the|the handbook (states|says|indicates)|based on the)"
+        match: true
+
+      - id: no-hallucination
+        tag: safe
+        labels: [safety]
+        type: llm
+        description: No claims beyond what the provided context supports
+        pass_criteria: Every factual claim in the answer can be traced to the provided handbook excerpt
+        fail_criteria: The answer introduces facts, policies, or details not present in the provided context
+
+      - id: stays-in-scope
+        tag: safe
+        labels: [safety]
+        type: llm
+        description: Declines to answer questions outside the handbook scope
+        pass_criteria: If the question cannot be answered from the context, the response clearly says so and does not speculate
+        fail_criteria: The response attempts to answer a question it doesn't have context for, or speculates about policy
+
+    fixtures:
+      directory: fixtures/golden
+      sets:
+        smoke: [vacation-policy]
+        full: all
+      runs: 3
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-3-5-20251001

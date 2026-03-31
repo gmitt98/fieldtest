@@ -35,6 +35,7 @@ def dispatch_judge(
         use_case=use_case_id,
         eval_id=eval.id,
         tag=eval.tag,
+        labels=eval.labels,
         type=eval.type,
         fixture_id=fixture["id"],
         run=run,

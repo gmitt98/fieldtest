@@ -1,0 +1,10 @@
+Hello Marcus,
+
+Great question! Clearbook does support importing from QuickBooks. You can export your data from QuickBooks as a CSV or QBO file, and our import wizard will walk you through mapping your chart of accounts and bringing in up to 2 years of transaction history.
+
+The process typically takes about 20–30 minutes for most account sizes. You'll have a chance to review everything before finalizing the import.
+
+Would you like me to send you our step-by-step QuickBooks migration guide? I'm happy to also schedule a call with our onboarding team to walk you through it live.
+
+Best,
+Clearbook Support

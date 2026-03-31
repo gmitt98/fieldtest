@@ -1,0 +1,27 @@
+id: invoice-simple
+description: Simple invoice from Vertex Solutions
+
+inputs:
+  invoice_text: |
+    INVOICE
+
+    From: Vertex Solutions LLC
+    To: Meridian Corp
+    Invoice Number: INV-2025-0847
+    Invoice Date: January 15, 2026
+    Due Date: February 15, 2026
+
+    Services Rendered: Software consulting — January 2026
+    Amount Due: $3,420.00
+
+    Please remit payment to: accounting@vertexsolutions.com
+
+expected:
+  contains:
+    - '"vendor"'
+    - '"invoice_number"'
+    - "INV-2025-0847"
+    - '"amount"'
+    - "3420"
+  not_contains:
+    - '"discount"'

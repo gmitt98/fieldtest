@@ -1,0 +1,13 @@
+id: remote-work
+description: Employee asking about core hours for remote workers
+
+inputs:
+  context: |
+    MERIDIAN CORP EMPLOYEE HANDBOOK — Section 6.1: Remote Work Policy
+
+    Employees approved for remote work are expected to be available and responsive
+    during core hours of 10:00 AM to 3:00 PM in their local time zone, Monday
+    through Friday. Outside of core hours, flexible scheduling is permitted
+    provided that project deadlines and team commitments are met. Remote employees
+    must attend all mandatory team meetings regardless of scheduling.
+  question: What are the core hours for remote workers?

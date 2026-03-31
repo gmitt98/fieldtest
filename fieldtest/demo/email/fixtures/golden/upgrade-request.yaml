@@ -1,0 +1,13 @@
+id: upgrade-request
+description: Customer asking about upgrading to Professional plan
+
+inputs:
+  customer_email: |
+    Hello,
+
+    We're growing and I think we've outgrown the Starter plan. I'd like to know what's
+    included in the Professional plan and how much it costs. Can you walk me through
+    what I'd get and how to upgrade?
+
+    Thanks,
+    Jamie

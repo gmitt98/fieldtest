@@ -1,0 +1,20 @@
+id: expense-reimbursement
+description: Employee asking about expense approval thresholds
+
+inputs:
+  context: |
+    MERIDIAN CORP EMPLOYEE HANDBOOK — Section 8.3: Expense Reimbursement
+
+    Employees may submit expenses under $75 directly through the expense portal
+    without prior approval. Expenses between $75 and $500 require manager approval
+    before the purchase is made. Expenses over $500 require both manager and Finance
+    team approval. All expense reports must be submitted within 30 days of the
+    purchase date. Receipts are required for all expenses over $25.
+  question: Do I need approval before buying something for $200?
+
+expected:
+  contains:
+    - "manager approval"
+  not_contains:
+    - "Finance team"
+    - "no approval"

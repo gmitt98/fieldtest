@@ -1,0 +1,21 @@
+id: remote-work
+description: Employee asking about remote work availability expectations
+
+inputs:
+  context: |
+    MERIDIAN CORP EMPLOYEE HANDBOOK — Section 6.1: Remote Work Policy
+
+    Remote employees are expected to be available during core hours of 10:00 AM to
+    3:00 PM in their local time zone, Monday through Friday. Outside of core hours,
+    employees have flexibility in scheduling provided that deadlines and team
+    commitments are met. Remote employees are required to attend all mandatory team
+    meetings. Attendance at optional social events is encouraged but not required.
+  question: What hours do remote employees need to be available?
+
+expected:
+  contains:
+    - "10:00 AM"
+    - "3:00 PM"
+  not_contains:
+    - "required to attend optional"
+    - "mandatory social"

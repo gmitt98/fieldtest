@@ -1,0 +1,19 @@
+id: receipt
+description: Office supply store receipt
+
+inputs:
+  invoice_text: |
+    RIVERSIDE OFFICE SUPPLIES
+    Receipt #: RCP-20260315-4492
+    Date: March 15, 2026
+
+    Items:
+    - Printer paper (2 reams): $24.99
+    - Blue ballpoint pens (12pk): $8.49
+    - Legal pads (3): $11.97
+
+    Subtotal: $45.45
+    Tax (8.5%): $3.86
+    TOTAL: $49.31
+
+    Payment: Visa ending 4821

@@ -1,0 +1,13 @@
+id: product-question
+description: Prospect asking about QuickBooks data migration
+
+inputs:
+  customer_email: |
+    Hi,
+
+    I'm evaluating Clearbook and want to know — can I import my existing data from
+    QuickBooks? I have about 18 months of transactions. How does that process work
+    and how long does it typically take?
+
+    Thanks,
+    Marcus

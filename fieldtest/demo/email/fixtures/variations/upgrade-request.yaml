@@ -1,0 +1,13 @@
+id: upgrade-request
+description: Customer asking to upgrade their subscription plan
+
+inputs:
+  customer_email: |
+    Hi Clearbook team,
+
+    We've been on the Starter plan for about 6 months and we're growing quickly.
+    We need multi-user access and the advanced reporting features. Can you walk me
+    through what's included in the Professional plan and how to upgrade?
+
+    Thanks,
+    Jamie Chen

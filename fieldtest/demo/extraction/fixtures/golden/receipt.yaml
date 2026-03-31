@@ -1,0 +1,23 @@
+id: receipt
+description: Office supply store receipt
+
+inputs:
+  invoice_text: |
+    RECEIPT
+
+    Riverside Office Supplies
+    123 Commerce Blvd, Portland OR 97201
+
+    Receipt Number: RCP-20260315-4492
+    Date: March 15, 2026
+    Payment Due: March 15, 2026
+
+    Items:
+      - Gel Pens (2-pack)    $8.99
+      - Sticky Notes (3-pk)  $6.49
+      - Printer Paper (ream)  $14.99
+      - Label Tape            $9.99
+      - Binder Clips (box)    $8.85
+
+    Total: $49.31
+    Paid by: Corporate card ending 4821

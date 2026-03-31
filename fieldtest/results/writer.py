@@ -1,13 +1,14 @@
 """
 fieldtest/results/writer.py
 
-write_results() — writes four files per run to output_dir:
+write_results() — writes five files per run to output_dir:
   {run_id}-data.json    full result data (rows + summary + delta)
   {run_id}-data.csv     flat rows, one per fixture × eval × run
   {run_id}-report.md    human-readable markdown report
   {run_id}-report.csv   spreadsheet-friendly report (tag health / matrix / failures)
+  {run_id}-report.html  self-contained HTML visual report
 
-All four written atomically — content is built before any file is touched.
+All five written atomically — content is built before any file is touched.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from fieldtest.config import Config, ResultRow
+from fieldtest.results.html import write_html
 from fieldtest.results.report import format_report, format_report_csv
 
 
@@ -34,8 +36,9 @@ def write_results(
 ) -> None:
     """
     Write {run_id}-data.json, {run_id}-data.csv, {run_id}-report.md,
-    {run_id}-report.csv to output_dir. Creates output_dir if it doesn't exist.
-    All four built before any file is written — fail fast on build errors.
+    {run_id}-report.csv, {run_id}-report.html to output_dir.
+    Creates output_dir if it doesn't exist.
+    All five built before any file is written — fail fast on build errors.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -43,6 +46,7 @@ def write_results(
     data_csv_path    = output_dir / f"{run_id}-data.csv"
     md_path          = output_dir / f"{run_id}-report.md"
     report_csv_path  = output_dir / f"{run_id}-report.csv"
+    html_path        = output_dir / f"{run_id}-report.html"
 
     # Build all content before writing — fail fast before any file is created
     json_content        = _build_json(rows, summary, delta, config, run_id, set_name)
@@ -52,11 +56,16 @@ def write_results(
     )
     report_csv_content  = format_report_csv(rows, config)
 
-    # Write all four
+    # Parse json back to dict for HTML generator (avoids re-building)
+    import json as _json
+    run_data = _json.loads(json_content)
+
+    # Write all five
     json_path.write_text(json_content)
     data_csv_path.write_text(data_csv_content)
     md_path.write_text(md_content)
     report_csv_path.write_text(report_csv_content)
+    write_html(run_data, config, html_path)
 
 
 def _build_json(
@@ -90,7 +99,7 @@ def _build_data_csv(rows: list[ResultRow]) -> str:
     """Build data CSV string — flat rows, one per fixture × eval × run."""
     output = io.StringIO()
     fieldnames = [
-        "use_case", "eval_id", "tag", "type", "fixture_id", "run",
+        "use_case", "eval_id", "tag", "labels", "type", "fixture_id", "run",
         "passed", "score", "floor_hit", "skipped", "detail", "error"
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
@@ -101,6 +110,7 @@ def _build_data_csv(rows: list[ResultRow]) -> str:
             "use_case":   row.use_case,
             "eval_id":    row.eval_id,
             "tag":        row.tag,
+            "labels":     "|".join(row.labels) if row.labels else "",
             "type":       row.type,
             "fixture_id": row.fixture_id,
             "run":        row.run,

@@ -44,6 +44,7 @@ class LLMExample(BaseModel):
 class Eval(BaseModel):
     id:          str
     tag:         Literal["right", "good", "safe"]
+    labels:      list[str] = []   # optional free-form analytics labels; multiple allowed
     type:        Literal["rule", "regex", "llm", "reference"]
     description: str
     # type: regex
@@ -173,6 +174,7 @@ class ResultRow(BaseModel):
     use_case:    str
     eval_id:     str
     tag:         str
+    labels:      list[str] = []
     type:        str
     fixture_id:  str
     run:         int

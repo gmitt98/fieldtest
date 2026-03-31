@@ -1,0 +1,13 @@
+id: product-question
+description: Customer asking about importing from QuickBooks
+
+inputs:
+  customer_email: |
+    Hello,
+
+    I'm currently using QuickBooks and considering switching to Clearbook. Does
+    Clearbook support importing my existing chart of accounts and transaction history
+    from QuickBooks? If so, how does that process work?
+
+    Best,
+    Marcus

@@ -1,0 +1,19 @@
+id: invoice-complex
+description: Multi-line invoice with itemized services
+
+inputs:
+  invoice_text: |
+    INVOICE #INV-2026-0112
+
+    Billed By: Cascade Design Partners
+    Billed To: Apex Technologies Inc
+    Date: March 1, 2026
+    Payment Due: March 31, 2026
+
+    SERVICES:
+    - UX Research & Discovery (40 hrs @ $175/hr): $7,000.00
+    - Wireframes & Prototyping (25 hrs @ $175/hr): $4,375.00
+    - Usability Testing (10 hrs @ $175/hr): $1,750.00
+
+    Subtotal: $13,125.00
+    Total Due: $13,125.00

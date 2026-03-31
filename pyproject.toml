@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fieldtest"
-version = "0.1.3"
+version = "0.1.4"
 description = "Structured AI eval practice for any project"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,6 +43,16 @@ fieldtest = "fieldtest.cli:main"
 dev = [
     "pytest>=7.0",
     "pytest-asyncio",
+]
+
+[tool.hatch.build.targets.wheel]
+include = [
+  "fieldtest/**/*",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "fieldtest/**/*",
 ]
 
 [tool.pytest.ini_options]

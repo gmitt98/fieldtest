@@ -6,7 +6,81 @@ Most eval tools assume you already know what to evaluate. You install a framewor
 
 **fieldtest is a tool for the layer that's missing: the reasoning that produces the evals.**
 
-The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. That sequence is the thing most teams skip, which is why they end up with evals that measure what's easy rather than what matters. The structure of the testing enforces the reasoning. With fieldtest, cannot skip to measurement without first doing the definitional work. How well you do that is up to you, but we provide the scaffolding to reason about what you are actually trying to measure.
+The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. That sequence is the thing most teams skip, which is why they end up with evals that measure what's easy rather than what matters. The structure of the testing enforces the reasoning.
+
+---
+
+## See it in 30 seconds
+
+No API key needed. No setup. Just install and run:
+
+```bash
+pip install fieldtest
+fieldtest demo --offline
+```
+
+You'll see a full scored eval report in the terminal — tag health across RIGHT / GOOD / SAFE, a fixture × eval matrix, and specific failure details. Then open the visual HTML report:
+
+```bash
+fieldtest view
+```
+
+This opens a self-contained HTML report in your browser: color-coded matrix, label filter bar, click any cell to see per-run pass/fail detail.
+
+That's it. You just ran a structured eval suite with four eval types (rule, regex, LLM, reference), right/good/safe tags, and failure analysis — in two commands, no API key, no configuration.
+
+---
+
+## Three demo modes
+
+### Mode 1 — Offline (no API key, instant)
+
+```bash
+fieldtest demo --offline
+fieldtest view
+```
+
+Uses pre-scored results bundled with the package. Runs in under 2 seconds. Good for quick demos, job interviews, or machines without credentials set.
+
+### Mode 2 — Live extraction (no API key, real scoring)
+
+```bash
+fieldtest demo --example extraction
+fieldtest view
+```
+
+Runs real `fieldtest score` on the extraction example. Rule and regex evals execute fully. LLM evals are gracefully skipped (marked as errors, excluded from rates) since no API key is present. Shows how the tool handles partial eval coverage cleanly.
+
+### Mode 3 — Full live run (requires `ANTHROPIC_API_KEY`)
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+fieldtest demo                      # email example (default)
+fieldtest demo --example rag
+fieldtest demo --example extraction
+fieldtest view
+```
+
+Runs all four eval types including LLM judges. Each example uses `claude-haiku-3-5-20251001` as the judge model by default (fast, cheap). Every example has at least one intentional failure so you can see how regressions surface in the report.
+
+### Available examples
+
+| Example | System | What it demonstrates |
+|---------|--------|----------------------|
+| `email` | Clearbook Support Assistant | LLM judge (tone, policy compliance), rule (greeting check), regex (forbidden terms), reference (golden fixture) |
+| `rag` | Meridian Handbook Assistant | RAG grounding eval, hallucination detection, answer-length rule, citation regex |
+| `extraction` | Invoice Data Extractor | JSON structure rules, field-presence rules, regex forbidden-field check — runs fully without an API key |
+
+### Demo flags
+
+```bash
+fieldtest demo                               # email example, live scoring
+fieldtest demo --example rag                 # choose example
+fieldtest demo --offline                     # pre-scored results, no API key
+fieldtest demo --dir my-demo                 # scaffold to a custom directory (default: fieldtest-demo)
+```
+
+Each demo scaffolds a real working eval directory with config, fixtures, outputs, and rules. After it runs, explore freely — edit outputs, add fixtures, try `fieldtest score` again.
 
 ---
 
@@ -56,6 +130,16 @@ evals/
   results/                 ← fieldtest score writes here
   .gitignore               ← outputs/ excluded from git
 ```
+
+Use `--template` to start from a pre-filled config based on one of the demo examples:
+
+```bash
+fieldtest init --template email       # support email response config
+fieldtest init --template rag         # RAG / Q&A config
+fieldtest init --template extraction  # structured extraction config
+```
+
+Templates include all required sections with realistic evals already written. Swap in your system prompt and fixtures.
 
 ### 2. Fill out config.yaml
 
@@ -274,14 +358,24 @@ scoring tailor_resume: 3 fixtures × 3 runs = 9 evaluations per eval
 ✓ results written to evals/results/2026-03-24T14-30-00-a3f9
 ```
 
-Four files are written to `evals/results/`:
+Five files are written to `evals/results/` on every run:
 
 ```
 2026-03-24T14-30-00-a3f9-data.json     full result data, machine-readable
 2026-03-24T14-30-00-a3f9-data.csv      flat rows, one per fixture × eval × run
 2026-03-24T14-30-00-a3f9-report.md     human report
 2026-03-24T14-30-00-a3f9-report.csv    spreadsheet report
+2026-03-24T14-30-00-a3f9-report.html   visual matrix report — open with fieldtest view
 ```
+
+Open the HTML report:
+
+```bash
+fieldtest view          # most recent run
+fieldtest view 2026-03-24T14-30-00-a3f9   # specific run
+```
+
+The HTML report is self-contained — no server, no external dependencies. It opens in your default browser and works offline. Features: color-coded fixture × eval matrix, label filter bar, click any cell to expand per-run detail with pass/fail reasoning.
 
 The `-report.md` looks like:
 
@@ -301,29 +395,29 @@ The `-report.md` looks like:
 | SAFE  | 100%      | 54 / 54        |
 
 ### RIGHT
-| eval              | failure rate | errors | vs prior |
-|-------------------|-------------|--------|---------|
-| no_fabrication    | 0%          | 0      | ↔        |
-| contact_preserved | 0%          | 0      | ↔        |
+| eval              | labels | pass rate | mean | floor hits | errors | vs prior |
+|-------------------|--------|-----------|------|-----------|--------|---------|
+| no_fabrication    | —      | 100%      | —    | 0          | 0      | ↔        |
+| contact_preserved | —      | 100%      | —    | 0          | 0      | ↔        |
 
 ### GOOD
-| eval              | failure rate | errors | vs prior |
-|-------------------|-------------|--------|---------|
-| format_compliance | 0%          | 0      | ↔        |
-| bullet_quality    | 9%          | 0      | +3%      |
+| eval              | labels | pass rate | mean | floor hits | errors | vs prior |
+|-------------------|--------|-----------|------|-----------|--------|---------|
+| format_compliance | —      | 100%      | —    | 0          | 0      | ↔        |
+| bullet_quality    | —      | 91%       | —    | 0          | 0      | +3%      |
 
 ### SAFE
-| eval                | failure rate | errors | vs prior |
-|---------------------|-------------|--------|---------|
-| no_preamble         | 0%          | 0      | ↔        |
-| no_horizontal_rules | 0%          | 0      | ↔        |
+| eval                | labels | pass rate | mean | floor hits | errors | vs prior |
+|---------------------|--------|-----------|------|-----------|--------|---------|
+| no_preamble         | —      | 100%      | —    | 0          | 0      | ↔        |
+| no_horizontal_rules | —      | 100%      | —    | 0          | 0      | ↔        |
 
 ### Fixture × Eval Matrix
-| fixture                    | no_fabrication | contact_preserved | format_compliance | bullet_quality | no_preamble | no_horizontal_rules |
-| ---                        | ---            | ---               | ---               | ---            | ---         | ---                 |
-| experienced-swe__senior-swe | 3/3           | 3/3               | 3/3               | 3/3            | 3/3         | 3/3                 |
-| recent-grad__data-scientist | 3/3           | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
-| marketing-manager__pm       | 3/3           | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
+| fixture                     | no_fabrication | contact_preserved | format_compliance | bullet_quality | no_preamble | no_horizontal_rules |
+| ---                         | ---            | ---               | ---               | ---            | ---         | ---                 |
+| experienced-swe__senior-swe | 3/3            | 3/3               | 3/3               | 3/3            | 3/3         | 3/3                 |
+| recent-grad__data-scientist | 3/3            | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
+| marketing-manager__pm       | 3/3            | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
 
 ### Failure Details
 
@@ -336,7 +430,62 @@ The `-report.md` looks like:
 
 ---
 
+## Labels
+
+Every eval accepts an optional `labels` field — a list of free-form strings for analytics grouping and filtering:
+
+```yaml
+- id: no_fabrication
+  tag: right
+  labels: [accuracy, content-safety]   # optional; multiple allowed
+  type: llm
+  ...
+```
+
+Labels flow through to JSON, CSV, the markdown report, and the HTML report's filter bar. Use them to group evals by feature area, severity, or phase — any grouping that's useful for your analytics. Labels are additive to `tag` (which is the diagnostic lens); labels are for organizing and filtering.
+
+Click a label chip in the HTML report to filter the matrix to only evals with that label. Useful when a suite has many evals and you want to focus on one category.
+
+---
+
 ## CLI Reference
+
+### `fieldtest demo`
+
+Scaffold a working eval example and run it immediately. Two commands from install to a live scored report.
+
+```bash
+fieldtest demo                               # email example, live scoring (requires API key)
+fieldtest demo --offline                     # pre-scored results, no API key required
+fieldtest demo --example rag                 # choose example: email | rag | extraction
+fieldtest demo --example extraction          # rule+regex evals only — works without API key
+fieldtest demo --dir my-demo                 # scaffold to a custom directory
+```
+
+The demo scaffolds a complete eval directory with config, fixtures, pre-built outputs, and rules. After it runs, everything is editable — try changing outputs, adding fixtures, running `fieldtest score` again.
+
+**Offline mode** (`--offline`) uses pre-scored results bundled with the package — no API calls, no credentials, runs in under 2 seconds. The full HTML report is generated from the bundled results and works with `fieldtest view`.
+
+---
+
+### `fieldtest view`
+
+Open the HTML eval report in your default browser.
+
+```bash
+fieldtest view                               # most recent run
+fieldtest view 2026-03-24T14-30-00-a3f9     # specific run by ID
+fieldtest view --config path/to/config.yaml  # custom config location
+```
+
+The HTML report is self-contained — single file, all CSS and JS inline, no server, no external dependencies, works fully offline. Features:
+
+- **Tag health cards** — RIGHT / GOOD / SAFE pass rates at a glance
+- **Label filter bar** — click a label chip to filter the matrix to evals with that label
+- **Fixture × eval matrix** — color-coded cells: green = all pass, red = any fail, yellow = judge error
+- **Cell expansion** — click any colored cell to see per-run PASS/FAIL with judge reasoning or detail text
+
+---
 
 ### `fieldtest validate`
 
@@ -442,7 +591,7 @@ RUN ID                      TIMESTAMP           SET           FIXTURES    RIGHT 
 2026-03-23T18-52-00-79fb    2026-03-23 18:52    smoke         6           0%        12%       0%
 ```
 
-The failure rates shown are averages across all evals with that tag. Use this to spot when a set of changes improved or hurt a whole category. Open the `-report.md` for the specific run to see which evals moved.
+The rates shown are average failure rates across all evals with that tag. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
 
 ---
 
@@ -503,7 +652,7 @@ Proceed? [y/N]:
 
 Only what's listed in the prompt gets removed. If only results need pruning, outputs are untouched.
 
-`--keep` defaults to 20. Each result set is 4 files (`-data.json`, `-data.csv`, `-report.md`, `-report.csv`); all four are removed together when pruning.
+`--keep` defaults to 20. Each result set is 5 files (`-data.json`, `-data.csv`, `-report.md`, `-report.csv`, `-report.html`); all five are removed together when pruning.
 
 ---
 
@@ -512,9 +661,12 @@ Only what's listed in the prompt gets removed. If only results need pruning, out
 Scaffold the eval directory structure in your project. Safe to run in an existing project — won't overwrite files unless you pass `--force`.
 
 ```bash
-fieldtest init              # creates evals/ in current directory
-fieldtest init --dir ci/evals   # custom location
-fieldtest init --force      # overwrite existing files
+fieldtest init                          # creates evals/ in current directory
+fieldtest init --template email         # pre-filled email support template
+fieldtest init --template rag           # pre-filled RAG / Q&A template
+fieldtest init --template extraction    # pre-filled structured extraction template
+fieldtest init --dir ci/evals           # custom location
+fieldtest init --force                  # overwrite existing files
 ```
 
 ```
@@ -574,6 +726,8 @@ def check_contact(output: str, inputs: dict) -> dict:
     return {"passed": True, "detail": "name and email present"}
 ```
 
+Rules always return `{"passed": bool, "detail": str}`. The detail is shown in the HTML report when you click a cell — make it informative on both pass and fail.
+
 ---
 
 ## Two LLMs, two purposes
@@ -594,7 +748,7 @@ auth: your credentials               auth: ANTHROPIC_API_KEY in environment
 
 ## Results files
 
-Four files per run, named `[run-id]-data.*` or `[run-id]-report.*`:
+Five files per run, named `[run-id]-data.*` or `[run-id]-report.*`:
 
 | file | what it is |
 |------|-----------|
@@ -602,6 +756,7 @@ Four files per run, named `[run-id]-data.*` or `[run-id]-report.*`:
 | `[run-id]-data.csv` | Flat rows, one per fixture × eval × run. Analyst-ready. |
 | `[run-id]-report.md` | Human report — tag health, per-eval tables, fixture × eval matrix, failure details. |
 | `[run-id]-report.csv` | Spreadsheet report — same three views, designed to open in Excel or Numbers. |
+| `[run-id]-report.html` | Visual matrix report — open with `fieldtest view`. Self-contained, works offline. |
 
 CI gating: `fieldtest score` exits 0 on success, 1 on error. It does not exit non-zero on high failure rates — the tool measures; you judge. To gate CI on specific failure rates, parse the `-data.json`:
 
@@ -636,6 +791,5 @@ Engineering teams will say: *we figure out what "good" means as we go.* This sou
 [Read the full argument →](docs/philosophy.md)
 
 ---
-
 
 *The practice is the point. The tool makes the practice tractable.*

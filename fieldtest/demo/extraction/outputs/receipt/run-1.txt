@@ -1,0 +1,6 @@
+{
+  "vendor": "Riverside Office Supplies",
+  "invoice_number": "RCP-20260315-4492",
+  "amount": "49.31",
+  "due_date": "2026-03-15"
+}

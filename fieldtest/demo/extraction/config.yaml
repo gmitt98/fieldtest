@@ -1,0 +1,63 @@
+schema_version: 1
+
+system:
+  name: Invoice Data Extractor
+  domain: Structured JSON extraction from invoice and receipt text
+
+use_cases:
+  - id: invoice_extraction
+    description: Extract structured fields from invoice text into validated JSON
+
+    evals:
+      - id: valid-json
+        tag: right
+        labels: [structure]
+        type: rule
+        description: Output is valid, parseable JSON
+
+      - id: required-fields-present
+        tag: right
+        labels: [structure, completeness]
+        type: rule
+        description: All required fields are present in the extracted JSON
+
+      - id: known-extraction
+        tag: right
+        labels: [accuracy]
+        type: reference
+        description: Golden fixture exact extraction check
+
+      - id: extraction-quality
+        tag: good
+        labels: [accuracy]
+        type: llm
+        description: Extracted values are accurate and well-formed
+        pass_criteria: Field values match the source text accurately; dates are in consistent format; amounts include currency where present in source
+        fail_criteria: Values are wrong, garbled, missing units, or clearly misread from the source text
+
+      - id: no-invented-fields
+        tag: safe
+        labels: [safety]
+        type: regex
+        description: Output contains only expected keys
+        pattern: "(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")"
+        match: false
+
+      - id: no-fabrication
+        tag: safe
+        labels: [safety]
+        type: llm
+        description: All extracted values are traceable to the source text
+        pass_criteria: Every value in the JSON can be found verbatim or in very close paraphrase in the source invoice text
+        fail_criteria: Any value appears to be inferred, calculated, or invented rather than directly extracted from the source
+
+    fixtures:
+      directory: fixtures/golden
+      sets:
+        smoke: [invoice-simple]
+        full: all
+      runs: 3
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-3-5-20251001

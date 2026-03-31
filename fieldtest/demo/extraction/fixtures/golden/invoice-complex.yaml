@@ -1,0 +1,21 @@
+id: invoice-complex
+description: Multi-line invoice with line items
+
+inputs:
+  invoice_text: |
+    INVOICE
+
+    From: Cascade Design Partners
+    To: Brightline Technologies Inc.
+    Invoice Number: INV-2026-0112
+    Invoice Date: March 1, 2026
+    Due Date: March 31, 2026
+
+    Services:
+      - UX Research & Wireframing (40 hrs @ $175/hr):  $7,000.00
+      - UI Design System (35 hrs @ $175/hr):           $6,125.00
+
+    Subtotal: $13,125.00
+    Amount Due: $13,125.00
+
+    Payment via bank transfer to: finance@cascadedesign.co

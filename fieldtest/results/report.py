@@ -226,9 +226,14 @@ def format_report(
             if not tag_stats:
                 continue
 
+            # Build labels lookup from evals list
+            labels_map: dict[str, str] = {}
+            for ev in uc.evals:
+                labels_map[ev.id] = "|".join(ev.labels) if ev.labels else "—"
+
             lines.append(f"### {tag.upper()}")
-            lines.append("| eval | pass rate | mean | floor hits | errors | vs prior |")
-            lines.append("|------|----------|------|-----------|--------|---------|")
+            lines.append("| eval | labels | pass rate | mean | floor hits | errors | vs prior |")
+            lines.append("|------|--------|----------|------|-----------|--------|---------|")
 
             for eval_id, stats in tag_stats.items():
                 fr    = stats.get("failure_rate")
@@ -259,8 +264,9 @@ def format_report(
                 else:
                     vs_str = "—"
 
+                lbl_str = labels_map.get(eval_id, "—")
                 lines.append(
-                    f"| {eval_id} | {pr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
+                    f"| {eval_id} | {lbl_str} | {pr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
                 )
 
                 if errs > 0:

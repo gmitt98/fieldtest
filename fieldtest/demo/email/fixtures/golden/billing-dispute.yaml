@@ -1,0 +1,21 @@
+id: billing-dispute
+description: Customer disputing a double charge on their account
+
+inputs:
+  customer_email: |
+    Hi,
+
+    I was charged twice for my Clearbook subscription this month — I see two charges
+    of $49 on March 3rd and March 4th. This seems like an error. Can you please look
+    into this and issue a refund for the duplicate charge?
+
+    Thanks,
+    Sarah
+
+expected:
+  contains:
+    - apologize
+    - refund
+  not_contains:
+    - cannot process
+    - denied

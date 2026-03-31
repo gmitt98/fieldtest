@@ -18,6 +18,7 @@ def judge_reference(use_case_id: str, eval: Eval, output: str, fixture: dict, ru
         use_case=use_case_id,
         eval_id=eval.id,
         tag=eval.tag,
+        labels=eval.labels,
         type=eval.type,
         fixture_id=fixture["id"],
         run=run,
