@@ -40,6 +40,9 @@ Issues = "https://github.com/gmitt98/fieldtest"
 fieldtest = "fieldtest.cli:main"
 
 [project.optional-dependencies]
+openai = [
+    "openai>=1.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio",

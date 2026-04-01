@@ -19,7 +19,12 @@ def get_provider_adapter(provider: str) -> ProviderAdapter:
         from fieldtest.providers.anthropic import AnthropicAdapter
         return AnthropicAdapter()
 
+    if provider == "openai":
+        from fieldtest.providers.openai import OpenAIAdapter
+        return OpenAIAdapter()
+
+    supported = ", ".join(sorted({"anthropic", "openai"}))
     raise ProviderError(
-        f"Unknown provider '{provider}'. v1 supports: anthropic\n"
+        f"Unknown provider '{provider}'. Supported: {supported}\n"
         f"  Check defaults.provider in evals/config.yaml"
     )

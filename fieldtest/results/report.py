@@ -22,18 +22,24 @@ from fieldtest.config import Config, ResultRow
 def _format_tag_summary(rows: list[ResultRow], use_case_id: str) -> list[str]:
     """
     Tag health summary — one pass rate per tag (RIGHT / GOOD / SAFE).
+    Binary evals: pass rate. Scored evals: avg score (separate line).
     Only counts non-skipped, non-error rows.
     """
-    tag_totals: dict[str, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+    tag_totals: dict[str, dict] = defaultdict(
+        lambda: {"passed": 0, "total": 0, "scores": [], "scale_max": None}
+    )
     for r in rows:
         if r.use_case != use_case_id or r.skipped or r.error:
             continue
         tag = (r.tag or "untagged").upper()
-        tag_totals[tag]["total"] += 1
-        if r.passed:
-            tag_totals[tag]["passed"] += 1
+        if r.score is not None:
+            tag_totals[tag]["scores"].append(r.score)
+        else:
+            tag_totals[tag]["total"] += 1
+            if r.passed:
+                tag_totals[tag]["passed"] += 1
 
-    if not any(v["total"] for v in tag_totals.values()):
+    if not any(v["total"] or v["scores"] for v in tag_totals.values()):
         return []
 
     lines = [
@@ -45,8 +51,12 @@ def _format_tag_summary(rows: list[ResultRow], use_case_id: str) -> list[str]:
         if tag not in tag_totals:
             continue
         d = tag_totals[tag]
-        pct = f"{round(d['passed'] / d['total'] * 100)}%" if d["total"] else "—"
-        lines.append(f"| {tag} | {pct} | {d['passed']} / {d['total']} |")
+        if d["total"]:
+            pct = f"{round(d['passed'] / d['total'] * 100)}%"
+            lines.append(f"| {tag} | {pct} | {d['passed']} / {d['total']} |")
+        if d["scores"]:
+            avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+            lines.append(f"| {tag} (scored) | avg {avg} | {len(d['scores'])} scores |")
     return lines
 
 
@@ -70,13 +80,17 @@ def _format_fixture_matrix(
         return []
 
     # Accumulate per (fixture_id, eval_id)
-    cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0})
+    cell: dict = defaultdict(
+        lambda: {"passed": 0, "total": 0, "errors": 0, "scores": []}
+    )
     for r in uc_rows:
         if r.skipped:
             continue
         key = (r.fixture_id, r.eval_id)
         if r.error:
             cell[key]["errors"] += 1
+        elif r.score is not None:
+            cell[key]["scores"].append(r.score)
         else:
             cell[key]["total"] += 1
             if r.passed:
@@ -90,7 +104,10 @@ def _format_fixture_matrix(
         cells = []
         for eid in active_evals:
             d = cell[(fid, eid)]
-            if d["errors"] > 0 and d["total"] == 0:
+            if d["scores"]:
+                avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+                cells.append(f"avg {avg}")
+            elif d["errors"] > 0 and d["total"] == 0:
                 cells.append("err")
             elif d["errors"] > 0:
                 cells.append(f"{d['passed']}/{d['total']}+err")
@@ -301,7 +318,7 @@ def format_report(
                 )
             lines.append(
                 "  re-run with --concurrency 1 to isolate; "
-                "check ANTHROPIC_API_KEY if errors persist"
+                "check your API key (ANTHROPIC_API_KEY or OPENAI_API_KEY) if errors persist"
             )
             lines.append("")
 
@@ -358,20 +375,26 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
         # Section 1: Tag Health
         # ----------------------------------------------------------------
         w.writerow(["## Tag Health", uc.id])
-        w.writerow(["use_case", "tag", "pass_rate_pct", "passed", "total"])
-        tag_totals: dict[str, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+        w.writerow(["use_case", "tag", "pass_rate_pct", "passed", "total", "avg_score", "score_count"])
+        tag_totals: dict[str, dict] = defaultdict(
+            lambda: {"passed": 0, "total": 0, "scores": []}
+        )
         for r in uc_rows:
             if r.skipped or r.error:
                 continue
             tag = (r.tag or "untagged").upper()
-            tag_totals[tag]["total"] += 1
-            if r.passed:
-                tag_totals[tag]["passed"] += 1
+            if r.score is not None:
+                tag_totals[tag]["scores"].append(r.score)
+            else:
+                tag_totals[tag]["total"] += 1
+                if r.passed:
+                    tag_totals[tag]["passed"] += 1
         for tag in ["RIGHT", "GOOD", "SAFE"]:
             if tag in tag_totals:
                 d = tag_totals[tag]
                 pct = round(d["passed"] / d["total"] * 100) if d["total"] else ""
-                w.writerow([uc.id, tag, pct, d["passed"], d["total"]])
+                avg = round(sum(d["scores"]) / len(d["scores"]), 1) if d["scores"] else ""
+                w.writerow([uc.id, tag, pct, d["passed"], d["total"], avg, len(d["scores"]) or ""])
         w.writerow([])
 
         # ----------------------------------------------------------------
@@ -384,13 +407,17 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
         fixture_ids = sorted({r.fixture_id for r in uc_rows if not r.skipped})
         tag_map: dict[str, str] = {ev.id: (ev.tag or "") for ev in uc.evals}
 
-        cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0})
+        cell: dict = defaultdict(
+            lambda: {"passed": 0, "total": 0, "errors": 0, "scores": []}
+        )
         for r in uc_rows:
             if r.skipped:
                 continue
             key = (r.fixture_id, r.eval_id)
             if r.error:
                 cell[key]["errors"] += 1
+            elif r.score is not None:
+                cell[key]["scores"].append(r.score)
             else:
                 cell[key]["total"] += 1
                 if r.passed:
@@ -399,7 +426,10 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
         for fid in fixture_ids:
             for eid in eval_ids:
                 d = cell[(fid, eid)]
-                if d["errors"] > 0 and d["total"] == 0:
+                if d["scores"]:
+                    avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+                    cell_str = f"avg {avg}"
+                elif d["errors"] > 0 and d["total"] == 0:
                     cell_str = "err"
                 elif d["errors"] > 0:
                     cell_str = f"{d['passed']}/{d['total']}+err"

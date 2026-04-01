@@ -112,7 +112,7 @@ class SystemConfig(BaseModel):
     domain: str
 
 
-VALID_PROVIDERS = {"anthropic"}
+VALID_PROVIDERS = {"anthropic", "openai"}
 
 
 class Defaults(BaseModel):

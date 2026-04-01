@@ -30,6 +30,8 @@ use_cases:
     evals:
       # One eval per failure mode. Never bundle multiple checks into one eval.
       # Each eval gets a tag (right | good | safe) and a type (rule | regex | llm | reference).
+      # You don't need all three tags — start with what matters most.
+      # A suite with a single eval is a valid suite.
       #
       # RIGHT = correctness. Is the output factually/logically correct?
       #         Failure here → grounding, retrieval, or reasoning problem.
@@ -73,10 +75,12 @@ use_cases:
 
 # Global defaults for judge LLM — NOT your system's model
 # The eval tool makes its own LLM calls to score outputs.
-# Set ANTHROPIC_API_KEY in your environment.
+# Providers: anthropic (set ANTHROPIC_API_KEY) or openai (set OPENAI_API_KEY)
+# For OpenAI: pip install fieldtest[openai]
 defaults:
-  provider: anthropic
-  model: claude-sonnet-4-20250514   # confirmed working; switch to a Haiku model for cost
+  provider: anthropic       # anthropic | openai
+  model: claude-sonnet-4-20250514   # anthropic: claude-sonnet-4-20250514, claude-haiku-3-5-20251001
+                            # openai: gpt-4o, gpt-4o-mini
   runs: 5
 """
 

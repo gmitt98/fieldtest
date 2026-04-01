@@ -115,6 +115,8 @@ def score(
                     status = "⚠ error"
                 elif result.skipped:
                     status = "— skip"
+                elif result.score is not None:
+                    status = f"● score {result.score}"
                 elif result.passed:
                     status = "✓ pass"
                 else:

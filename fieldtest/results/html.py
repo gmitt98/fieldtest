@@ -39,22 +39,36 @@ def _build_html(run_data: dict, config) -> str:
         timestamp  = run_id
 
     # Compute tag health summary across all use cases
-    tag_health: dict[str, dict] = {"right": {"passed": 0, "total": 0},
-                                    "good":  {"passed": 0, "total": 0},
-                                    "safe":  {"passed": 0, "total": 0}}
+    # Binary evals → pass rate. Scored evals → avg score (shown separately).
+    tag_health: dict[str, dict] = {
+        "right": {"passed": 0, "total": 0, "scores": []},
+        "good":  {"passed": 0, "total": 0, "scores": []},
+        "safe":  {"passed": 0, "total": 0, "scores": []},
+    }
     for r in rows:
         if r.get("skipped") or r.get("error"):
             continue
         tag = (r.get("tag") or "").lower()
         if tag in tag_health:
-            tag_health[tag]["total"] += 1
-            if r.get("passed"):
-                tag_health[tag]["passed"] += 1
+            if r.get("score") is not None:
+                tag_health[tag]["scores"].append(r["score"])
+            else:
+                tag_health[tag]["total"] += 1
+                if r.get("passed"):
+                    tag_health[tag]["passed"] += 1
 
     def _pct(d: dict) -> str:
-        if d["total"] == 0:
+        if d["total"] == 0 and not d["scores"]:
             return "—"
-        return f"{round(d['passed'] / d['total'] * 100)}%"
+        if d["total"] == 0:
+            # All scored, no binary — show avg
+            avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+            return f"avg {avg}"
+        pct = f"{round(d['passed'] / d['total'] * 100)}%"
+        if d["scores"]:
+            avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+            return f"{pct} + avg {avg}"
+        return pct
 
     right_pct = _pct(tag_health["right"])
     good_pct  = _pct(tag_health["good"])
@@ -369,8 +383,16 @@ document.addEventListener("DOMContentLoaded", function() {{
 
         let innerHtml = '<h4>' + evalId + ' / ' + fixtureId + '</h4>';
         matchRows.sort(function(a, b) {{ return a.run - b.run; }}).forEach(function(r) {{
-          let cls = r.error ? "error" : (r.passed ? "pass" : "fail");
-          let badge = r.error ? "ERR" : (r.passed ? "PASS" : "FAIL");
+          let cls, badge;
+          if (r.error) {{
+            cls = "error"; badge = "ERR";
+          }} else if (r.score != null) {{
+            cls = "pass"; badge = "SCORE " + r.score;
+          }} else if (r.passed) {{
+            cls = "pass"; badge = "PASS";
+          }} else {{
+            cls = "fail"; badge = "FAIL";
+          }}
           let text  = r.error || r.detail || "";
           innerHtml += '<div class="run-detail ' + cls + '">';
           innerHtml += '<span class="run-badge">Run ' + r.run + ' — ' + badge + '</span>';
@@ -432,15 +454,17 @@ def _build_uc_section(uc, uc_rows: list[dict]) -> str:
     fixture_ids = sorted({r.get("fixture_id") for r in uc_rows if not r.get("skipped")})
     eval_order  = [ev.id for ev in uc.evals]
 
-    # Accumulate cell data: (fixture_id, eval_id) -> {passed, total, errors}
+    # Accumulate cell data: (fixture_id, eval_id) -> {passed, total, errors, scores}
     from collections import defaultdict
-    cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0})
+    cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0, "scores": []})
     for r in uc_rows:
         if r.get("skipped"):
             continue
         key = (r["fixture_id"], r["eval_id"])
         if r.get("error"):
             cell[key]["errors"] += 1
+        elif r.get("score") is not None:
+            cell[key]["scores"].append(r["score"])
         else:
             cell[key]["total"] += 1
             if r.get("passed"):
@@ -465,7 +489,14 @@ def _build_uc_section(uc, uc_rows: list[dict]) -> str:
         row_cells = f'<td class="fixture-cell">{fid}</td>'
         for eid in eval_order:
             d = cell[(fid, eid)]
-            if d["errors"] > 0 and d["total"] == 0:
+            if d["scores"]:
+                avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+                # Look up scale max from eval metadata for display
+                ev = eval_meta.get(eid)
+                scale_max = ev.scale[1] if ev and ev.scale else None
+                label = f"{avg}/{scale_max}" if scale_max else f"{avg}"
+                cls   = "cell-pass"  # scored cells are always clickable, neutral-positive
+            elif d["errors"] > 0 and d["total"] == 0:
                 cls   = "cell-error"
                 label = "err"
             elif d["errors"] > 0:

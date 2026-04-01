@@ -841,7 +841,7 @@ hr.divider {
   <div class="container">
     <div class="section-label">Core concept</div>
     <h2 class="section-title">Right / Good / Safe</h2>
-    <p class="section-sub">Every eval has exactly one tag. Not for scoring — for diagnosis. The tag tells you where to look for the fix when something fails.</p>
+    <p class="section-sub">Every eval has exactly one tag. Not for scoring — for diagnosis. The tag tells you where to look for the fix when something fails. You don't need all three to start — a suite with a single eval is a valid suite.</p>
 
     <div class="rgs-grid">
       <div class="rgs-card right">
@@ -899,7 +899,7 @@ hr.divider {
   <div class="container">
     <div class="section-label">Config</div>
     <h2 class="section-title">One file defines everything.</h2>
-    <p class="section-sub">The config is the practice. It forces you to name what you're building, define what right/good/safe means for your use case, and enumerate your evals before you measure anything.</p>
+    <p class="section-sub">The config is the practice. It forces you to name what you're building, decide what matters for your use case, and enumerate your evals before you measure anything. Start with one use case and a few evals — the structure grows with you.</p>
 
     <div class="config-panel">
       <div class="config-tabs">
@@ -1081,6 +1081,10 @@ hr.divider {
 <span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete all results (keeps outputs)</span></pre>
       </div>
     </div>
+
+    <div class="callout tip" style="margin-top: 24px;">
+      <strong>Claude Code users:</strong> fieldtest ships with a built-in <code>/optimize</code> skill. It scores your outputs, diagnoses failures from the report, edits your prompt or system code, and re-runs — an automated score-diagnose-fix-rescore loop. Type <code>/optimize</code> in Claude Code inside any fieldtest project.
+    </div>
   </div>
 </section>
 
@@ -1102,7 +1106,7 @@ hr.divider {
       </div>
       <div class="principle">
         <div class="p-key">Structure before measurement.</div>
-        <div class="p-val">The config forces you to name your system, define what right/good/safe means, and enumerate failure modes <strong>before you run anything</strong>. You can't skip to measurement without doing the thinking first.</div>
+        <div class="p-val">The config forces you to name your system, think about what matters, and enumerate failure modes <strong>before you run anything</strong>. Start with one tag and two evals. The structure scales with you — you can't skip the thinking, but you decide how much to think about first.</div>
       </div>
       <div class="principle">
         <div class="p-key">Files, not infrastructure.</div>
