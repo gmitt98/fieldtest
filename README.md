@@ -91,6 +91,28 @@ pip install fieldtest
 export ANTHROPIC_API_KEY=sk-ant-...   # for LLM judge calls
 ```
 
+Or with an alternative judge provider:
+
+```bash
+pip install fieldtest[openai]         # OpenAI judge support
+pip install fieldtest[gemini]         # Google Gemini judge support
+```
+
+Set the provider in your config:
+
+```yaml
+defaults:
+  provider: gemini                    # or anthropic, openai
+  model: gemini-2.5-flash
+```
+
+And the corresponding API key:
+
+```bash
+export OPENAI_API_KEY=sk-...          # for openai provider
+export GEMINI_API_KEY=...             # for gemini provider
+```
+
 ---
 
 ## How it works
