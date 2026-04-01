@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>fieldtest — Eval practice, not just eval tooling.</title>
+<meta name="description" content="Drop fieldtest into any AI project. Write one config file. Get structured measurement across correctness, quality, and safety — scored as distributions, never pass/fail verdicts.">
+<link rel="canonical" href="https://fieldtest.run">
+<style>
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --ink: #0f0f0f;
+  --ink2: #444;
+  --ink3: #888;
+  --border: #e2e2e2;
+  --surface: #fafafa;
+  --white: #ffffff;
+  --green: #2e7d32;
+  --green-light: #e8f5e9;
+  --blue: #1565c0;
+  --blue-light: #e3f2fd;
+  --red: #c62828;
+  --red-light: #ffebee;
+  --amber: #e65100;
+  --amber-light: #fff3e0;
+  --brand: #0f0f0f;
+  --pass-bg: #e8f5e9;
+  --pass-txt: #1b5e20;
+  --fail-bg: #ffebee;
+  --fail-txt: #b71c1c;
+  --skip-bg: #f5f5f5;
+  --skip-txt: #616161;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--surface);
+  line-height: 1.6;
+}
+a { color: inherit; text-decoration: none; }
+code, pre { font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace; }
+
+/* ── Page Sections ── */
+section { padding: 64px 0; }
+section.alt { background: var(--white); }
+.container { max-width: 960px; margin: 0 auto; padding: 0 32px; }
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink3);
+  margin-bottom: 10px;
+}
+.section-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  line-height: 1.25;
+  margin-bottom: 12px;
+}
+.section-sub {
+  font-size: 16px;
+  color: var(--ink2);
+  max-width: 620px;
+  line-height: 1.7;
+}
+hr.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+/* ── Hero ── */
+.hero {
+  background: var(--brand);
+  color: #fff;
+  padding: 80px 0 72px;
+}
+.hero-eyebrow {
+  display: inline-block;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 4px 14px;
+  color: #ccc;
+  margin-bottom: 24px;
+}
+.hero h1 {
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  line-height: 1.05;
+  margin-bottom: 20px;
+}
+.hero h1 span { color: #aaa; font-weight: 300; }
+.hero-sub {
+  font-size: 18px;
+  color: #bbb;
+  max-width: 540px;
+  line-height: 1.65;
+  margin-bottom: 36px;
+}
+.hero-meta {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+.hero-stat { text-align: center; }
+.hero-stat .num { font-size: 36px; font-weight: 900; color: #fff; letter-spacing: -1px; }
+.hero-stat .lbl { font-size: 12px; color: #888; margin-top: 2px; }
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #ccc;
+  margin-bottom: 40px;
+}
+.version-badge code { color: #7ec8e3; font-size: 13px; }
+
+/* ── Terminal ── */
+.terminal {
+  background: #1a1a1a;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+  margin: 28px 0;
+}
+.terminal-bar {
+  background: #2d2d2d;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.terminal-dot { width: 12px; height: 12px; border-radius: 50%; }
+.terminal-dot.red { background: #ff5f57; }
+.terminal-dot.yellow { background: #ffbd2e; }
+.terminal-dot.green { background: #28c940; }
+.terminal-label { font-size: 12px; color: #888; margin-left: 8px; }
+.terminal-body { padding: 20px 24px; }
+.terminal-body pre {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #e0e0e0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.t-prompt { color: #7ec8e3; }
+.t-cmd { color: #ffffff; font-weight: 500; }
+.t-comment { color: #666; }
+.t-out { color: #ccc; }
+.t-green { color: #28c940; }
+.t-yellow { color: #ffbd2e; }
+.t-red { color: #ff6b6b; }
+.t-dim { color: #555; }
+.t-bold { font-weight: 700; }
+
+/* ── Step flow ── */
+.steps { display: flex; flex-direction: column; gap: 48px; }
+.step { display: flex; gap: 28px; align-items: flex-start; }
+.step-num {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+.step-body { flex: 1; }
+.step-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.step-desc { font-size: 15px; color: var(--ink2); line-height: 1.65; margin-bottom: 12px; }
+
+/* ── Demo modes ── */
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; }
+.mode-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+.mode-card .mode-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin-bottom: 12px;
+  display: inline-block;
+}
+.mode-card.offline .mode-badge { background: #e8f5e9; color: #1b5e20; }
+.mode-card.live .mode-badge { background: #e3f2fd; color: #0d47a1; }
+.mode-card.full .mode-badge { background: #fff3e0; color: #bf360c; }
+.mode-card .mode-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.mode-card .mode-desc { font-size: 13px; color: var(--ink2); line-height: 1.55; }
+.mode-card .mode-req {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--ink3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.mode-card .mode-req::before { content: "→"; }
+
+/* ── HTML Report Preview ── */
+.report-preview {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.07);
+  margin-top: 28px;
+}
+.rp-header {
+  background: var(--ink);
+  color: #fff;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.rp-brand { font-size: 16px; font-weight: 700; letter-spacing: -0.5px; }
+.rp-meta { font-size: 12px; color: #888; }
+.rp-meta span { color: #fff; font-weight: 500; }
+.rp-body { padding: 20px; }
+
+.tag-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.tag-card {
+  border-radius: 8px;
+  padding: 14px 20px;
+  border: 1px solid var(--border);
+  min-width: 120px;
+  text-align: center;
+}
+.tag-card .tname { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink3); margin-bottom: 4px; }
+.tag-card .trate { font-size: 30px; font-weight: 900; }
+.tag-card .tdesc { font-size: 11px; color: var(--ink3); margin-top: 2px; }
+.tag-card.right .trate { color: var(--green); }
+.tag-card.good  .trate { color: var(--blue); }
+.tag-card.safe  .trate { color: var(--red); }
+
+.label-bar {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lbar-title { font-size: 11px; color: var(--ink3); font-weight: 600; margin-right: 4px; }
+.lchip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #ccc;
+  background: #f0f0f0;
+  color: #444;
+  cursor: default;
+}
+.lchip.active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+/* Matrix table */
+.matrix-wrap { overflow-x: auto; }
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.matrix th {
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--ink3);
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+.matrix th.right-col { color: var(--green); }
+.matrix th.good-col  { color: var(--blue); }
+.matrix th.safe-col  { color: var(--red); }
+.matrix td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+}
+.matrix tr:last-child td { border-bottom: none; }
+.matrix td.fixture-cell {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  padding-right: 16px;
+}
+.matrix td.fixture-cell .fx-desc { font-size: 11px; font-weight: 400; color: var(--ink3); margin-top: 1px; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill.pass { background: var(--pass-bg); color: var(--pass-txt); }
+.pill.fail { background: var(--fail-bg); color: var(--fail-txt); }
+.pill.skip { background: var(--skip-bg); color: var(--skip-txt); }
+.pill.mixed {
+  background: linear-gradient(90deg, var(--pass-bg) 60%, var(--fail-bg) 40%);
+  color: var(--ink);
+}
+
+/* Expanded cell detail */
+.detail-box {
+  background: #f9f9f9;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-top: 16px;
+  font-size: 13px;
+}
+.detail-box .det-title { font-weight: 700; font-size: 13px; margin-bottom: 10px; color: var(--ink); }
+.det-run { padding: 8px 0; border-bottom: 1px solid #eee; display: flex; gap: 10px; align-items: flex-start; }
+.det-run:last-child { border-bottom: none; }
+.det-run-badge { flex-shrink: 0; }
+.det-run-text { font-size: 12px; color: var(--ink2); line-height: 1.5; }
+.det-run-text em { color: var(--ink3); font-style: normal; font-size: 11px; }
+
+/* ── Config anatomy ── */
+.config-panel {
+  background: #1a1a1a;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.14);
+  margin-top: 28px;
+}
+.config-tabs {
+  background: #2d2d2d;
+  display: flex;
+  border-bottom: 1px solid #444;
+  overflow-x: auto;
+}
+.config-tab {
+  padding: 10px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  cursor: default;
+  white-space: nowrap;
+  border-right: 1px solid #3a3a3a;
+}
+.config-tab.active { color: #fff; background: #1a1a1a; border-bottom: 2px solid #7ec8e3; }
+.config-body { padding: 20px 24px; }
+.config-body pre {
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: #ccc;
+  white-space: pre;
+}
+.cy { color: #7ec8e3; }  /* key */
+.cv { color: #a8d888; }  /* value */
+.cs { color: #f9c860; }  /* string value */
+.cc { color: #666; }     /* comment */
+.ct { color: #ff9e64; }  /* tag value */
+.ann {
+  display: inline-block;
+  background: rgba(126,200,227,0.12);
+  border-left: 2px solid #7ec8e3;
+  padding: 0 10px;
+  margin-left: 8px;
+  border-radius: 0 4px 4px 0;
+  font-size: 11px;
+  color: #7ec8e3;
+  font-family: -apple-system, sans-serif;
+}
+
+/* ── Right/Good/Safe explainer ── */
+.rgs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; }
+.rgs-card {
+  border-radius: 10px;
+  padding: 24px;
+  border: 1px solid var(--border);
+}
+.rgs-card.right { border-top: 3px solid var(--green); }
+.rgs-card.good  { border-top: 3px solid var(--blue); }
+.rgs-card.safe  { border-top: 3px solid var(--red); }
+.rgs-label { font-size: 10px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+.rgs-card.right .rgs-label { color: var(--green); }
+.rgs-card.good  .rgs-label { color: var(--blue); }
+.rgs-card.safe  .rgs-label { color: var(--red); }
+.rgs-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.rgs-desc { font-size: 13px; color: var(--ink2); line-height: 1.6; margin-bottom: 14px; }
+.rgs-fix { font-size: 12px; color: var(--ink3); border-top: 1px solid var(--border); padding-top: 10px; }
+.rgs-fix strong { color: var(--ink2); }
+.rgs-examples { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.rgs-examples li {
+  font-size: 12px;
+  color: var(--ink2);
+  padding: 3px 0;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.rgs-examples li::before { content: "·"; color: var(--ink3); flex-shrink: 0; margin-top: 1px; }
+
+/* ── Eval types ── */
+.types-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 28px; }
+.type-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+.type-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin-bottom: 10px;
+}
+.type-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.type-desc { font-size: 13px; color: var(--ink2); line-height: 1.55; margin-bottom: 10px; }
+.type-note { font-size: 12px; color: var(--ink3); border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* ── Output files ── */
+.output-files { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 20px; }
+.output-files .of-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.of-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.of-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  background: #f5f5f5;
+}
+.of-body .of-name { font-size: 13px; font-weight: 700; font-family: "SF Mono", monospace; margin-bottom: 3px; }
+.of-body .of-desc { font-size: 12px; color: var(--ink2); line-height: 1.5; }
+
+/* ── Philosophy ── */
+.principles { display: flex; flex-direction: column; gap: 0; }
+.principle {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.principle:last-child { border-bottom: none; }
+.principle .p-key { font-size: 13px; font-weight: 700; color: var(--ink); }
+.principle .p-val { font-size: 14px; color: var(--ink2); line-height: 1.65; }
+.principle .p-val strong { color: var(--ink); }
+
+/* ── Footer ── */
+.footer {
+  background: var(--ink);
+  color: #888;
+  padding: 40px 0;
+  text-align: center;
+  font-size: 13px;
+}
+.footer a { color: #aaa; }
+.footer .footer-brand { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.5px; margin-bottom: 8px; }
+.footer .footer-links { display: flex; gap: 24px; justify-content: center; margin-bottom: 16px; }
+
+/* ── Nav ── */
+.nav {
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.nav-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 52px;
+}
+.nav-brand { font-size: 16px; font-weight: 800; letter-spacing: -0.5px; color: var(--ink); }
+.nav-links { display: flex; gap: 24px; }
+.nav-link { font-size: 13px; color: var(--ink3); font-weight: 500; }
+.nav-link:hover { color: var(--ink); }
+.nav-pill {
+  font-size: 11px;
+  font-weight: 700;
+  background: #f0f0f0;
+  color: var(--ink2);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+/* ── Inline callouts ── */
+.callout {
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-top: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  border-left: 3px solid;
+}
+.callout.info { background: var(--blue-light); border-color: var(--blue); color: #0d47a1; }
+.callout.warn { background: var(--amber-light); border-color: var(--amber); color: #bf360c; }
+.callout.tip  { background: var(--green-light); border-color: var(--green); color: #1b5e20; }
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  .hero h1 { font-size: 36px; }
+  .modes { grid-template-columns: 1fr; }
+  .rgs-grid { grid-template-columns: 1fr; }
+  .types-grid { grid-template-columns: 1fr; }
+  .output-files { grid-template-columns: 1fr; }
+  .principle { grid-template-columns: 1fr; gap: 4px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">fieldtest</div>
+    <div class="nav-links">
+      <a class="nav-link" href="#quickstart">Quickstart</a>
+      <a class="nav-link" href="#report">Report</a>
+      <a class="nav-link" href="#concepts">Concepts</a>
+      <a class="nav-link" href="#config">Config</a>
+      <a class="nav-link" href="#philosophy">Philosophy</a>
+    </div>
+    <span class="nav-pill">v0.1.4</span>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <div class="container">
+    <div class="hero-eyebrow">fieldtest v0.1.4 — M0.5 release</div>
+    <h1>Eval practice,<br><span>not just eval tooling.</span></h1>
+    <p class="hero-sub">
+      Drop <code style="color:#7ec8e3;font-size:16px;">fieldtest</code> into any AI project. Write one config file.
+      Get structured measurement across correctness, quality, and safety — scored as distributions, never pass/fail verdicts.
+    </p>
+    <div class="hero-meta">
+      <div class="hero-stat">
+        <div class="num">2</div>
+        <div class="lbl">commands to first report</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">3</div>
+        <div class="lbl">built-in demo examples</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">5</div>
+        <div class="lbl">output formats</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">0</div>
+        <div class="lbl">API key needed to start</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Quickstart ── -->
+<section id="quickstart">
+  <div class="container">
+    <div class="section-label">Quickstart</div>
+    <h2 class="section-title">Two commands. No setup.</h2>
+    <p class="section-sub">Install the package and run the bundled demo. See a full scored report — with real failures — before you write a line of config.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <span class="terminal-label">Terminal</span>
+      </div>
+      <div class="terminal-body">
+<pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
+<span class="t-dim">Collecting fieldtest</span>
+<span class="t-dim">  Downloading fieldtest-0.1.4-py3-none-any.whl (82 kB)</span>
+<span class="t-dim">Installing collected packages: fieldtest</span>
+<span class="t-green">Successfully installed fieldtest-0.1.4</span>
+
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest demo --example rag --offline</span>
+<span class="t-green">✓</span> Copied demo: rag → <span class="t-out">./demo-rag/</span>
+<span class="t-green">✓</span> Loaded pre-scored results (offline mode)
+<span class="t-green">✓</span> Generated HTML report
+
+<span class="t-bold t-out">Run ID:</span> <span class="t-out">demo-offline-0000</span>
+<span class="t-bold t-out">Example:</span> <span class="t-out">rag (Handbook Q&A Assistant)</span>
+<span class="t-bold t-out">Fixtures:</span> <span class="t-out">4  Evals: 6  Runs: 3</span>
+<span class="t-bold t-out">Results:</span> <span class="t-out">demo-rag/evals/results/</span>
+
+  <span class="t-out">RIGHT  83.3%  pass rate across 2 evals</span>
+  <span class="t-out">GOOD   95.8%  pass rate across 2 evals</span>
+  <span class="t-out">SAFE   91.7%  pass rate across 2 evals</span>
+
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest view</span>
+<span class="t-green">✓</span> Opened demo-rag/evals/results/demo-offline-0000-report.html</pre>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section-label" style="margin-top: 32px;">Three demo modes</div>
+    <h2 class="section-title" style="font-size: 22px;">Pick your entry point</h2>
+    <div class="modes">
+      <div class="mode-card offline">
+        <div class="mode-badge">Offline</div>
+        <div class="mode-title">Pre-scored results</div>
+        <div class="mode-desc">Uses bundled outputs and results. Full report in under a second. Nothing to configure, no credentials needed.</div>
+        <div class="mode-req">No API key needed</div>
+        <div class="mode-req" style="margin-top: 4px;">Add <code>--offline</code> flag</div>
+      </div>
+      <div class="mode-card live">
+        <div class="mode-badge">Live (rule)</div>
+        <div class="mode-title">Run rule + regex evals</div>
+        <div class="mode-desc">Re-scores the pre-built outputs using only deterministic evals (rule, regex, reference). No LLM calls, no API key.</div>
+        <div class="mode-req">No API key needed</div>
+        <div class="mode-req" style="margin-top: 4px;">Omit <code>--offline</code></div>
+      </div>
+      <div class="mode-card full">
+        <div class="mode-badge">Full live</div>
+        <div class="mode-title">Call your system + all judges</div>
+        <div class="mode-desc">Run your own model against the demo fixtures. All eval types including LLM judges fire. Requires an Anthropic API key.</div>
+        <div class="mode-req">ANTHROPIC_API_KEY required</div>
+        <div class="mode-req" style="margin-top: 4px;">Add your runner script</div>
+      </div>
+    </div>
+
+    <div class="callout tip" style="margin-top: 24px;">
+      <strong>Three examples available:</strong>
+      <code>--example email</code> (customer support), <code>--example rag</code> (handbook Q&A), <code>--example extraction</code> (invoice JSON extraction). Each shows different eval patterns and a distinct set of failure modes.
+    </div>
+  </div>
+</section>
+
+<!-- ── Report ── -->
+<section class="alt" id="report">
+  <div class="container">
+    <div class="section-label">HTML Report</div>
+    <h2 class="section-title">Everything in one file.</h2>
+    <p class="section-sub">Every scored run generates a self-contained HTML report. No server, no dashboard, no dependencies. <code>fieldtest view</code> opens it in your browser. Below: the RAG demo report.</p>
+
+    <div class="report-preview">
+      <!-- Header -->
+      <div class="rp-header">
+        <div class="rp-brand">fieldtest</div>
+        <div class="rp-meta">run <span>demo-offline-0000</span></div>
+        <div class="rp-meta">example <span>rag</span> — Handbook Q&amp;A Assistant</div>
+        <div class="rp-meta">4 fixtures · 6 evals · 3 runs each</div>
+        <div class="rp-meta" style="margin-left: auto;">2026-03-31</div>
+      </div>
+
+      <div class="rp-body">
+        <!-- Tag health cards -->
+        <div class="tag-row">
+          <div class="tag-card right">
+            <div class="tname">RIGHT</div>
+            <div class="trate">83%</div>
+            <div class="tdesc">correctness</div>
+          </div>
+          <div class="tag-card good">
+            <div class="tname">GOOD</div>
+            <div class="trate">96%</div>
+            <div class="tdesc">quality</div>
+          </div>
+          <div class="tag-card safe">
+            <div class="tname">SAFE</div>
+            <div class="trate">92%</div>
+            <div class="tdesc">guardrails</div>
+          </div>
+          <div style="flex: 1; min-width: 180px; display: flex; flex-direction: column; justify-content: center; padding: 14px 16px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; color: var(--ink3); margin-bottom: 8px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">How to read this</div>
+            <div style="font-size: 12px; color: var(--ink2); line-height: 1.6;">Tags tell you <em>where to look for the fix</em>, not just what failed. <span style="color:var(--green);font-weight:700;">RIGHT</span> → prompt or training. <span style="color:var(--blue);font-weight:700;">GOOD</span> → formatting or tone. <span style="color:var(--red);font-weight:700;">SAFE</span> → guardrails.</div>
+          </div>
+        </div>
+
+        <!-- Label filter bar -->
+        <div class="label-bar">
+          <span class="lbar-title">Filter by label:</span>
+          <span class="lchip active">all</span>
+          <span class="lchip">accuracy</span>
+          <span class="lchip">completeness</span>
+          <span class="lchip">grounding</span>
+        </div>
+
+        <!-- Matrix table -->
+        <div class="matrix-wrap">
+          <table class="matrix">
+            <thead>
+              <tr>
+                <th>Fixture</th>
+                <th class="right-col">answers-from-context</th>
+                <th class="right-col">known-answer</th>
+                <th class="good-col">answer-length</th>
+                <th class="good-col">cites-source</th>
+                <th class="safe-col">no-hallucination</th>
+                <th class="safe-col">stays-in-scope</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="fixture-cell">
+                  vacation-policy
+                  <div class="fx-desc">Employee asking about PTO accrual</div>
+                </td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+              </tr>
+              <tr>
+                <td class="fixture-cell">
+                  remote-work
+                  <div class="fx-desc">Employee asking about remote work policy</div>
+                </td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+              </tr>
+              <tr>
+                <td class="fixture-cell">
+                  expense-reimbursement
+                  <div class="fx-desc">Employee asking about reimbursement limits</div>
+                </td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+              </tr>
+              <tr>
+                <td class="fixture-cell">
+                  out-of-scope
+                  <div class="fx-desc">Question not answerable from context</div>
+                </td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill skip">—</span></td>
+                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Expanded cell example -->
+        <div class="detail-box" style="margin-top: 16px;">
+          <div class="det-title">↓ out-of-scope / no-hallucination — click any cell to expand</div>
+          <div class="det-run">
+            <div class="det-run-badge"><span class="pill pass">Run 1 PASS</span></div>
+            <div class="det-run-text">Response correctly states it cannot answer from the provided context and directs to HR. <em>type: llm · grounding label</em></div>
+          </div>
+          <div class="det-run">
+            <div class="det-run-badge"><span class="pill pass">Run 2 PASS</span></div>
+            <div class="det-run-text">Correctly declines. Mentions "a different section of the handbook" — appropriate deflection, no hallucinated policy. <em>type: llm · grounding label</em></div>
+          </div>
+          <div class="det-run">
+            <div class="det-run-badge"><span class="pill fail">Run 3 FAIL</span></div>
+            <div class="det-run-text">Fabricates "9:00 AM to 5:00 PM standard hours, 10:00 AM to 3:00 PM core hours" — hours that appear in the remote-work fixture context but are absent from the PTO section provided. Cross-fixture contamination. <em>type: llm · grounding label</em></div>
+          </div>
+        </div>
+
+        <div style="font-size: 12px; color: var(--ink3); margin-top: 12px; text-align: right;">
+          Generated by fieldtest · self-contained HTML · no server required
+        </div>
+      </div>
+    </div>
+
+    <div class="callout info" style="margin-top: 24px;">
+      <strong>What you're looking at:</strong> The <code>out-of-scope</code> fixture catches a real and common failure — run 3 fabricates specific policy details that weren't in the provided context. The model saw those hours in a different fixture but hallucinated them into an unanswerable question. The <code>stays-in-scope</code> and <code>no-hallucination</code> evals both catch this; the <code>grounding</code> label groups them for filtering.
+    </div>
+  </div>
+</section>
+
+<!-- ── Right/Good/Safe ── -->
+<section id="concepts">
+  <div class="container">
+    <div class="section-label">Core concept</div>
+    <h2 class="section-title">Right / Good / Safe</h2>
+    <p class="section-sub">Every eval has exactly one tag. Not for scoring — for diagnosis. The tag tells you where to look for the fix when something fails.</p>
+
+    <div class="rgs-grid">
+      <div class="rgs-card right">
+        <div class="rgs-label">RIGHT</div>
+        <div class="rgs-title">Is the answer correct?</div>
+        <div class="rgs-desc">Correctness relative to ground truth. Did the system answer the question? Did it retrieve the right information? Does the output match the expected reference?</div>
+        <ul class="rgs-examples">
+          <li>Known-answer reference checks</li>
+          <li>Required field presence</li>
+          <li>Addresses the user's actual question</li>
+          <li>Extracted value matches source</li>
+        </ul>
+        <div class="rgs-fix"><strong>Failures point to:</strong> prompt, retrieval, training data, or model capability</div>
+      </div>
+
+      <div class="rgs-card good">
+        <div class="rgs-label">GOOD</div>
+        <div class="rgs-title">Is the answer well-formed?</div>
+        <div class="rgs-desc">Quality beyond correctness. Appropriate tone, format, length, and style. The answer is right — but is it delivered well for this context?</div>
+        <ul class="rgs-examples">
+          <li>Greeting present in support email</li>
+          <li>Response within expected length range</li>
+          <li>Tone appropriate to the customer</li>
+          <li>Cites the source section</li>
+        </ul>
+        <div class="rgs-fix"><strong>Failures point to:</strong> prompt instructions, formatting rules, or output post-processing</div>
+      </div>
+
+      <div class="rgs-card safe">
+        <div class="rgs-label">SAFE</div>
+        <div class="rgs-title">Does it stay in bounds?</div>
+        <div class="rgs-desc">Guardrails and constraints. Does the system stay within its defined scope? Does it avoid fabricating, overreaching, or making unauthorized commitments?</div>
+        <ul class="rgs-examples">
+          <li>No hallucinated policy details</li>
+          <li>No invented JSON fields</li>
+          <li>No unauthorized pricing commitments</li>
+          <li>Declines unanswerable questions</li>
+        </ul>
+        <div class="rgs-fix"><strong>Failures point to:</strong> system prompt constraints, grounding instructions, or architecture (RAG retrieval scope)</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 40px;">
+      <div class="section-label">Labels</div>
+      <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.3px;">Analytics grouping on top of tags</h3>
+      <p style="font-size: 15px; color: var(--ink2); line-height: 1.65; max-width: 600px;">
+        Labels are free-form strings you add to any eval — <code>labels: [accuracy, grounding]</code>. They're orthogonal to tags: a SAFE eval might carry the <code>grounding</code> label, a RIGHT eval might carry <code>completeness</code>. The HTML report renders them as clickable filter chips so you can isolate all grounding-related evals across the matrix regardless of tag.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Config ── -->
+<section class="alt" id="config">
+  <div class="container">
+    <div class="section-label">Config</div>
+    <h2 class="section-title">One file defines everything.</h2>
+    <p class="section-sub">The config is the practice. It forces you to name what you're building, define what right/good/safe means for your use case, and enumerate your evals before you measure anything.</p>
+
+    <div class="config-panel">
+      <div class="config-tabs">
+        <div class="config-tab active">config.yaml (rag example)</div>
+      </div>
+      <div class="config-body">
+<pre><span class="cy">schema_version:</span> <span class="cv">1</span>
+
+<span class="cy">system:</span>
+  <span class="cy">name:</span> <span class="cs">Handbook Q&A Assistant</span>          <span class="cc"># what does your system do?</span>
+  <span class="cy">domain:</span> <span class="cs">Employee handbook Q&A with RAG</span>
+
+<span class="cy">use_cases:</span>
+  - <span class="cy">id:</span> <span class="cs">handbook_qa</span>
+    <span class="cy">description:</span> <span class="cs">Answer employee policy questions from handbook context</span>
+
+    <span class="cy">evals:</span>
+
+      <span class="cc"># ── RIGHT evals — correctness ────────────────</span>
+      - <span class="cy">id:</span> <span class="cs">answers-from-context</span>
+        <span class="cy">tag:</span> <span class="ct">right</span>                                <span class="cc"># diagnostic lens</span>
+        <span class="cy">labels:</span> <span class="cs">[accuracy]</span>                         <span class="cc"># analytics grouping</span>
+        <span class="cy">type:</span> <span class="ct">llm</span>
+        <span class="cy">description:</span> <span class="cs">Answer is supported by the provided context</span>
+        <span class="cy">pass_criteria:</span> <span class="cs">Every claim is directly supported by the excerpt</span>
+        <span class="cy">fail_criteria:</span> <span class="cs">Answer makes claims not in the provided context</span>
+
+      - <span class="cy">id:</span> <span class="cs">known-answer</span>
+        <span class="cy">tag:</span> <span class="ct">right</span>
+        <span class="cy">labels:</span> <span class="cs">[accuracy]</span>
+        <span class="cy">type:</span> <span class="ct">reference</span>                            <span class="cc"># exact string match</span>
+        <span class="cy">description:</span> <span class="cs">Golden fixture exact check</span>
+
+      <span class="cc"># ── GOOD evals — quality ─────────────────────</span>
+      - <span class="cy">id:</span> <span class="cs">cites-source</span>
+        <span class="cy">tag:</span> <span class="ct">good</span>
+        <span class="cy">labels:</span> <span class="cs">[completeness]</span>
+        <span class="cy">type:</span> <span class="ct">regex</span>
+        <span class="cy">pattern:</span> <span class="cs">"(?i)(section|handbook|policy|per the)"</span>
+        <span class="cy">match:</span> <span class="cv">true</span>
+
+      <span class="cc"># ── SAFE evals — guardrails ──────────────────</span>
+      - <span class="cy">id:</span> <span class="cs">no-hallucination</span>
+        <span class="cy">tag:</span> <span class="ct">safe</span>
+        <span class="cy">labels:</span> <span class="cs">[grounding]</span>
+        <span class="cy">type:</span> <span class="ct">llm</span>
+        <span class="cy">description:</span> <span class="cs">All details traceable to the provided handbook excerpt</span>
+        <span class="cy">pass_criteria:</span> <span class="cs">Every specific claim can be found in the context</span>
+        <span class="cy">fail_criteria:</span> <span class="cs">Any detail appears invented or added beyond the source</span>
+
+      - <span class="cy">id:</span> <span class="cs">stays-in-scope</span>
+        <span class="cy">tag:</span> <span class="ct">safe</span>
+        <span class="cy">labels:</span> <span class="cs">[grounding]</span>
+        <span class="cy">type:</span> <span class="ct">llm</span>
+        <span class="cy">description:</span> <span class="cs">System declines questions not answerable from context</span>
+        <span class="cy">pass_criteria:</span> <span class="cs">Redirects to HR or acknowledges missing context</span>
+        <span class="cy">fail_criteria:</span> <span class="cs">Fabricates an answer for out-of-scope questions</span>
+
+    <span class="cy">fixtures:</span>
+      <span class="cy">directory:</span> <span class="cs">fixtures/golden</span>
+      <span class="cy">sets:</span>
+        <span class="cy">smoke:</span> <span class="cs">[vacation-policy]</span>
+        <span class="cy">full:</span> <span class="cs">all</span>
+      <span class="cy">runs:</span> <span class="cv">3</span>                                       <span class="cc"># N runs per fixture → distributions</span>
+
+<span class="cy">defaults:</span>
+  <span class="cy">provider:</span> <span class="cs">anthropic</span>
+  <span class="cy">model:</span> <span class="cs">claude-haiku-3-5-20251001</span>              <span class="cc"># judge model</span></pre>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section-label" style="margin-top: 0;">Eval types</div>
+    <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.3px;">Four judges. Closed set.</h3>
+    <div class="types-grid">
+      <div class="type-card">
+        <div class="type-badge">rule</div>
+        <div class="type-title">Python rule function</div>
+        <div class="type-desc">Your own deterministic logic. Register with <code>@rule("eval-id")</code> in <code>evals/rules.py</code>. Gets the raw output string, returns Pass/Fail.</div>
+        <div class="type-note">No API calls. Fastest. Best for structural checks that need code.</div>
+      </div>
+      <div class="type-card">
+        <div class="type-badge">regex</div>
+        <div class="type-title">Pattern match</div>
+        <div class="type-desc">Tests the output against a regex pattern. Set <code>match: true</code> (must contain) or <code>match: false</code> (must not contain).</div>
+        <div class="type-note">No API calls. Zero latency. Exact and predictable.</div>
+      </div>
+      <div class="type-card">
+        <div class="type-badge">llm</div>
+        <div class="type-title">LLM judge</div>
+        <div class="type-desc">Binary pass/fail via a second model call. You write <code>pass_criteria</code> and <code>fail_criteria</code> as plain English. The judge returns structured JSON with reasoning.</div>
+        <div class="type-note">Most flexible. Per-eval model overrides supported — use Haiku for most, Sonnet for subtle judgments.</div>
+      </div>
+      <div class="type-card">
+        <div class="type-badge">reference</div>
+        <div class="type-title">Reference comparison</div>
+        <div class="type-desc">Compares output against an <code>expected</code> block in the fixture. Checks <code>contains</code> (required strings) and <code>not_contains</code> (forbidden strings).</div>
+        <div class="type-note">No API calls. Ground-truth fixtures only. Skip row shows <code>—</code> when fixture has no expected block.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Outputs ── -->
+<section>
+  <div class="container">
+    <div class="section-label">Output files</div>
+    <h2 class="section-title">Every scored run writes five files.</h2>
+    <p class="section-sub">All outputs land in <code>evals/results/[run-id]/</code>. No database. No server. Files you can diff, commit, open in Excel, or drop in a bug report.</p>
+
+    <div class="output-files">
+      <div class="of-card">
+        <div class="of-icon">📊</div>
+        <div class="of-body">
+          <div class="of-name">*-data.json</div>
+          <div class="of-desc">Full structured data: every row, every run, full reasoning text, summary stats, delta vs prior run. Machine-readable. CI parses this for gates.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">🌐</div>
+        <div class="of-body">
+          <div class="of-name">*-report.html</div>
+          <div class="of-desc">Self-contained HTML report. Tag health cards, label filter bar, fixture×eval matrix, click-to-expand cell detail with per-run reasoning. Open in any browser.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">📝</div>
+        <div class="of-body">
+          <div class="of-name">*-report.md</div>
+          <div class="of-desc">Markdown report grouped by RIGHT / GOOD / SAFE. Copy-paste into GitHub issues, Notion pages, or Slack. Delta section shows what changed vs last run.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">📄</div>
+        <div class="of-body">
+          <div class="of-name">*-data.csv</div>
+          <div class="of-desc">Flat table: one row per eval×fixture×run. Tag, labels (pipe-separated), type, passed, score, detail, error. Load directly in Excel or Pandas for ad-hoc slicing.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">📋</div>
+        <div class="of-body">
+          <div class="of-name">*-report.csv</div>
+          <div class="of-desc">Spreadsheet-friendly report view: tag health summary and per-eval matrix. Pairs with the markdown report for teams that want CSV over prose.</div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section-label" style="margin-top: 0;">All commands</div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <span class="terminal-label">fieldtest CLI reference</span>
+      </div>
+      <div class="terminal-body">
+<pre><span class="t-comment"># ── Demo and exploration ─────────────────────────────</span>
+<span class="t-cmd">fieldtest demo</span>                   <span class="t-comment"># interactive example picker</span>
+<span class="t-cmd">fieldtest demo --example rag --offline</span>    <span class="t-comment"># offline, instant</span>
+<span class="t-cmd">fieldtest demo --example email</span>   <span class="t-comment"># re-score with rule evals</span>
+<span class="t-cmd">fieldtest view</span>                   <span class="t-comment"># open latest HTML report in browser</span>
+<span class="t-cmd">fieldtest view 20260331-a4b2</span>     <span class="t-comment"># open specific run</span>
+
+<span class="t-comment"># ── Start a real project ──────────────────────────────</span>
+<span class="t-cmd">fieldtest init</span>                   <span class="t-comment"># scaffold evals/ directory</span>
+<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># start from a typed template</span>
+
+<span class="t-comment"># ── Evaluate ──────────────────────────────────────────</span>
+<span class="t-cmd">fieldtest score</span>                  <span class="t-comment"># score all outputs in evals/outputs/</span>
+<span class="t-cmd">fieldtest score --set smoke</span>      <span class="t-comment"># score a named fixture subset</span>
+<span class="t-cmd">fieldtest score --concurrency 10</span> <span class="t-comment"># parallel judge calls</span>
+
+<span class="t-comment"># ── Inspect and clean ─────────────────────────────────</span>
+<span class="t-cmd">fieldtest list</span>                   <span class="t-comment"># list all scored runs with summary</span>
+<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete all results (keeps outputs)</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Philosophy ── -->
+<section class="alt" id="philosophy">
+  <div class="container">
+    <div class="section-label">Design principles</div>
+    <h2 class="section-title">Opinions we hold.</h2>
+    <p class="section-sub">fieldtest is opinionated. These are the constraints that shape every design decision.</p>
+
+    <div class="principles">
+      <div class="principle">
+        <div class="p-key">Tool measures. Human judges.</div>
+        <div class="p-val">fieldtest does not declare pass or fail. It produces <strong>distributions — not verdicts</strong>. 83% pass rate on RIGHT evals is information. Whether 83% is acceptable is your engineering call, not the tool's.</div>
+      </div>
+      <div class="principle">
+        <div class="p-key">One eval per failure mode.</div>
+        <div class="p-val">Never bundle multiple concerns into one eval. A bundled eval that passes tells you nothing about which failure modes are absent. <strong>Narrow scope = interpretable failures.</strong></div>
+      </div>
+      <div class="principle">
+        <div class="p-key">Structure before measurement.</div>
+        <div class="p-val">The config forces you to name your system, define what right/good/safe means, and enumerate failure modes <strong>before you run anything</strong>. You can't skip to measurement without doing the thinking first.</div>
+      </div>
+      <div class="principle">
+        <div class="p-key">Files, not infrastructure.</div>
+        <div class="p-val">No database, no server, no dashboard. Results are files. You can <strong>diff them, commit them, grep them</strong>, open them in any browser. Works from a laptop to CI to enterprise.</div>
+      </div>
+      <div class="principle">
+        <div class="p-key">N runs capture variance.</div>
+        <div class="p-val">A single run tells you almost nothing about a probabilistic system. fieldtest runs each fixture N times and shows <strong>distributions</strong>. 3 runs is the minimum; smoke suites use 1 for speed.</div>
+      </div>
+      <div class="principle">
+        <div class="p-key">Runner decoupled from scoring.</div>
+        <div class="p-val">Your runner writes <code>outputs/[fixture-id]/run-N.txt</code>. The scorer reads those files. They share nothing except the directory format. <strong>Re-score without re-running</strong> when you improve a judge.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Get started ── -->
+<section>
+  <div class="container">
+    <div class="section-label">Get started</div>
+    <h2 class="section-title">From zero to scored report in two minutes.</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Install</div>
+          <div class="step-desc">fieldtest is a plain Python package. No containers, no databases, no accounts required.</div>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+              <pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Run the demo</div>
+          <div class="step-desc">See a real scored report before you write any config. Three examples — email, RAG, extraction — each with real failure modes.</div>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+<pre><span class="t-prompt">$</span> <span class="t-cmd">fieldtest demo --example rag --offline</span>
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest view</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">Scaffold your own project</div>
+          <div class="step-desc">Run <code>fieldtest init</code> inside any project directory. It creates the <code>evals/</code> structure and a starter config with inline comments that walk you through every section.</div>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+<pre><span class="t-prompt">$</span> <span class="t-cmd">fieldtest init --template rag</span>
+<span class="t-green">✓</span> Created evals/config.yaml
+<span class="t-green">✓</span> Created evals/rules.py
+<span class="t-green">✓</span> Created evals/fixtures/golden/
+<span class="t-green">✓</span> Created evals/outputs/
+<span class="t-green">✓</span> Created evals/results/
+<span class="t-out">→ Edit evals/config.yaml to define your system and evals</span>
+<span class="t-out">→ Add fixture files to evals/fixtures/golden/</span>
+<span class="t-out">→ Write your runner (see README for examples)</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-title">Run your system. Score. Repeat.</div>
+          <div class="step-desc">Your runner calls your system and writes outputs. <code>fieldtest score</code> judges them. <code>fieldtest view</code> opens the HTML report. Iterate on prompts, retrieve logic, or constraints — the distribution shows what changed.</div>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+            </div>
+            <div class="terminal-body">
+<pre><span class="t-prompt">$</span> <span class="t-cmd">python evals/runner.py</span>     <span class="t-comment"># you write this — ~30 lines</span>
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest score</span>
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest view</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<div class="footer">
+  <div class="container">
+    <div class="footer-brand">fieldtest</div>
+    <div class="footer-links">
+      <a href="https://github.com/gmitt98/fieldtest">GitHub</a>
+      <a href="https://pypi.org/project/fieldtest/">PyPI</a>
+      <a href="https://fieldtest.run">fieldtest.run</a>
+    </div>
+    <div>v0.1.4 · MIT License · 2026</div>
+    <div style="margin-top: 6px; font-size: 12px; color: #555;">fieldtest is open source. Built for engineers who need measurement, not magic.</div>
+  </div>
+</div>
+
+</body>
+</html>
