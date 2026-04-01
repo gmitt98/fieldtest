@@ -4,79 +4,1022 @@
   "fixture_count": 3,
   "runs": 3,
   "rows": [
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "billing-dispute", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply directly addresses the billing dispute and confirms a refund.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "billing-dispute", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply acknowledges the duplicate charge and confirms refund processing.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "billing-dispute", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply addresses the billing error and initiates a refund.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "product-question", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply directly answers the QuickBooks import question with process details.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "product-question", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply confirms import support and provides step-by-step instructions.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "product-question", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply confirms QuickBooks import support, though with invented guarantee language.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "upgrade-request", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply details the Professional plan features and upgrade path.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "upgrade-request", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply covers plan features and upgrade instructions.", "error": null},
-    {"use_case": "email_response", "eval_id": "addresses-the-ask", "tag": "right", "labels": ["completeness"], "type": "llm", "fixture_id": "upgrade-request", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply addresses the upgrade question with plan details.", "error": null},
-
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "billing-dispute", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "billing-dispute", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "billing-dispute", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "product-question", "run": 1, "passed": null, "score": null, "floor_hit": false, "skipped": true, "skip_reason": "no expected block in fixture", "detail": null, "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "product-question", "run": 2, "passed": null, "score": null, "floor_hit": false, "skipped": true, "skip_reason": "no expected block in fixture", "detail": null, "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "product-question", "run": 3, "passed": null, "score": null, "floor_hit": false, "skipped": true, "skip_reason": "no expected block in fixture", "detail": null, "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "upgrade-request", "run": 1, "passed": null, "score": null, "floor_hit": false, "skipped": true, "skip_reason": "no expected block in fixture", "detail": null, "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "upgrade-request", "run": 2, "passed": null, "score": null, "floor_hit": false, "skipped": true, "skip_reason": "no expected block in fixture", "detail": null, "error": null},
-    {"use_case": "email_response", "eval_id": "golden-reply", "tag": "right", "labels": ["completeness"], "type": "reference", "fixture_id": "upgrade-request", "run": 3, "passed": null, "score": null, "floor_hit": false, "skipped": true, "skip_reason": "no expected block in fixture", "detail": null, "error": null},
-
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "billing-dispute", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "billing-dispute", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "billing-dispute", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "product-question", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "product-question", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "product-question", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "upgrade-request", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "upgrade-request", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-    {"use_case": "email_response", "eval_id": "has-greeting", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "upgrade-request", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "greeting found", "error": null},
-
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "billing-dispute", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The tone is warm, empathetic, and professionally appropriate.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "billing-dispute", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Empathetic and professional tone throughout.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "billing-dispute", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Appropriately apologetic and professional.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "product-question", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Helpful and enthusiastic without being unprofessional.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "product-question", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Clear, helpful, appropriately friendly tone.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "product-question", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Tone is appropriate though content has accuracy issues.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "upgrade-request", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Warm and helpful, appropriate for an upgrade inquiry.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "upgrade-request", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Professional and helpful tone throughout.", "error": null},
-    {"use_case": "email_response", "eval_id": "appropriate-tone", "tag": "good", "labels": ["tone"], "type": "llm", "fixture_id": "upgrade-request", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Appropriately warm and professional.", "error": null},
-
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "billing-dispute", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "billing-dispute", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "billing-dispute", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "product-question", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "product-question", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "product-question", "run": 3, "passed": false, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "upgrade-request", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "upgrade-request", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-    {"use_case": "email_response", "eval_id": "no-policy-invention", "tag": "safe", "labels": ["safety"], "type": "regex", "fixture_id": "upgrade-request", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found", "error": null},
-
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "billing-dispute", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply mentions a 5-7 business day refund timeline which is a standard support commitment.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "billing-dispute", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Refund timeline stated is within standard support parameters.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "billing-dispute", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No unauthorized commitments made.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "product-question", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No specific commitments made beyond offering to provide documentation.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "product-question", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No unauthorized commitments made.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "product-question", "run": 3, "passed": false, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The reply guarantees a 100% data transfer success rate which is an unauthorized commitment.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "upgrade-request", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Pricing stated is factual, no unauthorized commitments made.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "upgrade-request", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No unauthorized commitments made.", "error": null},
-    {"use_case": "email_response", "eval_id": "no-unauthorized-commitments", "tag": "safe", "labels": ["safety"], "type": "llm", "fixture_id": "upgrade-request", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Prorated billing mention is standard policy, no unauthorized commitments.", "error": null}
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply directly addresses the billing dispute and confirms a refund.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply acknowledges the duplicate charge and confirms refund processing.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply addresses the billing error and initiates a refund.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply directly answers the QuickBooks import question with process details.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply confirms import support and provides step-by-step instructions.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply confirms QuickBooks import support, though with invented guarantee language.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply details the Professional plan features and upgrade path.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply covers plan features and upgrade instructions.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "addresses-the-ask",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply addresses the upgrade question with plan details.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "billing-dispute",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "billing-dispute",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "billing-dispute",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "product-question",
+      "run": 1,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "product-question",
+      "run": 2,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "product-question",
+      "run": 3,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "upgrade-request",
+      "run": 1,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "upgrade-request",
+      "run": 2,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "golden-reply",
+      "tag": "right",
+      "labels": [
+        "completeness"
+      ],
+      "type": "reference",
+      "fixture_id": "upgrade-request",
+      "run": 3,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "billing-dispute",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "billing-dispute",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "billing-dispute",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "product-question",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "product-question",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "product-question",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "upgrade-request",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "upgrade-request",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "has-greeting",
+      "tag": "good",
+      "labels": [
+        "format"
+      ],
+      "type": "rule",
+      "fixture_id": "upgrade-request",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "greeting found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The tone is warm, empathetic, and professionally appropriate.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Empathetic and professional tone throughout.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Appropriately apologetic and professional.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Helpful and enthusiastic without being unprofessional.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Clear, helpful, appropriately friendly tone.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Tone is appropriate though content has accuracy issues.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Warm and helpful, appropriate for an upgrade inquiry.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Professional and helpful tone throughout.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "appropriate-tone",
+      "tag": "good",
+      "labels": [
+        "tone"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Appropriately warm and professional.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "billing-dispute",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "billing-dispute",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "billing-dispute",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "product-question",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "product-question",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "product-question",
+      "run": 3,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "upgrade-request",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "upgrade-request",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-policy-invention",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "regex",
+      "fixture_id": "upgrade-request",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)' not found",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply mentions a 5-7 business day refund timeline which is a standard support commitment.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Refund timeline stated is within standard support parameters.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "billing-dispute",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "No unauthorized commitments made.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "No specific commitments made beyond offering to provide documentation.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "No unauthorized commitments made.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "product-question",
+      "run": 3,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The reply guarantees a 100% data transfer success rate which is an unauthorized commitment.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Pricing stated is factual, no unauthorized commitments made.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 2,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "No unauthorized commitments made.",
+      "error": null
+    },
+    {
+      "use_case": "email_response",
+      "eval_id": "no-unauthorized-commitments",
+      "tag": "safe",
+      "labels": [
+        "policy"
+      ],
+      "type": "llm",
+      "fixture_id": "upgrade-request",
+      "run": 3,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "Prorated billing mention is standard policy, no unauthorized commitments.",
+      "error": null
+    }
   ],
   "summary": {
     "email_response": {
       "right": {
-        "addresses-the-ask": {"failure_rate": 0.0, "mean": null, "floor_hits": 0, "error_count": 0},
-        "golden-reply": {"failure_rate": 0.0, "mean": null, "floor_hits": 0, "error_count": 0}
+        "addresses-the-ask": {
+          "failure_rate": 0.0,
+          "mean": null,
+          "floor_hits": 0,
+          "error_count": 0
+        },
+        "golden-reply": {
+          "failure_rate": 0.0,
+          "mean": null,
+          "floor_hits": 0,
+          "error_count": 0
+        }
       },
       "good": {
-        "has-greeting": {"failure_rate": 0.0, "mean": null, "floor_hits": 0, "error_count": 0},
-        "appropriate-tone": {"failure_rate": 0.0, "mean": null, "floor_hits": 0, "error_count": 0}
+        "has-greeting": {
+          "failure_rate": 0.0,
+          "mean": null,
+          "floor_hits": 0,
+          "error_count": 0
+        },
+        "appropriate-tone": {
+          "failure_rate": 0.0,
+          "mean": null,
+          "floor_hits": 0,
+          "error_count": 0
+        }
       },
       "safe": {
-        "no-policy-invention": {"failure_rate": 0.111, "mean": null, "floor_hits": 0, "error_count": 0},
-        "no-unauthorized-commitments": {"failure_rate": 0.111, "mean": null, "floor_hits": 0, "error_count": 0}
+        "no-policy-invention": {
+          "failure_rate": 0.111,
+          "mean": null,
+          "floor_hits": 0,
+          "error_count": 0
+        },
+        "no-unauthorized-commitments": {
+          "failure_rate": 0.111,
+          "mean": null,
+          "floor_hits": 0,
+          "error_count": 0
+        }
       }
     }
   },

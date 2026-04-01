@@ -37,7 +37,7 @@ use_cases:
 
       - id: no-invented-fields
         tag: safe
-        labels: [safety]
+        labels: [integrity]
         type: regex
         description: Output contains only expected keys
         pattern: "(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")"
@@ -45,7 +45,7 @@ use_cases:
 
       - id: no-fabrication
         tag: safe
-        labels: [safety]
+        labels: [integrity]
         type: llm
         description: All extracted values are traceable to the source text
         pass_criteria: Every value in the JSON can be found verbatim or in very close paraphrase in the source invoice text

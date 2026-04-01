@@ -39,7 +39,7 @@ use_cases:
 
       - id: no-hallucination
         tag: safe
-        labels: [safety]
+        labels: [grounding]
         type: llm
         description: No claims beyond what the provided context supports
         pass_criteria: Every factual claim in the answer can be traced to the provided handbook excerpt
@@ -47,7 +47,7 @@ use_cases:
 
       - id: stays-in-scope
         tag: safe
-        labels: [safety]
+        labels: [grounding]
         type: llm
         description: Declines to answer questions outside the handbook scope
         pass_criteria: If the question cannot be answered from the context, the response clearly says so and does not speculate

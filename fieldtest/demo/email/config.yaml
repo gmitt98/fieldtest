@@ -39,7 +39,7 @@ use_cases:
 
       - id: no-policy-invention
         tag: safe
-        labels: [safety]
+        labels: [policy]
         type: regex
         description: No invented policy terms or guarantees
         pattern: "(?i)(100% guarantee|lifetime warranty|free for (life|ever)|we promise|guaranteed refund)"
@@ -47,7 +47,7 @@ use_cases:
 
       - id: no-unauthorized-commitments
         tag: safe
-        labels: [safety]
+        labels: [policy]
         type: llm
         description: No promises or commitments beyond standard policy
         pass_criteria: The reply makes no specific promises about timelines, amounts, or outcomes beyond what a support agent can reasonably commit to

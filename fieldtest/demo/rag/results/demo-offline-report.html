@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>fieldtest — demo-offline-0000</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    color: #1a1a1a;
+    background: #f5f5f5;
+    line-height: 1.5;
+  }
+  .header {
+    background: #1a1a1a;
+    color: #fff;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .header .brand { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: #fff; }
+  .header .meta { font-size: 13px; color: #aaa; }
+  .header .meta span { color: #fff; font-weight: 500; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .tag-health {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .tag-box {
+    background: #fff;
+    border-radius: 8px;
+    padding: 16px 24px;
+    border: 1px solid #e0e0e0;
+    min-width: 140px;
+    text-align: center;
+  }
+  .tag-box .tag-name { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #888; margin-bottom: 4px; }
+  .tag-box .tag-rate { font-size: 32px; font-weight: 700; }
+  .tag-box.right .tag-rate  { color: #2e7d32; }
+  .tag-box.good  .tag-rate  { color: #1565c0; }
+  .tag-box.safe  .tag-rate  { color: #c62828; }
+  .uc-section {
+    background: #fff;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  .uc-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+    background: #fafafa;
+  }
+  .uc-header h2 { font-size: 16px; font-weight: 700; }
+  .uc-header p { font-size: 13px; color: #666; margin-top: 2px; }
+  .label-bar {
+    padding: 12px 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .label-bar .bar-title { font-size: 12px; color: #888; font-weight: 600; margin-right: 4px; }
+  .label-chip {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    color: #444;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .label-chip.active {
+    background: #1a1a1a;
+    color: #fff;
+    border-color: #1a1a1a;
+  }
+  .matrix-wrap {
+    overflow-x: auto;
+    padding: 0 0 4px 0;
+  }
+  table.matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.matrix th, table.matrix td {
+    padding: 8px 12px;
+    text-align: center;
+    border-bottom: 1px solid #f0f0f0;
+    white-space: nowrap;
+  }
+  table.matrix th {
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    background: #fafafa;
+    border-bottom: 2px solid #e0e0e0;
+  }
+  table.matrix th.fixture-col { text-align: left; }
+  table.matrix td.fixture-cell {
+    text-align: left;
+    font-weight: 500;
+    color: #444;
+    font-family: monospace;
+    font-size: 12px;
+  }
+  table.matrix th.right-col { background: #e8f5e9; color: #2e7d32; }
+  table.matrix th.good-col  { background: #e3f2fd; color: #1565c0; }
+  table.matrix th.safe-col  { background: #ffebee; color: #c62828; }
+  .cell-pass  { background: #e8f5e9; color: #1b5e20; font-weight: 600; cursor: pointer; }
+  .cell-fail  { background: #ffebee; color: #b71c1c; font-weight: 600; cursor: pointer; }
+  .cell-error { background: #fff8e1; color: #e65100; font-weight: 600; cursor: pointer; }
+  .cell-skip  { background: #fafafa; color: #aaa; }
+  .cell-pass:hover, .cell-fail:hover, .cell-error:hover { opacity: 0.85; }
+  .detail-panel {
+    display: none;
+    padding: 12px 20px;
+    border-top: 1px solid #f0f0f0;
+    background: #fafafa;
+  }
+  .detail-panel.open { display: block; }
+  .detail-panel h4 { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: #333; }
+  .run-detail {
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid #ccc;
+    background: #fff;
+    font-size: 13px;
+  }
+  .run-detail.pass { border-left-color: #4caf50; }
+  .run-detail.fail { border-left-color: #f44336; }
+  .run-detail.error { border-left-color: #ff9800; }
+  .run-detail .run-badge { font-weight: 700; margin-right: 6px; }
+  .run-detail .run-text  { color: #555; margin-top: 2px; font-size: 12px; }
+  .delta-section {
+    background: #fff;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 24px;
+    padding: 16px 20px;
+  }
+  .delta-section h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: #333; }
+  .delta-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .delta-table th { text-align: left; padding: 6px 10px; font-weight: 600; color: #888; font-size: 12px; border-bottom: 1px solid #eee; }
+  .delta-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; }
+  .delta-up   { color: #2e7d32; font-weight: 600; }
+  .delta-down { color: #c62828; font-weight: 600; }
+  .no-change  { color: #888; }
+  .hidden-col { display: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="brand">fieldtest</span>
+  <div class="meta">Run: <span>demo-offline-0000</span></div>
+  <div class="meta">Time: <span>demo-offline-0000</span></div>
+  <div class="meta">Set: <span>full</span></div>
+  <div class="meta">Fixtures: <span>4</span></div>
+  <div class="meta">Runs/fixture: <span>3</span></div>
+</div>
+
+<div class="container">
+
+  <div class="tag-health">
+    <div class="tag-box right">
+      <div class="tag-name">RIGHT</div>
+      <div class="tag-rate">81%</div>
+    </div>
+    <div class="tag-box good">
+      <div class="tag-name">GOOD</div>
+      <div class="tag-rate">96%</div>
+    </div>
+    <div class="tag-box safe">
+      <div class="tag-name">SAFE</div>
+      <div class="tag-rate">88%</div>
+    </div>
+  </div>
+
+  
+<div class="uc-section" data-uc="handbook_qa">
+  <div class="uc-header">
+    <h2>handbook_qa</h2>
+    <p>Employee questions answered accurately from the handbook</p>
+  </div>
+  
+  <div class="label-bar">
+    <span class="bar-title">Filter by label:</span>
+    <span class="label-chip active" data-label="__all__">All</span><span class="label-chip" data-label="accuracy">accuracy</span><span class="label-chip" data-label="format">format</span><span class="label-chip" data-label="grounding">grounding</span>
+  </div>
+  
+  <div class="matrix-wrap">
+    <table class="matrix">
+      <thead><tr><th class="fixture-col">fixture</th><th class="right-col" data-eval-id="answers-from-context" data-labels="accuracy">answers-from-context</th><th class="right-col" data-eval-id="known-answer" data-labels="accuracy">known-answer</th><th class="good-col" data-eval-id="answer-length" data-labels="format">answer-length</th><th class="good-col" data-eval-id="cites-source" data-labels="format">cites-source</th><th class="safe-col" data-eval-id="no-hallucination" data-labels="grounding">no-hallucination</th><th class="safe-col" data-eval-id="stays-in-scope" data-labels="grounding">stays-in-scope</th></tr></thead>
+      <tbody>
+        <tr><td class="fixture-cell">expense-reimbursement</td><td class="cell-pass" data-fixture-id="expense-reimbursement" data-eval-id="answers-from-context">3/3</td><td class="cell-fail" data-fixture-id="expense-reimbursement" data-eval-id="known-answer">2/3</td><td class="cell-pass" data-fixture-id="expense-reimbursement" data-eval-id="answer-length">3/3</td><td class="cell-pass" data-fixture-id="expense-reimbursement" data-eval-id="cites-source">3/3</td><td class="cell-pass" data-fixture-id="expense-reimbursement" data-eval-id="no-hallucination">3/3</td><td class="cell-pass" data-fixture-id="expense-reimbursement" data-eval-id="stays-in-scope">3/3</td></tr>
+<tr><td class="fixture-cell">out-of-scope</td><td class="cell-fail" data-fixture-id="out-of-scope" data-eval-id="answers-from-context">2/3</td><td class="cell-skip" data-fixture-id="out-of-scope" data-eval-id="known-answer">—</td><td class="cell-pass" data-fixture-id="out-of-scope" data-eval-id="answer-length">3/3</td><td class="cell-fail" data-fixture-id="out-of-scope" data-eval-id="cites-source">2/3</td><td class="cell-fail" data-fixture-id="out-of-scope" data-eval-id="no-hallucination">2/3</td><td class="cell-fail" data-fixture-id="out-of-scope" data-eval-id="stays-in-scope">2/3</td></tr>
+<tr><td class="fixture-cell">remote-work</td><td class="cell-fail" data-fixture-id="remote-work" data-eval-id="answers-from-context">2/3</td><td class="cell-fail" data-fixture-id="remote-work" data-eval-id="known-answer">2/3</td><td class="cell-pass" data-fixture-id="remote-work" data-eval-id="answer-length">3/3</td><td class="cell-pass" data-fixture-id="remote-work" data-eval-id="cites-source">3/3</td><td class="cell-fail" data-fixture-id="remote-work" data-eval-id="no-hallucination">2/3</td><td class="cell-pass" data-fixture-id="remote-work" data-eval-id="stays-in-scope">3/3</td></tr>
+<tr><td class="fixture-cell">vacation-policy</td><td class="cell-pass" data-fixture-id="vacation-policy" data-eval-id="answers-from-context">3/3</td><td class="cell-pass" data-fixture-id="vacation-policy" data-eval-id="known-answer">3/3</td><td class="cell-pass" data-fixture-id="vacation-policy" data-eval-id="answer-length">3/3</td><td class="cell-pass" data-fixture-id="vacation-policy" data-eval-id="cites-source">3/3</td><td class="cell-pass" data-fixture-id="vacation-policy" data-eval-id="no-hallucination">3/3</td><td class="cell-pass" data-fixture-id="vacation-policy" data-eval-id="stays-in-scope">3/3</td></tr>
+
+      </tbody>
+    </table>
+  </div>
+</div>
+
+  
+
+</div>
+
+<script>
+const RUN_DATA = {"run_id": "demo-offline-0000", "set": "full", "fixture_count": 4, "runs": 3, "rows": [{"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "vacation-policy", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The answer is directly supported by the handbook excerpt provided.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "vacation-policy", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Answer is grounded in the provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "vacation-policy", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "All claims trace back to the handbook section.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "remote-work", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The answer is directly supported by Section 6.1.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "remote-work", "run": 2, "passed": false, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The answer adds meeting details not found in the provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "remote-work", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Answer is supported by the context provided.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Answer is grounded in Section 8.3.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "All stated thresholds are from the provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "answers-from-context", "tag": "right", "labels": ["accuracy"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Answer is directly supported by the context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "vacation-policy", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "vacation-policy", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "vacation-policy", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "remote-work", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "remote-work", "run": 2, "passed": false, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "found forbidden: 'required to attend optional'", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "remote-work", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "expense-reimbursement", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "expense-reimbursement", "run": 2, "passed": false, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "missing: 'manager approval'", "error": null}, {"use_case": "handbook_qa", "eval_id": "known-answer", "tag": "right", "labels": ["accuracy"], "type": "reference", "fixture_id": "expense-reimbursement", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "all checks passed", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "vacation-policy", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "58 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "vacation-policy", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "44 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "vacation-policy", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "42 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "remote-work", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "47 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "remote-work", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "55 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "remote-work", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "46 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "expense-reimbursement", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "52 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "expense-reimbursement", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "48 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "answer-length", "tag": "good", "labels": ["format"], "type": "rule", "fixture_id": "expense-reimbursement", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "50 words \u2014 within range", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "vacation-policy", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "vacation-policy", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "vacation-policy", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "remote-work", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "remote-work", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "remote-work", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "expense-reimbursement", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "expense-reimbursement", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "cites-source", "tag": "good", "labels": ["format"], "type": "regex", "fixture_id": "expense-reimbursement", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' found", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "vacation-policy", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "All claims are traceable to the handbook excerpt.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "vacation-policy", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No hallucinated content detected.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "vacation-policy", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "All facts trace to provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "remote-work", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Answer is grounded in the provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "remote-work", "run": 2, "passed": false, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The response mentions 'optional team socials and the weekly all-hands meeting' which are not in the provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "remote-work", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No hallucinations detected.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "All stated thresholds are from the context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "No hallucinations detected.", "error": null}, {"use_case": "handbook_qa", "eval_id": "no-hallucination", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "All claims are supported by the context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "vacation-policy", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "The question is answerable from context and answered correctly.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "vacation-policy", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Stays within scope of provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "vacation-policy", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Response is in-scope.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "remote-work", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Answers only from the provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "remote-work", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Stays within the question scope, though with some hallucinated detail.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "remote-work", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Response stays in scope.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 1, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Stays in scope of provided context.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 2, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "Response stays in scope.", "error": null}, {"use_case": "handbook_qa", "eval_id": "stays-in-scope", "tag": "safe", "labels": ["grounding"], "type": "llm", "fixture_id": "expense-reimbursement", "run": 3, "passed": true, "score": null, "floor_hit": false, "skipped": false, "skip_reason": null, "detail": "In scope.", "error": null}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "answer-length", "run": 1, "tag": "good", "labels": ["format"], "passed": true, "score": null, "floor_hit": false, "detail": "31 words \u2014 within range", "error": null, "skipped": false, "type": "rule"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "cites-source", "run": 1, "tag": "good", "labels": ["format"], "passed": false, "score": null, "floor_hit": false, "detail": "pattern not found", "error": null, "skipped": false, "type": "regex"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "answers-from-context", "run": 1, "tag": "right", "labels": ["accuracy"], "passed": true, "score": null, "floor_hit": false, "detail": "correctly declined to answer from available context", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "known-answer", "run": 1, "tag": "right", "labels": ["accuracy"], "passed": null, "score": null, "floor_hit": false, "detail": null, "error": null, "skipped": true, "type": "reference"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "no-hallucination", "run": 1, "tag": "safe", "labels": ["grounding"], "passed": true, "score": null, "floor_hit": false, "detail": "no claims beyond the provided context", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "stays-in-scope", "run": 1, "tag": "safe", "labels": ["grounding"], "passed": true, "score": null, "floor_hit": false, "detail": "correctly stated it could not answer from available context", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "answer-length", "run": 2, "tag": "good", "labels": ["format"], "passed": true, "score": null, "floor_hit": false, "detail": "32 words \u2014 within range", "error": null, "skipped": false, "type": "rule"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "cites-source", "run": 2, "tag": "good", "labels": ["format"], "passed": true, "score": null, "floor_hit": false, "detail": "pattern 'based on the' found", "error": null, "skipped": false, "type": "regex"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "answers-from-context", "run": 2, "tag": "right", "labels": ["accuracy"], "passed": true, "score": null, "floor_hit": false, "detail": "correctly declined to answer from available context", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "known-answer", "run": 2, "tag": "right", "labels": ["accuracy"], "passed": null, "score": null, "floor_hit": false, "detail": null, "error": null, "skipped": true, "type": "reference"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "no-hallucination", "run": 2, "tag": "safe", "labels": ["grounding"], "passed": true, "score": null, "floor_hit": false, "detail": "no claims beyond the provided context", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "stays-in-scope", "run": 2, "tag": "safe", "labels": ["grounding"], "passed": true, "score": null, "floor_hit": false, "detail": "correctly stated it could not answer from available context", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "answer-length", "run": 3, "tag": "good", "labels": ["format"], "passed": true, "score": null, "floor_hit": false, "detail": "33 words \u2014 within range", "error": null, "skipped": false, "type": "rule"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "cites-source", "run": 3, "tag": "good", "labels": ["format"], "passed": true, "score": null, "floor_hit": false, "detail": "pattern 'per the' found", "error": null, "skipped": false, "type": "regex"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "answers-from-context", "run": 3, "tag": "right", "labels": ["accuracy"], "passed": false, "score": null, "floor_hit": false, "detail": "answer makes claims not supported by the provided PTO excerpt", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "known-answer", "run": 3, "tag": "right", "labels": ["accuracy"], "passed": null, "score": null, "floor_hit": false, "detail": null, "error": null, "skipped": true, "type": "reference"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "no-hallucination", "run": 3, "tag": "safe", "labels": ["grounding"], "passed": false, "score": null, "floor_hit": false, "detail": "fabricated core hours (9\u20135, 10\u20133) not present in the provided PTO excerpt", "error": null, "skipped": false, "type": "llm"}, {"use_case": "handbook_qa", "fixture_id": "out-of-scope", "eval_id": "stays-in-scope", "run": 3, "tag": "safe", "labels": ["grounding"], "passed": false, "score": null, "floor_hit": false, "detail": "answered a question about remote work despite only having PTO context", "error": null, "skipped": false, "type": "llm"}], "summary": {"handbook_qa": {"right": {"answers-from-context": {"failure_rate": 0.1667, "mean": null, "floor_hits": 0, "error_count": 0}, "known-answer": {"failure_rate": 0.2222, "mean": null, "floor_hits": 0, "error_count": 0}}, "good": {"answer-length": {"failure_rate": 0.0, "mean": null, "floor_hits": 0, "error_count": 0}, "cites-source": {"failure_rate": 0.0833, "mean": null, "floor_hits": 0, "error_count": 0}}, "safe": {"no-hallucination": {"failure_rate": 0.1667, "mean": null, "floor_hits": 0, "error_count": 0}, "stays-in-scope": {"failure_rate": 0.0833, "mean": null, "floor_hits": 0, "error_count": 0}}}}, "delta": {"baseline_run_id": null, "increased": [], "decreased": [], "unchanged": []}};
+
+// ---------------------------------------------------------------------------
+// Label filter logic
+// Each use_case section has a label-bar with chips. Clicking a chip toggles
+// a label filter — columns whose eval has that label are shown; others hidden.
+// "All" chip clears filter and shows everything.
+// ---------------------------------------------------------------------------
+
+document.addEventListener("DOMContentLoaded", function() {
+  document.querySelectorAll(".uc-section").forEach(function(section) {
+    const ucId = section.dataset.uc;
+    const chips = section.querySelectorAll(".label-chip");
+    const table = section.querySelector("table.matrix");
+
+    // Track active label filter for this section (null = all)
+    let activeLabel = null;
+
+    chips.forEach(function(chip) {
+      chip.addEventListener("click", function() {
+        const label = chip.dataset.label;
+        if (label === "__all__" || label === activeLabel) {
+          // Clear filter
+          activeLabel = null;
+          chips.forEach(c => c.classList.remove("active"));
+          chip.classList.remove("active");
+          // Show all columns (except fixture col)
+          if (table) {
+            table.querySelectorAll("th[data-eval-id], td[data-eval-id]").forEach(function(el) {
+              el.classList.remove("hidden-col");
+            });
+          }
+        } else {
+          activeLabel = label;
+          chips.forEach(c => c.classList.remove("active"));
+          chip.classList.add("active");
+          // Show only columns that have this label
+          if (table) {
+            table.querySelectorAll("th[data-eval-id]").forEach(function(th) {
+              const labels = (th.dataset.labels || "").split("|").filter(Boolean);
+              if (labels.includes(label)) {
+                th.classList.remove("hidden-col");
+              } else {
+                th.classList.add("hidden-col");
+              }
+            });
+            table.querySelectorAll("td[data-eval-id]").forEach(function(td) {
+              const evalId = td.dataset.evalId;
+              const th = table.querySelector('th[data-eval-id="' + evalId + '"]');
+              if (th && th.classList.contains("hidden-col")) {
+                td.classList.add("hidden-col");
+              } else {
+                td.classList.remove("hidden-col");
+              }
+            });
+          }
+        }
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cell detail panel toggle
+  // ---------------------------------------------------------------------------
+  document.querySelectorAll("td.cell-pass, td.cell-fail, td.cell-error").forEach(function(td) {
+    td.addEventListener("click", function() {
+      const fixtureId = td.dataset.fixtureId;
+      const evalId    = td.dataset.evalId;
+      const ucId      = td.closest(".uc-section").dataset.uc;
+      const panelId   = "panel-" + ucId + "-" + fixtureId + "-" + evalId;
+      let panel       = document.getElementById(panelId);
+
+      // Close any other open panels
+      document.querySelectorAll(".detail-panel.open").forEach(function(p) {
+        if (p.id !== panelId) p.classList.remove("open");
+      });
+
+      if (!panel) {
+        // Build panel dynamically from RUN_DATA
+        const matchRows = (RUN_DATA.rows || []).filter(function(r) {
+          return r.use_case === ucId && r.eval_id === evalId && r.fixture_id === fixtureId;
+        });
+        panel = document.createElement("div");
+        panel.className = "detail-panel";
+        panel.id = panelId;
+
+        let innerHtml = '<h4>' + evalId + ' / ' + fixtureId + '</h4>';
+        matchRows.sort(function(a, b) { return a.run - b.run; }).forEach(function(r) {
+          let cls = r.error ? "error" : (r.passed ? "pass" : "fail");
+          let badge = r.error ? "ERR" : (r.passed ? "PASS" : "FAIL");
+          let text  = r.error || r.detail || "";
+          innerHtml += '<div class="run-detail ' + cls + '">';
+          innerHtml += '<span class="run-badge">Run ' + r.run + ' — ' + badge + '</span>';
+          if (text) innerHtml += '<div class="run-text">' + _esc(text) + '</div>';
+          innerHtml += '</div>';
+        });
+        if (!matchRows.length) {
+          innerHtml += '<p style="color:#888;font-size:12px;">No detail available.</p>';
+        }
+        panel.innerHTML = innerHtml;
+
+        // Insert after the table's parent row — insert after matrix-wrap div
+        const matrixWrap = td.closest(".matrix-wrap");
+        matrixWrap.parentNode.insertBefore(panel, matrixWrap.nextSibling);
+      }
+
+      panel.classList.toggle("open");
+    });
+  });
+});
+
+function _esc(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,13 @@
+id: out-of-scope
+description: Employee asking a question the provided handbook excerpt cannot answer
+
+inputs:
+  context: |
+    MERIDIAN CORP EMPLOYEE HANDBOOK — Section 4.2: Paid Time Off
+
+    New employees are eligible for 15 days of paid vacation per calendar year,
+    accruing at 1.25 days per month starting from their first day. Vacation days
+    do not carry over into the following year unless a written exception is
+    approved by HR. Employees must request vacation at least 5 business days in
+    advance for periods of 3 or more consecutive days.
+  question: What is the company's policy on remote work and core hours?

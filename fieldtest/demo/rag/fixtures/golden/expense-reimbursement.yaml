@@ -16,5 +16,5 @@ expected:
   contains:
     - "manager approval"
   not_contains:
-    - "Finance team"
-    - "no approval"
+    - "no approval needed"
+    - "submit directly"
