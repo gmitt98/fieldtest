@@ -409,6 +409,139 @@ def test_init_force_overwrites(tmp_path):
     assert result.exit_code == 0
 
 
+def test_init_default_hints_template(tmp_path):
+    """Default init output mentions --template as a next step."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "--template" in result.output
+
+
+# ---------------------------------------------------------------------------
+# init --template
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("template", ["chatbot", "rag", "email"])
+def test_init_template_creates_config(tmp_path, template):
+    """--template scaffolds config.yaml from templates/ dir."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", template],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    config_path = tmp_path / "evals" / "config.yaml"
+    assert config_path.exists()
+    content = config_path.read_text()
+    assert "schema_version: 1" in content
+    assert f"--template {template}" in content
+
+
+@pytest.mark.parametrize("template", ["chatbot", "rag", "email"])
+def test_init_template_creates_dirs(tmp_path, template):
+    """--template creates fixture and output dirs."""
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", template],
+        catch_exceptions=False,
+    )
+    assert (tmp_path / "evals" / "fixtures" / "golden").is_dir()
+    assert (tmp_path / "evals" / "fixtures" / "variations").is_dir()
+    assert (tmp_path / "evals" / "outputs").is_dir()
+    assert (tmp_path / "evals" / "results").is_dir()
+    assert (tmp_path / "evals" / ".gitignore").exists()
+
+
+@pytest.mark.parametrize("template", ["chatbot", "rag", "email"])
+def test_init_template_no_fixtures_copied(tmp_path, template):
+    """Templates scaffold empty fixture dirs — no demo data."""
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", template],
+        catch_exceptions=False,
+    )
+    golden = tmp_path / "evals" / "fixtures" / "golden"
+    assert list(golden.iterdir()) == []
+
+
+@pytest.mark.parametrize("template", ["chatbot", "rag", "email"])
+def test_init_template_tags_blank(tmp_path, template):
+    """Template configs have blank tags — user must fill them in."""
+    import yaml
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", template],
+        catch_exceptions=False,
+    )
+    config = yaml.safe_load((tmp_path / "evals" / "config.yaml").read_text())
+    for uc in config["use_cases"]:
+        for ev in uc["evals"]:
+            assert ev["tag"] == "" or ev["tag"] is None, (
+                f"Tag should be blank in template, got '{ev['tag']}' for eval '{ev['id']}'"
+            )
+
+
+@pytest.mark.parametrize("template", ["chatbot", "rag", "email"])
+def test_init_template_valid_yaml(tmp_path, template):
+    """Template configs parse as valid YAML with expected structure."""
+    import yaml
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", template],
+        catch_exceptions=False,
+    )
+    config = yaml.safe_load((tmp_path / "evals" / "config.yaml").read_text())
+    assert config["schema_version"] == 1
+    assert "system" in config
+    assert "use_cases" in config
+    assert len(config["use_cases"]) >= 1
+    assert len(config["use_cases"][0]["evals"]) >= 1
+    assert "defaults" in config
+
+
+@pytest.mark.parametrize("template", ["chatbot", "rag", "email"])
+def test_init_template_validates_with_tags_filled(tmp_path, template):
+    """Template configs pass fieldtest validate when tags are filled in."""
+    import yaml
+    from fieldtest.config import parse_and_validate
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", template],
+        catch_exceptions=False,
+    )
+    config_path = tmp_path / "evals" / "config.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    # Fill blank tags with 'right' so validation passes
+    for uc in config["use_cases"]:
+        for ev in uc["evals"]:
+            if not ev.get("tag"):
+                ev["tag"] = "right"
+    config_path.write_text(yaml.dump(config))
+    # Should not raise
+    parse_and_validate(config_path)
+
+
+def test_init_template_output_mentions_tags(tmp_path):
+    """Template init output tells user to tag evals."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["init", "--dir", str(tmp_path / "evals"), "--template", "chatbot"],
+        catch_exceptions=False,
+    )
+    assert "Tag each eval" in result.output
+
+
 # ---------------------------------------------------------------------------
 # history command
 # ---------------------------------------------------------------------------

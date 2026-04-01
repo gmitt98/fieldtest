@@ -581,14 +581,14 @@ hr.divider {
       <a class="nav-link" href="#config">Config</a>
       <a class="nav-link" href="#philosophy">Philosophy</a>
     </div>
-    <span class="nav-pill">v0.1.4</span>
+    <span class="nav-pill">v0.2.0</span>
   </div>
 </nav>
 
 <!-- ── Hero ── -->
 <div class="hero">
   <div class="container">
-    <div class="hero-eyebrow">fieldtest v0.1.4 release</div>
+    <div class="hero-eyebrow">fieldtest v0.2.0 release</div>
     <h1>Eval practice,<br><span>not just eval tooling.</span></h1>
     <p class="hero-sub">
       Drop <code style="color:#7ec8e3;font-size:16px;">fieldtest</code> into any AI project. Write one config file.
@@ -632,9 +632,9 @@ hr.divider {
       <div class="terminal-body">
 <pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
 <span class="t-dim">Collecting fieldtest</span>
-<span class="t-dim">  Downloading fieldtest-0.1.4-py3-none-any.whl (82 kB)</span>
+<span class="t-dim">  Downloading fieldtest-0.2.0-py3-none-any.whl (82 kB)</span>
 <span class="t-dim">Installing collected packages: fieldtest</span>
-<span class="t-green">Successfully installed fieldtest-0.1.4</span>
+<span class="t-green">Successfully installed fieldtest-0.2.0</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest demo --example rag --offline</span>
 <span class="t-green">✓</span> Copied demo: rag → <span class="t-out">./demo-rag/</span>
@@ -677,7 +677,7 @@ hr.divider {
       <div class="mode-card full">
         <div class="mode-badge">Full live</div>
         <div class="mode-title">Call your system + all judges</div>
-        <div class="mode-desc">Run your own model against the demo fixtures. All eval types including LLM judges fire. Requires an Anthropic API key.</div>
+        <div class="mode-desc">Run your own model against the demo fixtures. All eval types including LLM judges fire. Requires an Anthropic or OpenAI API key.</div>
         <div class="mode-req">ANTHROPIC_API_KEY required</div>
         <div class="mode-req" style="margin-top: 4px;">Add your runner script</div>
       </div>
@@ -966,7 +966,7 @@ hr.divider {
       <span class="cy">runs:</span> <span class="cv">3</span>                                       <span class="cc"># N runs per fixture → distributions</span>
 
 <span class="cy">defaults:</span>
-  <span class="cy">provider:</span> <span class="cs">anthropic</span>
+  <span class="cy">provider:</span> <span class="cs">anthropic</span>                            <span class="cc"># or openai</span>
   <span class="cy">model:</span> <span class="cs">claude-haiku-3-5-20251001</span>              <span class="cc"># judge model</span></pre>
       </div>
     </div>
@@ -1069,7 +1069,7 @@ hr.divider {
 
 <span class="t-comment"># ── Start a real project ──────────────────────────────</span>
 <span class="t-cmd">fieldtest init</span>                   <span class="t-comment"># scaffold evals/ directory</span>
-<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># start from a typed template</span>
+<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># curated template: chatbot, rag, or email</span>
 
 <span class="t-comment"># ── Evaluate ──────────────────────────────────────────</span>
 <span class="t-cmd">fieldtest score</span>                  <span class="t-comment"># score all outputs in evals/outputs/</span>
@@ -1175,14 +1175,17 @@ hr.divider {
             </div>
             <div class="terminal-body">
 <pre><span class="t-prompt">$</span> <span class="t-cmd">fieldtest init --template rag</span>
-<span class="t-green">✓</span> Created evals/config.yaml
-<span class="t-green">✓</span> Created evals/rules.py
-<span class="t-green">✓</span> Created evals/fixtures/golden/
-<span class="t-green">✓</span> Created evals/outputs/
-<span class="t-green">✓</span> Created evals/results/
-<span class="t-out">→ Edit evals/config.yaml to define your system and evals</span>
-<span class="t-out">→ Add fixture files to evals/fixtures/golden/</span>
-<span class="t-out">→ Write your runner (see README for examples)</span></pre>
+<span class="t-green">✓</span> Scaffolded from rag template at evals/
+  evals/config.yaml       — fill in system, domain, tags
+  evals/fixtures/golden/  — fixtures with expected outputs
+  evals/.gitignore        — outputs/ excluded from git
+
+Next steps:
+  1. Fill in system name and domain in evals/config.yaml
+  2. Tag each eval: right, good, or safe
+  3. Add fixtures to evals/fixtures/
+  4. Run your system → write outputs to evals/outputs/
+  5. fieldtest score</pre>
             </div>
           </div>
         </div>
@@ -1218,7 +1221,7 @@ hr.divider {
       <a href="https://pypi.org/project/fieldtest/">PyPI</a>
       <a href="https://fieldtest.run">fieldtest.run</a>
     </div>
-    <div>v0.1.4 · MIT License · 2026</div>
+    <div>v0.2.0 · MIT License · 2026</div>
     <div style="margin-top: 6px; font-size: 12px; color: #555;">fieldtest is open source. Built for engineers, PM, and other builders who need measurement, not magic.</div>
   </div>
 </div>

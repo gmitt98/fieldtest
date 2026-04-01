@@ -432,10 +432,21 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
               help="Directory to scaffold (default: ./evals)")
 @click.option("--force", is_flag=True, default=False,
               help="Overwrite if directory already exists")
-@click.option("--template", type=click.Choice(["email", "rag", "extraction"]), default=None,
-              help="Scaffold from a demo template instead of the blank starter config")
+@click.option("--template", type=click.Choice(["chatbot", "rag", "email"]), default=None,
+              help="Start from a curated template: chatbot, rag, or email")
 def init_cmd(target_dir: str, force: bool, template: Optional[str]):
-    """Scaffold evals/ directory structure in current project."""
+    """Scaffold evals/ directory structure in current project.
+
+    Templates provide curated judge prompts for common AI product types.
+    Tags are left blank — you decide what's right, good, or safe.
+
+    \b
+    Examples:
+      fieldtest init                      # blank starter config
+      fieldtest init --template chatbot   # conversational AI
+      fieldtest init --template rag       # document Q&A / RAG
+      fieldtest init --template email     # email responder
+    """
     import shutil
     from fieldtest.init_template import GITIGNORE_CONTENT, STARTER_CONFIG
 
@@ -459,24 +470,26 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         gitignore_path.write_text(GITIGNORE_CONTENT)
 
     if template:
-        # Copy template config and fixtures from demo directory
-        demo_src = Path(__file__).parent / "demo" / template
-        if not demo_src.exists():
-            click.echo(f"Error: demo template '{template}' not found at {demo_src}", err=True)
+        # Load curated template config from templates/ directory
+        template_path = Path(__file__).parent / "templates" / f"{template}.yaml"
+        if not template_path.exists():
+            click.echo(f"Error: template '{template}' not found", err=True)
             sys.exit(1)
 
-        # Copy config.yaml
-        src_config = demo_src / "config.yaml"
-        if src_config.exists():
-            shutil.copy2(src_config, evals_dir / "config.yaml")
+        shutil.copy2(template_path, evals_dir / "config.yaml")
 
-        # Copy fixtures/
-        src_fixtures = demo_src / "fixtures"
-        if src_fixtures.exists():
-            dest_fixtures = evals_dir / "fixtures"
-            shutil.copytree(src_fixtures, dest_fixtures, dirs_exist_ok=True)
-
-        click.echo(f"Scaffolded from {template} template — edit evals/config.yaml to customize")
+        click.echo(f"✓ Scaffolded from {template} template at {evals_dir}/")
+        click.echo(f"  {evals_dir}/config.yaml       — fill in system, domain, tags")
+        click.echo(f"  {evals_dir}/fixtures/golden/  — fixtures with expected outputs")
+        click.echo(f"  {evals_dir}/fixtures/variations/ — fixtures without expected outputs")
+        click.echo(f"  {evals_dir}/.gitignore        — outputs/ excluded from git")
+        click.echo("")
+        click.echo("Next steps:")
+        click.echo(f"  1. Fill in system name and domain in {evals_dir}/config.yaml")
+        click.echo(f"  2. Tag each eval: right, good, or safe")
+        click.echo(f"  3. Add fixtures to {evals_dir}/fixtures/")
+        click.echo(f"  4. Run your system → write outputs to {evals_dir}/outputs/")
+        click.echo(f"  5. fieldtest score")
     else:
         config_path = evals_dir / "config.yaml"
         if not config_path.exists() or force:
@@ -493,6 +506,8 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         click.echo(f"  2. Add fixtures to {evals_dir}/fixtures/")
         click.echo(f"  3. Run your system → write outputs to {evals_dir}/outputs/")
         click.echo(f"  4. fieldtest score")
+        click.echo("")
+        click.echo("Or start from a template: fieldtest init --template chatbot")
 
 
 # ---------------------------------------------------------------------------
