@@ -95,9 +95,14 @@ class Eval(BaseModel):
 
 
 class FixturesConfig(BaseModel):
-    directory: str = "fixtures/"
+    directory: str           = "fixtures/"
     sets:      dict[str, Union[list[str], str]]  # set_name → [ids] | "dir/*" | "all"
     runs:      Optional[int] = None
+    # Optional dataset snapshot tag — surfaces in result metadata so that
+    # find_baseline() skips runs from a different snapshot, and `fieldtest diff`
+    # warns when an explicit baseline crosses versions. Existing configs that
+    # omit this field are treated as unversioned (no filter, no warning).
+    version:   Optional[str] = None
 
 
 class UseCase(BaseModel):
@@ -250,6 +255,17 @@ def resolve_runs(config: Config, use_case: UseCase) -> int:
     if use_case.fixtures.runs is not None:
         return use_case.fixtures.runs
     return config.defaults.runs  # Defaults model defaults to 5
+
+
+def resolve_dataset_version(config: Config) -> Optional[str]:
+    """
+    Return the dataset version from the first use_case's fixtures.version, or None.
+    Mirrors the run-resolution pattern: a single value per run, taken from the
+    first use_case (consistent with how `runs` is reported in `data.json`).
+    """
+    if not config.use_cases:
+        return None
+    return config.use_cases[0].fixtures.version
 
 
 def resolve_set(set_name: str, use_case: UseCase, base_dir: Path) -> list[str]:

@@ -184,15 +184,26 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     }
 
 
-def find_baseline(results_dir: Path, current_run_id: str, set_name: str) -> Optional[Path]:
+def find_baseline(
+    results_dir: Path,
+    current_run_id: str,
+    set_name: str,
+    dataset_version: Optional[str] = None,
+) -> Optional[Path]:
     """
     Find the most recent results JSON in results_dir that:
       - is not the current run
       - was scored on the same set (smoke/full/regression/etc.)
+      - matches dataset_version if one is provided
 
     Filtering by set prevents misleading deltas when fixture populations differ
     between runs — e.g. comparing a full-set run against a smoke-set baseline
     would show movement that's purely an artifact of coverage, not model behavior.
+
+    Filtering by dataset_version (when set) prevents the same artifact when
+    fixtures themselves change between dataset snapshots. Unversioned current
+    runs match any baseline (backwards compatible). Versioned current runs
+    only match baselines tagged with the same version.
 
     Returns None if no matching baseline found.
     """
@@ -204,8 +215,11 @@ def find_baseline(results_dir: Path, current_run_id: str, set_name: str) -> Opti
             continue
         try:
             data = json.loads(p.read_text())
-            if data.get("set") == set_name:
-                return p
+            if data.get("set") != set_name:
+                continue
+            if dataset_version is not None and data.get("dataset_version") != dataset_version:
+                continue
+            return p
         except Exception:
             continue
     return None

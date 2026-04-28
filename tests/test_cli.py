@@ -556,3 +556,106 @@ def test_history_no_results(tmp_path):
     )
     assert result.exit_code == 0
     assert "No results" in result.output
+
+
+# ---------------------------------------------------------------------------
+# diff command — dataset_version warning
+# ---------------------------------------------------------------------------
+
+def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
+               baseline_run_id: str | None = None) -> None:
+    """Plant a fake -data.json that the diff command will read."""
+    data: dict = {
+        "run_id": run_id,
+        "set":    "full",
+        "summary": {},
+        "delta":   {
+            "baseline_run_id": baseline_run_id,
+            "increased": [],
+            "decreased": [],
+            "unchanged": [],
+        },
+    }
+    if dataset_version is not None:
+        data["dataset_version"] = dataset_version
+    (evals_dir / "results" / f"{run_id}-data.json").write_text(json.dumps(data))
+
+
+def test_diff_warns_on_dataset_version_mismatch(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", dataset_version="v1")
+    _plant_run(evals_dir, "run-new", dataset_version="v2", baseline_run_id="run-old")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "Dataset version mismatch" in result.output
+    assert "v2" in result.output and "v1" in result.output
+
+
+def test_diff_silent_when_versions_match(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", dataset_version="v2")
+    _plant_run(evals_dir, "run-new", dataset_version="v2", baseline_run_id="run-old")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "Dataset version mismatch" not in result.output
+
+
+def test_diff_silent_when_either_side_unversioned(tmp_path):
+    """Backwards compat: unversioned baseline + versioned current → no warning."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", dataset_version=None)
+    _plant_run(evals_dir, "run-new", dataset_version="v2", baseline_run_id="run-old")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "Dataset version mismatch" not in result.output
+
+
+def test_score_writes_dataset_version_to_data_json(tmp_path):
+    """Verify dataset_version round-trips from config → data.json."""
+    config_with_version = MINIMAL_CONFIG.replace(
+        "      runs: 2\n",
+        "      runs: 2\n      version: v3\n",
+        1,  # only first occurrence (under fixtures, not defaults)
+    )
+    evals_dir = _setup_project(tmp_path, config=config_with_version)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    result = _run_score(evals_dir, set_name="full")
+    assert result.exit_code == 0
+
+    data_files = list((evals_dir / "results").glob("*-data.json"))
+    assert len(data_files) == 1
+    data = json.loads(data_files[0].read_text())
+    assert data.get("dataset_version") == "v3"
+
+
+def test_score_data_json_has_null_version_when_unset(tmp_path):
+    """Existing configs without `version` write null — schema stays consistent."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    result = _run_score(evals_dir, set_name="full")
+    assert result.exit_code == 0
+
+    data_files = list((evals_dir / "results").glob("*-data.json"))
+    data = json.loads(data_files[0].read_text())
+    assert "dataset_version" in data  # field always present
+    assert data["dataset_version"] is None
