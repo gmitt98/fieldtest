@@ -16,6 +16,7 @@ from fieldtest.config import (
     Config,
     ResultRow,
     load_fixture,
+    resolve_dataset_version,
     resolve_runs,
     resolve_set,
 )
@@ -131,10 +132,14 @@ def score(
     # -------------------------------------------------------------------
     summary = build_summary(all_results, config)
 
-    # Auto-detect baseline — same set only, to avoid misleading cross-set deltas
+    # Auto-detect baseline — same set + dataset_version only, to avoid misleading
+    # cross-set or cross-snapshot deltas.
     run_id = make_run_id()
     if baseline_path is None:
-        baseline_path = find_baseline(results_dir, run_id, set_name)
+        baseline_path = find_baseline(
+            results_dir, run_id, set_name,
+            dataset_version=resolve_dataset_version(config),
+        )
 
     delta = build_delta(summary, baseline_path)
 

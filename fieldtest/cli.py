@@ -326,6 +326,26 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     click.echo(f"Baseline:  {delta.get('baseline_run_id', '—')}")
     click.echo("")
 
+    # Warn if the user is comparing across dataset snapshots — only fires when
+    # both runs declare a version and they differ. Either side unversioned is
+    # treated as backwards-compat silence.
+    cur_ver = current_data.get("dataset_version")
+    base_ver = None
+    base_run_id = delta.get("baseline_run_id")
+    if base_run_id:
+        bp = results_dir / f"{base_run_id}-data.json"
+        if bp.exists():
+            try:
+                base_ver = json.loads(bp.read_text()).get("dataset_version")
+            except Exception:
+                base_ver = None
+    if cur_ver is not None and base_ver is not None and cur_ver != base_ver:
+        click.echo(
+            f"⚠ Dataset version mismatch — current: {cur_ver}, baseline: {base_ver}. "
+            f"Deltas may reflect fixture changes, not model behavior."
+        )
+        click.echo("")
+
     increased = delta.get("increased", [])
     decreased = delta.get("decreased", [])
     unchanged = delta.get("unchanged", [])

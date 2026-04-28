@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from fieldtest.config import Config, Defaults, parse_and_validate
+from fieldtest.config import Config, Defaults, parse_and_validate, resolve_dataset_version
 from fieldtest.errors import ConfigError
 
 
@@ -297,6 +297,40 @@ def test_run_priority_hardcoded_fallback(tmp_path):
     cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
     assert cfg.use_cases[0].fixtures.runs is None
     assert cfg.defaults.runs == 5  # hardcoded default in Defaults model
+
+
+def test_dataset_version_optional_defaults_to_none(tmp_path):
+    """Existing configs that omit `version` continue to load — backwards compatible."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.use_cases[0].fixtures.version is None
+    assert resolve_dataset_version(cfg) is None
+
+
+def test_dataset_version_parses_when_set(tmp_path):
+    content = """\
+        schema_version: 1
+        system:
+          name: test system
+          domain: test domain
+        use_cases:
+          - id: uc1
+            description: test use case
+            evals:
+              - id: ev1
+                tag: right
+                type: regex
+                description: checks something
+                pattern: "foo"
+                match: true
+            fixtures:
+              directory: fixtures/
+              version: v2
+              sets:
+                full: []
+        """
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.use_cases[0].fixtures.version == "v2"
+    assert resolve_dataset_version(cfg) == "v2"
 
 
 def test_raw_pydantic_error_not_propagated(tmp_path):

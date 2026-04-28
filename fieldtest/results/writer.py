@@ -83,14 +83,18 @@ def _build_json(
         from fieldtest.config import resolve_runs
         runs = resolve_runs(config, config.use_cases[0])
 
+    from fieldtest.config import resolve_dataset_version
+    dataset_version = resolve_dataset_version(config)
+
     data = {
-        "run_id":        run_id,
-        "set":           set_name,
-        "fixture_count": len(fixture_ids),
-        "runs":          runs,
-        "rows":          [r.model_dump() for r in rows],
-        "summary":       summary,
-        "delta":         delta,
+        "run_id":          run_id,
+        "set":             set_name,
+        "dataset_version": dataset_version,
+        "fixture_count":   len(fixture_ids),
+        "runs":            runs,
+        "rows":            [r.model_dump() for r in rows],
+        "summary":         summary,
+        "delta":           delta,
     }
     return json.dumps(data, indent=2, default=str)
 

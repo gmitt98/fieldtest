@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from fieldtest.config import Config, Defaults, Eval, FixturesConfig, ResultRow, SystemConfig, UseCase
-from fieldtest.results.aggregator import build_delta, build_summary
+from fieldtest.results.aggregator import build_delta, build_summary, find_baseline
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +224,56 @@ def test_delta_scored_compares_mean(tmp_path):
     delta    = build_delta(current, baseline)
     assert len(delta["increased"]) == 1
     assert delta["increased"][0]["delta"] == pytest.approx(0.5, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# find_baseline tests — set + dataset_version filtering
+# ---------------------------------------------------------------------------
+
+def _write_data_json(tmp_path: Path, run_id: str, set_name: str,
+                     dataset_version: str | None = None) -> Path:
+    data: dict = {"run_id": run_id, "set": set_name, "summary": {}}
+    if dataset_version is not None:
+        data["dataset_version"] = dataset_version
+    p = tmp_path / f"{run_id}-data.json"
+    p.write_text(json.dumps(data))
+    return p
+
+
+def test_find_baseline_returns_none_when_dir_missing(tmp_path):
+    assert find_baseline(tmp_path / "nope", "current", "smoke") is None
+
+
+def test_find_baseline_skips_other_sets(tmp_path):
+    _write_data_json(tmp_path, "old-1", "full")
+    _write_data_json(tmp_path, "old-2", "smoke")
+    result = find_baseline(tmp_path, "current", "smoke")
+    assert result is not None and result.stem == "old-2-data"
+
+
+def test_find_baseline_skips_self(tmp_path):
+    _write_data_json(tmp_path, "current", "smoke")
+    assert find_baseline(tmp_path, "current", "smoke") is None
+
+
+def test_find_baseline_unversioned_current_matches_any(tmp_path):
+    """Backwards compatibility: if current run has no dataset_version, accept any baseline."""
+    _write_data_json(tmp_path, "old-1", "smoke", dataset_version="v2")
+    _write_data_json(tmp_path, "old-2", "smoke")  # unversioned
+    result = find_baseline(tmp_path, "current", "smoke", dataset_version=None)
+    # Most recent matching set wins — sort is reverse alpha, "old-2" > "old-1"
+    assert result is not None and result.stem == "old-2-data"
+
+
+def test_find_baseline_versioned_current_filters_to_same_version(tmp_path):
+    _write_data_json(tmp_path, "old-1", "smoke", dataset_version="v1")
+    _write_data_json(tmp_path, "old-2", "smoke", dataset_version="v2")
+    _write_data_json(tmp_path, "old-3", "smoke")  # unversioned — should NOT match versioned current
+    result = find_baseline(tmp_path, "current", "smoke", dataset_version="v2")
+    assert result is not None and result.stem == "old-2-data"
+
+
+def test_find_baseline_versioned_current_with_no_match_returns_none(tmp_path):
+    _write_data_json(tmp_path, "old-1", "smoke", dataset_version="v1")
+    _write_data_json(tmp_path, "old-2", "smoke")  # unversioned
+    assert find_baseline(tmp_path, "current", "smoke", dataset_version="v2") is None
