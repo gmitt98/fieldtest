@@ -5,24 +5,44 @@ build-backend = "hatchling.build"
 [project]
 name = "fieldtest"
 version = "0.2.1"
-description = "Structured AI eval practice for any project"
+description = "LLM evaluation framework — define what correct, well-formed, and safe means before you measure"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Galen Mittermann" }
 ]
-keywords = ["evals", "llm", "ai", "testing", "evaluation"]
+keywords = [
+    "eval",
+    "evals",
+    "evaluation",
+    "llm",
+    "ai",
+    "llm-evaluation",
+    "llm-eval",
+    "ai-evaluation",
+    "eval-framework",
+    "llm-judge",
+    "llm-testing",
+    "model-evaluation",
+    "guardrails",
+    "ai-safety",
+    "prompt-evaluation",
+    "python",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Testing",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
 ]
 dependencies = [
     "anthropic>=0.20.0",
@@ -32,9 +52,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gmitt98/fieldtest"
+Homepage = "https://fieldtest.run"
+Documentation = "https://fieldtest.run"
 Repository = "https://github.com/gmitt98/fieldtest"
-Issues = "https://github.com/gmitt98/fieldtest"
+Issues = "https://github.com/gmitt98/fieldtest/issues"
 
 [project.scripts]
 fieldtest = "fieldtest.cli:main"
