@@ -242,6 +242,197 @@ def test_gemini_non_json_response():
 
 
 # ---------------------------------------------------------------------------
+# Anthropic adapter tests (mocked — no real API calls)
+# ---------------------------------------------------------------------------
+
+def _make_anthropic_module(*, raises=None, returns_text=None):
+    """
+    Build a mock `anthropic` module. Pass either `raises` (an exception
+    instance, or a list of exceptions to raise in sequence then succeed) or
+    `returns_text` to control what the mocked client returns.
+    """
+    mock_anthropic_module = MagicMock()
+
+    # Real-ish APIStatusError that the adapter's except clause can catch.
+    class _APIStatusError(Exception):
+        def __init__(self, message, status_code):
+            super().__init__(message)
+            self.status_code = status_code
+
+    mock_anthropic_module.APIStatusError = _APIStatusError
+
+    mock_client_instance = MagicMock()
+
+    if raises is not None:
+        side = raises if isinstance(raises, list) else [raises]
+        # After exhausting `side`, fall back to returning a successful response
+        # so retry-then-succeed scenarios work.
+        success_message = MagicMock()
+        success_message.content = [MagicMock(text=returns_text or '{"answer": "Pass", "reasoning": "ok"}')]
+        mock_client_instance.messages.create.side_effect = side + [success_message]
+    else:
+        mock_message = MagicMock()
+        mock_message.content = [MagicMock(text=returns_text)]
+        mock_client_instance.messages.create.return_value = mock_message
+
+    mock_anthropic_module.Anthropic.return_value = mock_client_instance
+    return mock_anthropic_module, mock_client_instance, _APIStatusError
+
+
+def test_anthropic_missing_api_key():
+    mock_anthropic_module = MagicMock()
+    with patch.dict("os.environ", {}, clear=True):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+    assert "error" in result
+    assert "ANTHROPIC_API_KEY" in result["error"]
+
+
+def test_anthropic_missing_package():
+    adapter = AnthropicAdapter()
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": None}):
+            result = adapter.call("claude-haiku-4-5", "test prompt")
+    assert "error" in result
+    assert "anthropic" in result["error"].lower()
+
+
+def test_anthropic_successful_call():
+    mock_anthropic_module, _, _ = _make_anthropic_module(
+        returns_text='{"answer": "Pass", "reasoning": "Looks good"}'
+    )
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+
+    assert result == {"answer": "Pass", "reasoning": "Looks good"}
+
+
+def test_anthropic_strips_markdown_fences():
+    mock_anthropic_module, _, _ = _make_anthropic_module(
+        returns_text='```json\n{"answer": "Fail", "reasoning": "Bad"}\n```'
+    )
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+
+    assert result == {"answer": "Fail", "reasoning": "Bad"}
+
+
+def test_anthropic_non_json_response():
+    mock_anthropic_module, _, _ = _make_anthropic_module(returns_text="This is not JSON")
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+
+    assert "error" in result
+    assert "non-JSON" in result["error"]
+
+
+def test_anthropic_retries_on_overloaded_then_succeeds():
+    """529 OverloadedError on first attempt, success on second — should retry."""
+    mock_anthropic_module = MagicMock()
+
+    class _APIStatusError(Exception):
+        def __init__(self, message, status_code):
+            super().__init__(message)
+            self.status_code = status_code
+
+    mock_anthropic_module.APIStatusError = _APIStatusError
+
+    overload_err = _APIStatusError("Overloaded", 529)
+    success_message = MagicMock()
+    success_message.content = [MagicMock(text='{"answer": "Pass", "reasoning": "ok"}')]
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.messages.create.side_effect = [overload_err, success_message]
+    mock_anthropic_module.Anthropic.return_value = mock_client_instance
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            with patch.object(ant_mod.time, "sleep") as mock_sleep:
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+
+    assert result == {"answer": "Pass", "reasoning": "ok"}
+    assert mock_client_instance.messages.create.call_count == 2
+    mock_sleep.assert_called_once_with(5)  # first backoff
+
+
+def test_anthropic_exhausts_retries_on_persistent_overload():
+    """Every attempt 529s — adapter should give up after the schedule and return error."""
+    mock_anthropic_module = MagicMock()
+
+    class _APIStatusError(Exception):
+        def __init__(self, message, status_code):
+            super().__init__(message)
+            self.status_code = status_code
+
+    mock_anthropic_module.APIStatusError = _APIStatusError
+    mock_client_instance = MagicMock()
+    mock_client_instance.messages.create.side_effect = _APIStatusError("Overloaded", 529)
+    mock_anthropic_module.Anthropic.return_value = mock_client_instance
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            with patch.object(ant_mod.time, "sleep") as mock_sleep:
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+
+    assert "error" in result
+    assert "Overloaded" in result["error"]
+    # 7 attempts total = 1 initial + 6 retries from the backoff schedule
+    assert mock_client_instance.messages.create.call_count == 7
+    assert mock_sleep.call_count == 6
+
+
+def test_anthropic_does_not_retry_non_529_status_errors():
+    """Non-529 APIStatusError (e.g. 401) should fail immediately, no retry."""
+    mock_anthropic_module = MagicMock()
+
+    class _APIStatusError(Exception):
+        def __init__(self, message, status_code):
+            super().__init__(message)
+            self.status_code = status_code
+
+    mock_anthropic_module.APIStatusError = _APIStatusError
+    mock_client_instance = MagicMock()
+    mock_client_instance.messages.create.side_effect = _APIStatusError("Unauthorized", 401)
+    mock_anthropic_module.Anthropic.return_value = mock_client_instance
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            with patch.object(ant_mod.time, "sleep") as mock_sleep:
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+
+    assert "error" in result
+    assert mock_client_instance.messages.create.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Config validation — provider field
 # ---------------------------------------------------------------------------
 
