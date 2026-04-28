@@ -780,19 +780,71 @@ Five files per run, named `[run-id]-data.*` or `[run-id]-report.*`:
 | `[run-id]-report.csv` | Spreadsheet report — same three views, designed to open in Excel or Numbers. |
 | `[run-id]-report.html` | Visual matrix report — open with `fieldtest view`. Self-contained, works offline. |
 
-CI gating: `fieldtest score` exits 0 on success, 1 on error. It does not exit non-zero on high failure rates — the tool measures; you judge. To gate CI on specific failure rates, parse the `-data.json`:
+---
+
+## CI gating
+
+`fieldtest score` exits 0 on success, 1 on error. It does **not** exit non-zero on high failure rates — the tool measures; you judge. Hardcoding thresholds in the tool would convert a measurement practice into a test suite. Thresholds belong in your CI config, where they stay versioned and team-owned.
+
+To gate CI on specific failure rates, parse the `-data.json` summary:
 
 ```bash
-python3 -c "
-import json, glob, sys
-f = sorted(glob.glob('evals/results/*-data.json'))[-1]
-rows = json.load(open(f))['rows']
-failures = [r for r in rows if r['eval_id'] == 'no_fabrication' and r.get('passed') is False]
-if failures:
-    print(f'no_fabrication failed on {len(failures)} runs')
-    sys.exit(1)
-"
+# Fail CI if any eval's failure rate exceeds 20%
+DATA=$(ls -t evals/results/*-data.json | head -1)
+WORST=$(jq '[.summary[][][].failure_rate | select(. != null)] | max // 0' "$DATA")
+awk -v w="$WORST" 'BEGIN { exit (w > 0.20) }' || {
+  echo "Worst eval failure rate $WORST exceeds threshold 0.20"
+  exit 1
+}
 ```
+
+Target a specific eval:
+
+```bash
+# Fail CI if a specific eval has any failures
+jq -e '.summary["uc1"]["safe"]["no-policy-invention"].failure_rate == 0' "$DATA" \
+  || { echo "no-policy-invention regressed"; exit 1; }
+```
+
+Gate only on `safe` evals (looser thresholds for `right`/`good`):
+
+```bash
+jq '[.summary[].safe[].failure_rate | select(. != null)] | max // 0' "$DATA"
+```
+
+### `data.json` summary schema
+
+The fields most commonly used for CI gating:
+
+```json
+{
+  "run_id": "2026-03-22T14-30-00-a3f9",
+  "set": "regression",
+  "dataset_version": "v2",
+  "summary": {
+    "<use_case_id>": {
+      "<tag>": {
+        "<eval_id>": {
+          "failure_rate": 0.10,
+          "total_runs": 30,
+          "error_count": 0,
+          "floor_hits": 0,
+          "mean":   3.5,
+          "stddev": 0.4,
+          "min": 3,
+          "max": 5
+        }
+      }
+    }
+  }
+}
+```
+
+- `failure_rate` is `null` for scored evals; use `mean` instead.
+- `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
+- `dataset_version` is optional; absent in older runs.
+
+A complete GitHub Actions workflow (with artifact upload) is in [`examples/generate-patterns.md`](examples/generate-patterns.md#ci-integration-github-actions-example).
 
 ---
 
