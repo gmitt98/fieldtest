@@ -2,11 +2,13 @@
 
 The eval landscape is crowded at the execution layer and nearly empty at the practice layer.
 
-Most eval tools assume you already know what to evaluate. You install a framework, run some metrics, see numbers. The numbers feel like quality yet they're not: they are measurements without meaning, because nobody defined what the measurements are supposed to catch before running them.
+Most eval tools assume you already know what to evaluate: you install a framework, run some metrics, see numbers. The numbers you get that way feel like quality yet they're not: they are measurements without meaning, because nobody defined what the measurements are supposed to catch before running them.
 
 **fieldtest is a tool for the layer that's missing: the reasoning that produces the evals.**
 
-The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. That sequence is the thing most teams skip, which is why they end up with evals that measure what's easy rather than what matters. The structure of the testing enforces the reasoning.
+The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. This is an easy sequence to skip, which is why teams can end up with evals that measure what's easy rather than what matters for their product. The structure of the testing enforces the reasoning behind your quality needs.
+
+If you've used DeepEval, Promptfoo, Inspect, or Ragas and felt that running the eval was the easy part, that deciding *what* to evaluate was where the work actually lived, then you've experienced the gap that fieldtest is built for. This is not another judge framework — it is a config-first framework that forces you to name what "correct," "well-formed," and "safe" mean for your system before you can score anything. The output is structured, diff-friendly, and scored as distributions instead of pass/fail verdicts, so failure tells you where to look and what kind of fix it is.
 
 ---
 
@@ -844,17 +846,17 @@ The fields most commonly used for CI gating:
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `dataset_version` is optional; absent in older runs.
 
-A complete GitHub Actions workflow (with artifact upload) is in [`examples/generate-patterns.md`](examples/generate-patterns.md#ci-integration-github-actions-example).
+A complete GitHub Actions workflow (with artifact upload) is in [`examples/generate-patterns.md`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate-patterns.md#ci-integration-github-actions-example).
 
 ---
 
 ## Examples and patterns
 
-- `examples/generate_anthropic.py` — complete generator calling Claude directly
-- `examples/generate_openai.py` — complete generator calling OpenAI
-- `examples/generate_subprocess.py` — complete generator calling any CLI tool
-- `examples/generate-patterns.md` — sets, CI integration, scheduling, multiple generators, production traffic sampling
-- `examples/eval-patterns.md` — eval design cookbook: refusals, format compliance, forbidden content, conditional behavior, classification, and more
+- [`examples/generate_anthropic.py`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate_anthropic.py) — complete generator calling Claude directly
+- [`examples/generate_openai.py`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate_openai.py) — complete generator calling OpenAI
+- [`examples/generate_subprocess.py`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate_subprocess.py) — complete generator calling any CLI tool
+- [`examples/generate-patterns.md`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate-patterns.md) — sets, CI integration, scheduling, multiple generators, production traffic sampling
+- [`examples/eval-patterns.md`](https://github.com/gmitt98/fieldtest/blob/master/examples/eval-patterns.md) — eval design cookbook: refusals, format compliance, forbidden content, conditional behavior, classification, and more
 
 ---
 
@@ -862,7 +864,7 @@ A complete GitHub Actions workflow (with artifact upload) is in [`examples/gener
 
 Engineering teams will say: *we figure out what "good" means as we go.* This sounds like pragmatism. It isn't.
 
-[Read the full argument →](docs/philosophy.md)
+[Read the full argument →](https://github.com/gmitt98/fieldtest/blob/master/docs/philosophy.md)
 
 ---
 
