@@ -576,6 +576,13 @@ hr.divider {
   gtag('js', new Date());
   gtag('config', 'G-JQMH28X2JZ');
 </script>
+
+<!-- Cloudflare Web Analytics (cookieless). Added alongside GA4, not instead of it: GA4 keeps the
+     history, and this feeds the cross-property traffic briefing, which reads every site through
+     one Cloudflare token. NOTE data-cf-beacon takes the site TOKEN; the GraphQL siteTag for
+     fieldtest.run is the different value dc3904c838f34ed3a4fd5e74ea2f25cc — filtering RUM by the
+     token silently returns zero rows instead of erroring. -->
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "28858f2c5f2540128d051be9f8f833ad"}'></script>
 </head>
 <body>
 
