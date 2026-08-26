@@ -102,6 +102,38 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
 # build_delta
 # ---------------------------------------------------------------------------
 
+def summarize_judge_errors(summary: dict) -> Optional[dict]:
+    """
+    Judge errors across the run, or None if there were none.
+
+    Errored rows are excluded from failure_rate and counted in error_count,
+    which is correct in isolation but means an overloaded provider silently
+    shrinks the sample rather than failing loudly. This is what the report
+    needs to say so out loud.
+
+    Returns {"failed", "total", "affected": [(eval_id, scored, attempted)]}.
+    """
+    failed = 0
+    total  = 0
+    affected: list[tuple[str, int, int]] = []
+
+    for uc_stats in summary.values():
+        for tag_stats in uc_stats.values():
+            for eval_id, stats in tag_stats.items():
+                errors    = stats.get("error_count") or 0
+                scored    = stats.get("total_runs") or 0
+                attempted = scored + errors
+                failed   += errors
+                total    += attempted
+                if errors:
+                    affected.append((eval_id, scored, attempted))
+
+    if not failed:
+        return None
+
+    return {"failed": failed, "total": total, "affected": affected}
+
+
 def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     """
     Compare current summary to baseline.

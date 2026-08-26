@@ -139,6 +139,26 @@ completes the run, and names it once in the report header rather than failing.
 Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
 guarantees determinism. What is left is a property of the provider, not of your system.
 
+### Judge retries
+
+Judge errors do not fail a run. They are excluded from the failure rate and counted separately,
+which means an overloaded provider quietly shrinks your sample instead of telling you. Every
+provider therefore shares one retry policy, and any run with errors says so in the report header
+and marks the affected evals in the per-eval table.
+
+```yaml
+defaults:
+  judge_retry:
+    max_attempts: 6                   # retries after the first call
+    initial_delay: 5.0                # seconds
+    max_delay: 60.0
+    multiplier: 2.0                   # default schedule: 5, 10, 20, 40, 60, 60
+```
+
+Retried: HTTP 429, 500, 502, 503, 504, 529, and the SDK connection and timeout errors.
+Not retried: a missing package or API key, an authentication failure, an unknown model, and a
+judge response that is not valid JSON — none of which a second attempt can fix.
+
 ---
 
 ## How it works

@@ -224,6 +224,23 @@ def format_report(
             + ", ".join(unsupported_params)
         )
 
+    # Judge errors shrink the sample rather than failing the run, so say so where
+    # the rates are read rather than leaving it to be inferred from two numbers.
+    from fieldtest.results.aggregator import summarize_judge_errors
+    judge_errors = summarize_judge_errors(summary)
+    if judge_errors:
+        lines.append(
+            f"⚠ judge errors: {judge_errors['failed']} of {judge_errors['total']} "
+            f"calls failed after retry."
+        )
+        lines.append(
+            "  affected evals: "
+            + ", ".join(
+                f"{eval_id} ({scored} of {attempted} runs scored)"
+                for eval_id, scored, attempted in judge_errors["affected"]
+            )
+        )
+
     # Per use_case sections
     for uc in config.use_cases:
         uc_stats = summary.get(uc.id, {})
@@ -297,8 +314,15 @@ def format_report(
                     vs_str = "—"
 
                 lbl_str = labels_map.get(eval_id, "—")
+
+                # An eval scored on fewer runs than it attempted is reporting a
+                # rate from a shrunken sample. Mark it where the rate is read.
+                scored    = stats.get("total_runs") or 0
+                attempted = scored + errs
+                err_str   = f"{errs} ⚠ {scored}/{attempted} scored" if errs else f"{errs}"
+
                 lines.append(
-                    f"| {eval_id} | {lbl_str} | {pr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
+                    f"| {eval_id} | {lbl_str} | {pr_str} | {mean_str} | {fh} | {err_str} | {vs_str} |"
                 )
 
                 if errs > 0:

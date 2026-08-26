@@ -47,3 +47,30 @@ string, so an output that echoes a verdict before the judge gives its own no lon
 as the judge's answer.
 
 The demo carries `fixtures/adversarial/prompt-injection.yaml` as a worked example.
+
+### An overloaded provider no longer shrinks your sample in silence
+
+Only the Anthropic adapter retried anything. OpenAI and Gemini returned an error on the first
+exception, and because errored rows are excluded from `failure_rate` and counted separately, a
+burst of provider load quietly turned a five-run eval into a one-run eval that still reported a
+rate. Which judge you used determined how much of your sample survived.
+
+All three providers now share one retry policy — HTTP 429, 500, 502, 503, 504, 529 and the SDK
+connection and timeout errors, on a 5/10/20/40/60/60 second backoff. The Anthropic schedule is
+unchanged; OpenAI and Gemini runs that used to error under load will now take longer and finish.
+Authentication failures, unknown models, missing packages, and malformed judge responses still
+fail immediately.
+
+Tune it per project:
+
+```yaml
+defaults:
+  judge_retry:
+    max_attempts: 2
+    initial_delay: 1.0
+```
+
+When a run does end up with judge errors, the report header now states how many calls failed and
+which evals were scored on a reduced sample — `quality_check (3 of 5 runs scored)` — and those
+evals are marked in the per-eval table. The HTML report carries the same warning.
+

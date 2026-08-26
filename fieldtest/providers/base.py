@@ -6,8 +6,9 @@ Abstract ProviderAdapter base class and judge generation config.
 from __future__ import annotations
 
 import json
+import time
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
 
@@ -26,9 +27,108 @@ class JudgeGenerationConfig(BaseModel):
     max_tokens:  int = 2048
 
 
+class RetryPolicy(BaseModel):
+    """
+    Shared transient-failure policy for every provider.
+
+    max_attempts is the number of RETRIES after the initial call, so the
+    defaults reproduce the original Anthropic schedule exactly:
+    5, 10, 20, 40, 60, 60 — seven calls, six waits.
+    """
+    max_attempts:  int   = 6
+    initial_delay: float = 5.0
+    max_delay:     float = 60.0
+    multiplier:    float = 2.0
+
+    def delay_for(self, attempt: int) -> float:
+        """Capped exponential backoff for a zero-indexed retry number."""
+        return min(self.initial_delay * (self.multiplier ** attempt), self.max_delay)
+
+
+# Transient HTTP conditions, shared across providers: rate limit, server errors,
+# and Anthropic's 529 overload. Anything else — 401 auth, 404 bad model — is a
+# standing condition that retrying cannot fix.
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504, 529})
+
+
+def _status_code(e: BaseException) -> Optional[int]:
+    """HTTP status carried by an SDK exception, under whichever name it uses."""
+    for attr in ("status_code", "code", "status"):
+        value = getattr(e, attr, None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _exception_types(module: Any, *names: str) -> tuple:
+    """
+    Real exception classes from an SDK module, by name.
+    Names the SDK does not define are skipped, as are test doubles that are not
+    actual types — so isinstance() is never handed something it cannot use.
+    """
+    found = []
+    for name in names:
+        candidate = getattr(module, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            found.append(candidate)
+    return tuple(found)
+
+
+def make_is_retryable(*modules_and_names) -> Callable[[BaseException], bool]:
+    """
+    Build a provider's is_retryable from (module, *exception_names) pairs plus
+    the shared status-code set.
+    """
+    transient: tuple = ()
+    for module, names in modules_and_names:
+        transient += _exception_types(module, *names)
+
+    def is_retryable(e: BaseException) -> bool:
+        if transient and isinstance(e, transient):
+            return True
+        code = _status_code(e)
+        return code is not None and code in RETRYABLE_STATUS_CODES
+
+    return is_retryable
+
+
+def with_retry(
+    fn: Callable[[], dict],
+    policy: RetryPolicy,
+    is_retryable: Callable[[BaseException], bool],
+) -> dict:
+    """
+    Run fn, retrying on retryable exceptions with capped exponential backoff.
+    Returns fn's dict on success, or {"error": str} after exhausting attempts.
+    Never raises.
+
+    Errors fn returns as a dict (a non-JSON judge response, say) are answers,
+    not failures, and are passed straight through without retry.
+    """
+    last: Optional[BaseException] = None
+
+    for attempt in range(policy.max_attempts + 1):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 — adapters must never raise
+            last = e
+            if attempt < policy.max_attempts and is_retryable(e):
+                time.sleep(policy.delay_for(attempt))
+                continue
+            return {"error": str(e)}
+
+    return {"error": str(last)}
+
+
 class ProviderAdapter(ABC):
     @abstractmethod
-    def call(self, model: str, prompt: str, gen: JudgeGenerationConfig) -> dict:
+    def call(
+        self,
+        model: str,
+        prompt: str,
+        gen: JudgeGenerationConfig,
+        retry: RetryPolicy,
+    ) -> dict:
         """
         Call the LLM and return parsed JSON dict.
         Returns {"error": str} on failure — never raises.
@@ -37,6 +137,9 @@ class ProviderAdapter(ABC):
         Ignores parameters in `gen` the provider does not support, and names
         them in an optional "unsupported" list on the successful return rather
         than failing. call_judge_llm() collects those for the report header.
+
+        Applies `retry` to transient failures, so an overloaded provider does
+        not silently shrink the sample by erroring out of the denominator.
         """
         ...
 

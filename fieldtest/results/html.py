@@ -30,6 +30,23 @@ def _build_html(run_data: dict, config) -> str:
     summary       = run_data.get("summary", {})
     delta         = run_data.get("delta", {})
 
+    # Judge errors shrink the sample instead of failing the run — say so up top.
+    from fieldtest.results.aggregator import summarize_judge_errors
+    judge_errors = summarize_judge_errors(summary)
+    if judge_errors:
+        affected_str = ", ".join(
+            f"{eval_id} ({scored} of {attempted} runs scored)"
+            for eval_id, scored, attempted in judge_errors["affected"]
+        )
+        judge_error_banner = (
+            '<div class="judge-errors">'
+            f"⚠ judge errors: {judge_errors['failed']} of {judge_errors['total']} "
+            f"calls failed after retry. Affected evals: {affected_str}"
+            "</div>"
+        )
+    else:
+        judge_error_banner = ""
+
     # Extract timestamp from run_id: 2026-03-22T14-30-00-a3f9
     try:
         ts_part    = run_id[:19].replace("T", " ").replace("-", ":")
@@ -124,6 +141,11 @@ def _build_html(run_data: dict, config) -> str:
   .header .meta {{ font-size: 13px; color: #aaa; }}
   .header .meta span {{ color: #fff; font-weight: 500; }}
   .container {{ max-width: 1200px; margin: 0 auto; padding: 24px; }}
+  .judge-errors {{
+    max-width: 1200px; margin: 16px auto 0; padding: 12px 16px;
+    background: #3a2a1a; border-left: 3px solid #d68b2c;
+    color: #f0d5b0; font-size: 13px; border-radius: 3px;
+  }}
   .tag-health {{
     display: flex;
     gap: 16px;
@@ -270,6 +292,8 @@ def _build_html(run_data: dict, config) -> str:
   <div class="meta">Fixtures: <span>{fixture_count}</span></div>
   <div class="meta">Runs/fixture: <span>{runs}</span></div>
 </div>
+
+{judge_error_banner}
 
 <div class="container">
 

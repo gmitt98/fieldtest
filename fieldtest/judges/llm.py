@@ -203,7 +203,7 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
         seed=config.defaults.judge_seed,
     )
 
-    response = adapter.call(model, prompt, gen)
+    response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
 
     dropped = response.pop("unsupported", None)
     if dropped:

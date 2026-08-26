@@ -8,30 +8,37 @@ from __future__ import annotations
 
 import json
 import os
-import time
 
 from fieldtest.providers.base import (
     JudgeGenerationConfig,
     ProviderAdapter,
+    RetryPolicy,
     _parse_last_json_object,
+    make_is_retryable,
+    with_retry,
 )
-
-# Backoff schedule for HTTP 529 OverloadedError. The Anthropic SDK does not
-# auto-retry 529s (unlike 429s), so without this every burst of API load
-# turns into judge errors that silently drop out of the pass-rate denominator.
-_OVERLOAD_BACKOFF_SECONDS = (5, 10, 20, 40, 60, 60)
 
 
 class AnthropicAdapter(ProviderAdapter):
-    def call(self, model: str, prompt: str, gen: JudgeGenerationConfig) -> dict:
+    def call(
+        self,
+        model: str,
+        prompt: str,
+        gen: JudgeGenerationConfig,
+        retry: RetryPolicy,
+    ) -> dict:
         """
         Call Anthropic API with prompt. Returns parsed JSON dict.
         Returns {"error": str} on any failure — never raises.
-        Retries HTTP 529 (OverloadedError) with exponential backoff.
         Anthropic has no seed parameter; a requested seed is dropped and
         reported in "unsupported".
+
+        Retries rate limits, server errors, and HTTP 529. The SDK does not
+        auto-retry 529s (unlike 429s), so without this a burst of API load turns
+        into judge errors that silently drop out of the pass-rate denominator.
         """
         unsupported = ["seed"] if gen.seed is not None else []
+
         try:
             import anthropic as _anthropic
         except ImportError as e:
@@ -46,29 +53,28 @@ class AnthropicAdapter(ProviderAdapter):
         except Exception as e:
             return {"error": str(e)}
 
-        last_overload: Exception | None = None
-        for attempt in range(len(_OVERLOAD_BACKOFF_SECONDS) + 1):
+        def _once() -> dict:
+            message = client.messages.create(
+                model=model,
+                max_tokens=gen.max_tokens,
+                temperature=gen.temperature,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = message.content[0].text.strip()
             try:
-                message = client.messages.create(
-                    model=model,
-                    max_tokens=gen.max_tokens,
-                    temperature=gen.temperature,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                content = message.content[0].text.strip()
                 parsed = _parse_last_json_object(content)
-                if unsupported:
-                    parsed["unsupported"] = unsupported
-                return parsed
-            except _anthropic.APIStatusError as e:
-                if getattr(e, "status_code", None) == 529 and attempt < len(_OVERLOAD_BACKOFF_SECONDS):
-                    last_overload = e
-                    time.sleep(_OVERLOAD_BACKOFF_SECONDS[attempt])
-                    continue
-                return {"error": str(e)}
             except json.JSONDecodeError as e:
+                # A malformed verdict is an answer, not a transient failure.
                 return {"error": f"Judge returned non-JSON response: {e}"}
-            except Exception as e:
-                return {"error": str(e)}
+            if unsupported:
+                parsed["unsupported"] = unsupported
+            return parsed
 
-        return {"error": f"OverloadedError: exhausted retries — {last_overload}"}
+        return with_retry(
+            _once,
+            retry,
+            make_is_retryable((
+                _anthropic,
+                ("APIConnectionError", "APITimeoutError", "InternalServerError", "RateLimitError"),
+            )),
+        )

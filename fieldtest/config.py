@@ -13,6 +13,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
+from fieldtest.providers.base import RetryPolicy
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +131,10 @@ class Defaults(BaseModel):
     # movement in a rate should come from the system under test, not the judge.
     judge_temperature: float = 0.0
     judge_seed:        Optional[int] = None
+
+    # Transient-failure policy for judge calls. A fast local demo and a nightly
+    # CI run want different patience, so this is configurable rather than fixed.
+    judge_retry: RetryPolicy = RetryPolicy()
 
     @field_validator("provider")
     @classmethod

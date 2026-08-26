@@ -10,12 +10,14 @@ import pytest
 from fieldtest.errors import ProviderError
 from fieldtest.providers import get_provider_adapter
 from fieldtest.providers.anthropic import AnthropicAdapter
-from fieldtest.providers.base import JudgeGenerationConfig
+from fieldtest.providers.base import JudgeGenerationConfig, RetryPolicy
 from fieldtest.providers.gemini import GeminiAdapter
 from fieldtest.providers.openai import OpenAIAdapter
 
 # Default generation config: temperature 0.0, no seed, 2048 max tokens.
 GEN = JudgeGenerationConfig()
+# Default retry policy: 6 retries on 5/10/20/40/60/60 second backoff.
+RETRY = RetryPolicy()
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +58,7 @@ def test_openai_missing_api_key():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN, RETRY)
     assert "error" in result
     assert "OPENAI_API_KEY" in result["error"]
 
@@ -65,7 +67,7 @@ def test_openai_missing_package():
     adapter = OpenAIAdapter()
     with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
         with patch.dict("sys.modules", {"openai": None}):
-            result = adapter.call("gpt-4o", "test prompt", GEN)
+            result = adapter.call("gpt-4o", "test prompt", GEN, RETRY)
     assert "error" in result
     assert "openai" in result["error"].lower()
 
@@ -92,7 +94,7 @@ def test_openai_successful_call():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Pass", "reasoning": "Looks good"}
 
@@ -118,7 +120,7 @@ def test_openai_strips_markdown_fences():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Fail", "reasoning": "Bad"}
 
@@ -144,7 +146,7 @@ def test_openai_non_json_response():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN, RETRY)
 
     assert "error" in result
     assert "non-JSON" in result["error"]
@@ -164,7 +166,7 @@ def test_gemini_missing_api_key():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN, RETRY)
     assert "error" in result
     assert "GEMINI_API_KEY" in result["error"]
 
@@ -173,7 +175,7 @@ def test_gemini_missing_package():
     adapter = GeminiAdapter()
     with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}):
         with patch.dict("sys.modules", {"google": None, "google.genai": None}):
-            result = adapter.call("gemini-2.5-flash", "test prompt", GEN)
+            result = adapter.call("gemini-2.5-flash", "test prompt", GEN, RETRY)
     assert "error" in result
     assert "google-genai" in result["error"].lower()
 
@@ -195,7 +197,7 @@ def test_gemini_successful_call():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Pass", "reasoning": "Looks good"}
 
@@ -217,7 +219,7 @@ def test_gemini_strips_markdown_fences():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Fail", "reasoning": "Bad"}
 
@@ -239,7 +241,7 @@ def test_gemini_non_json_response():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN, RETRY)
 
     assert "error" in result
     assert "non-JSON" in result["error"]
@@ -290,7 +292,7 @@ def test_anthropic_missing_api_key():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
     assert "error" in result
     assert "ANTHROPIC_API_KEY" in result["error"]
 
@@ -299,7 +301,7 @@ def test_anthropic_missing_package():
     adapter = AnthropicAdapter()
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
         with patch.dict("sys.modules", {"anthropic": None}):
-            result = adapter.call("claude-haiku-4-5", "test prompt", GEN)
+            result = adapter.call("claude-haiku-4-5", "test prompt", GEN, RETRY)
     assert "error" in result
     assert "anthropic" in result["error"].lower()
 
@@ -314,7 +316,7 @@ def test_anthropic_successful_call():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Pass", "reasoning": "Looks good"}
 
@@ -329,7 +331,7 @@ def test_anthropic_strips_markdown_fences():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Fail", "reasoning": "Bad"}
 
@@ -342,7 +344,7 @@ def test_anthropic_non_json_response():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert "error" in result
     assert "non-JSON" in result["error"]
@@ -372,8 +374,8 @@ def test_anthropic_retries_on_overloaded_then_succeeds():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            with patch.object(ant_mod.time, "sleep") as mock_sleep:
-                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert result == {"answer": "Pass", "reasoning": "ok"}
     assert mock_client_instance.messages.create.call_count == 2
@@ -399,8 +401,8 @@ def test_anthropic_exhausts_retries_on_persistent_overload():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            with patch.object(ant_mod.time, "sleep") as mock_sleep:
-                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert "error" in result
     assert "Overloaded" in result["error"]
@@ -428,8 +430,8 @@ def test_anthropic_does_not_retry_non_529_status_errors():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            with patch.object(ant_mod.time, "sleep") as mock_sleep:
-                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert "error" in result
     assert mock_client_instance.messages.create.call_count == 1
@@ -522,7 +524,7 @@ def test_adapter_call_accepts_generation_config():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", gen)
+            ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", gen, RETRY)
 
     kwargs = mock_client.messages.create.call_args.kwargs
     assert kwargs["temperature"] == 0.3
@@ -540,7 +542,7 @@ def test_adapter_call_accepts_generation_config():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", gen)
+            oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", gen, RETRY)
 
     kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
     assert kwargs["temperature"] == 0.3
@@ -562,7 +564,7 @@ def test_openai_forwards_seed_when_set():
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
             result = oai_mod.OpenAIAdapter().call(
-                "gpt-4o", "test prompt", JudgeGenerationConfig(seed=42)
+                "gpt-4o", "test prompt", JudgeGenerationConfig(seed=42), RETRY
             )
 
     assert mock_client_instance.chat.completions.create.call_args.kwargs["seed"] == 42
@@ -583,7 +585,7 @@ def test_openai_omits_seed_when_unset():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
+            oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN, RETRY)
 
     assert "seed" not in mock_client_instance.chat.completions.create.call_args.kwargs
 
@@ -599,7 +601,7 @@ def test_anthropic_adapter_reports_seed_unsupported():
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
             result = ant_mod.AnthropicAdapter().call(
-                "claude-haiku-4-5", "test prompt", JudgeGenerationConfig(seed=42)
+                "claude-haiku-4-5", "test prompt", JudgeGenerationConfig(seed=42), RETRY
             )
 
     assert result["unsupported"] == ["seed"]
@@ -617,7 +619,7 @@ def test_anthropic_reports_nothing_unsupported_without_seed():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert "unsupported" not in result
 
@@ -638,7 +640,7 @@ def test_gemini_adapter_sets_max_tokens():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
+            gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN, RETRY)
 
     mock_genai_module.types.GenerateContentConfig.assert_called_once_with(
         temperature=0.0, max_output_tokens=2048
@@ -807,6 +809,195 @@ def test_adapter_returns_judge_verdict_not_echoed_verdict():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN, RETRY)
 
     assert result["answer"] == "Fail"
+
+
+# ---------------------------------------------------------------------------
+# Retry parity (spec 05)
+# ---------------------------------------------------------------------------
+
+class _StatusError(Exception):
+    """Stand-in for an SDK status error, carrying the attribute they all expose."""
+    def __init__(self, message, status_code):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _drive_adapter(provider: str, *, side_effect=None, returns_text=None, retry=None):
+    """
+    Run one adapter against a mocked SDK.
+    Returns (result, api_call_count, sleep_call_count).
+    """
+    retry = retry or RETRY
+    import importlib
+
+    if provider == "anthropic":
+        module = MagicMock()
+        module.APIStatusError = _StatusError
+        client = MagicMock()
+        if side_effect is not None:
+            client.messages.create.side_effect = side_effect
+        else:
+            msg = MagicMock()
+            msg.content = [MagicMock(text=returns_text)]
+            client.messages.create.return_value = msg
+        module.Anthropic.return_value = client
+        env, mods = {"ANTHROPIC_API_KEY": "k"}, {"anthropic": module}
+        target = lambda m: m.AnthropicAdapter()
+        counter = lambda: client.messages.create.call_count
+        path, model = "fieldtest.providers.anthropic", "claude-haiku-4-5"
+
+    elif provider == "openai":
+        module = MagicMock()
+        client = MagicMock()
+        if side_effect is not None:
+            client.chat.completions.create.side_effect = side_effect
+        else:
+            resp = MagicMock()
+            resp.choices = [MagicMock(message=MagicMock(content=returns_text))]
+            client.chat.completions.create.return_value = resp
+        module.OpenAI.return_value = client
+        env, mods = {"OPENAI_API_KEY": "k"}, {"openai": module}
+        target = lambda m: m.OpenAIAdapter()
+        counter = lambda: client.chat.completions.create.call_count
+        path, model = "fieldtest.providers.openai", "gpt-4o"
+
+    else:
+        genai = MagicMock()
+        client = MagicMock()
+        if side_effect is not None:
+            client.models.generate_content.side_effect = side_effect
+        else:
+            resp = MagicMock()
+            resp.text = returns_text
+            client.models.generate_content.return_value = resp
+        genai.Client.return_value = client
+        google = MagicMock()
+        google.genai = genai
+        env = {"GEMINI_API_KEY": "k"}
+        mods = {"google": google, "google.genai": genai}
+        target = lambda m: m.GeminiAdapter()
+        counter = lambda: client.models.generate_content.call_count
+        path, model = "fieldtest.providers.gemini", "gemini-2.5-flash"
+
+    with patch.dict("os.environ", env):
+        with patch.dict("sys.modules", mods):
+            mod = importlib.import_module(path)
+            importlib.reload(mod)
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = target(mod).call(model, "test prompt", GEN, retry)
+
+    return result, counter(), mock_sleep.call_count
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+def test_all_adapters_retry_rate_limit(provider):
+    """429 is transient everywhere — previously only Anthropic retried anything."""
+    result, calls, sleeps = _drive_adapter(
+        provider, side_effect=_StatusError("Rate limited", 429)
+    )
+    assert "error" in result
+    assert calls == 7    # 1 initial + 6 retries
+    assert sleeps == 6
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+@pytest.mark.parametrize("status", [500, 502, 503, 504, 529])
+def test_all_adapters_retry_server_error(provider, status):
+    result, calls, sleeps = _drive_adapter(
+        provider, side_effect=_StatusError("Server error", status)
+    )
+    assert "error" in result
+    assert calls == 7
+    assert sleeps == 6
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+def test_auth_failure_not_retried(provider):
+    """401 is a standing condition; retrying cannot fix it."""
+    result, calls, sleeps = _drive_adapter(
+        provider, side_effect=_StatusError("Unauthorized", 401)
+    )
+    assert "Unauthorized" in result["error"]
+    assert calls == 1
+    assert sleeps == 0
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+def test_invalid_model_not_retried(provider):
+    result, calls, sleeps = _drive_adapter(
+        provider, side_effect=_StatusError("model not found", 404)
+    )
+    assert calls == 1
+    assert sleeps == 0
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+def test_non_json_response_not_retried(provider):
+    """A malformed verdict is an answer, not a transient failure."""
+    result, calls, sleeps = _drive_adapter(provider, returns_text="not json at all")
+    assert "Judge returned non-JSON response" in result["error"]
+    assert calls == 1
+    assert sleeps == 0
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+def test_retry_policy_configurable(provider):
+    """A fast local demo and a nightly CI run want different patience."""
+    policy = RetryPolicy(max_attempts=2, initial_delay=1.0, max_delay=4.0, multiplier=2.0)
+    result, calls, sleeps = _drive_adapter(
+        provider, side_effect=_StatusError("Overloaded", 529), retry=policy
+    )
+    assert "error" in result
+    assert calls == 3
+    assert sleeps == 2
+
+
+def test_anthropic_schedule_unchanged_by_default():
+    """The original schedule is reproduced exactly, not re-tuned."""
+    assert [RetryPolicy().delay_for(i) for i in range(RetryPolicy().max_attempts)] == [
+        5.0, 10.0, 20.0, 40.0, 60.0, 60.0
+    ]
+
+    module = MagicMock()
+    module.APIStatusError = _StatusError
+    client = MagicMock()
+    client.messages.create.side_effect = _StatusError("Overloaded", 529)
+    module.Anthropic.return_value = client
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"anthropic": module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "p", GEN, RETRY)
+
+    assert [c.args[0] for c in mock_sleep.call_args_list] == [5.0, 10.0, 20.0, 40.0, 60.0, 60.0]
+
+
+def test_retry_succeeds_after_transient_failures():
+    """The point of the policy: complete the run rather than shrink the sample."""
+    module = MagicMock()
+    module.APIStatusError = _StatusError
+    client = MagicMock()
+    success = MagicMock()
+    success.content = [MagicMock(text='{"answer": "Pass", "reasoning": "ok"}')]
+    client.messages.create.side_effect = [
+        _StatusError("Overloaded", 529),
+        _StatusError("Rate limited", 429),
+        success,
+    ]
+    module.Anthropic.return_value = client
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"anthropic": module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            with patch("fieldtest.providers.base.time.sleep"):
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "p", GEN, RETRY)
+
+    assert result == {"answer": "Pass", "reasoning": "ok"}

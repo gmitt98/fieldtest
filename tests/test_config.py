@@ -380,3 +380,28 @@ def test_judge_temperature_configurable(tmp_path):
     cfg = parse_and_validate(_write_config(tmp_path, content))
     assert cfg.defaults.judge_temperature == 1.0
     assert cfg.defaults.judge_seed == 7
+
+
+def test_judge_retry_defaults_to_shared_policy(tmp_path):
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.defaults.judge_retry.max_attempts == 6
+    assert cfg.defaults.judge_retry.initial_delay == 5.0
+    assert cfg.defaults.judge_retry.max_delay == 60.0
+    assert cfg.defaults.judge_retry.multiplier == 2.0
+
+
+def test_judge_retry_configurable(tmp_path):
+    """A fast local demo and a nightly CI run want different patience."""
+    content = MINIMAL_VALID.replace(
+        "    schema_version: 1\n",
+        "    schema_version: 1\n"
+        "    defaults:\n"
+        "      judge_retry:\n"
+        "        max_attempts: 2\n"
+        "        initial_delay: 0.5\n",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.defaults.judge_retry.max_attempts == 2
+    assert cfg.defaults.judge_retry.initial_delay == 0.5
+    # Unset fields keep their defaults.
+    assert cfg.defaults.judge_retry.max_delay == 60.0

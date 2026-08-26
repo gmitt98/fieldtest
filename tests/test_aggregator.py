@@ -277,3 +277,91 @@ def test_find_baseline_versioned_current_with_no_match_returns_none(tmp_path):
     _write_data_json(tmp_path, "old-1", "smoke", dataset_version="v1")
     _write_data_json(tmp_path, "old-2", "smoke")  # unversioned
     assert find_baseline(tmp_path, "current", "smoke", dataset_version="v2") is None
+
+
+# ---------------------------------------------------------------------------
+# Judge error surfacing (spec 05)
+# ---------------------------------------------------------------------------
+
+def test_summarize_judge_errors_returns_none_when_clean():
+    from fieldtest.results.aggregator import summarize_judge_errors
+
+    summary = build_summary([_row(passed=True), _row(passed=False)], _make_config())
+    assert summarize_judge_errors(summary) is None
+
+
+def test_summarize_judge_errors_counts_calls_and_affected_evals():
+    from fieldtest.results.aggregator import summarize_judge_errors
+
+    rows = [
+        _row(passed=True),
+        _row(passed=None, error="overloaded"),
+        _row(passed=None, error="overloaded"),
+    ]
+    result = summarize_judge_errors(build_summary(rows, _make_config()))
+
+    assert result["failed"] == 2
+    assert result["total"] == 3
+    assert result["affected"] == [("ev1", 1, 3)]
+
+
+def test_report_header_shows_error_count_when_nonzero():
+    """An overloaded provider shrinks the sample; the header must say so."""
+    from fieldtest.results.report import format_report
+
+    config = _make_config()
+    rows = [
+        _row(passed=True),
+        _row(passed=None, error="overloaded"),
+        _row(passed=None, error="overloaded"),
+    ]
+    report = format_report(
+        rows=rows, summary=build_summary(rows, config), delta={},
+        config=config, run_id="test-run", set_name="full",
+    )
+
+    assert "judge errors: 2 of 3 calls failed after retry." in report
+    assert "ev1 (1 of 3 runs scored)" in report
+
+
+def test_report_header_omits_error_count_when_zero():
+    from fieldtest.results.report import format_report
+
+    config = _make_config()
+    rows = [_row(passed=True), _row(passed=False)]
+    report = format_report(
+        rows=rows, summary=build_summary(rows, config), delta={},
+        config=config, run_id="test-run", set_name="full",
+    )
+    assert "judge errors:" not in report
+
+
+def test_eval_marked_when_total_runs_below_configured():
+    """The per-eval row itself must show the shrunken sample, not just the header."""
+    from fieldtest.results.report import format_report
+
+    config = _make_config()
+    rows = [
+        _row(passed=True),
+        _row(passed=True),
+        _row(passed=None, error="overloaded"),
+    ]
+    report = format_report(
+        rows=rows, summary=build_summary(rows, config), delta={},
+        config=config, run_id="test-run", set_name="full",
+    )
+
+    assert "| 1 ⚠ 2/3 scored |" in report
+
+
+def test_eval_not_marked_when_fully_scored():
+    from fieldtest.results.report import format_report
+
+    config = _make_config()
+    rows = [_row(passed=True), _row(passed=False)]
+    report = format_report(
+        rows=rows, summary=build_summary(rows, config), delta={},
+        config=config, run_id="test-run", set_name="full",
+    )
+    assert "scored |" not in report
+    assert "| 0 |" in report
