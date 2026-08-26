@@ -165,6 +165,7 @@ def format_report(
     set_name: str,
     partial: bool = False,
     partial_details: Optional[list[str]] = None,
+    unsupported_params: Optional[list[str]] = None,
 ) -> str:
     """
     Build the full markdown report as a string.
@@ -207,6 +208,20 @@ def format_report(
         lines.append(
             f"{ts} | set: {set_name} | {fixture_count} fixtures × {runs} runs = "
             f"{fixture_count * runs} evaluations per eval"
+        )
+
+    # Only when an LLM judge is actually configured — a rules-only project has
+    # no judge, and naming one would describe an instrument that never ran.
+    if any(ev.type == "llm" for uc in config.use_cases for ev in uc.evals):
+        lines.append(
+            f"judge: {config.defaults.provider} {config.defaults.model} | "
+            f"temperature: {config.defaults.judge_temperature}"
+            + (f" | seed: {config.defaults.judge_seed}" if config.defaults.judge_seed is not None else "")
+        )
+    if unsupported_params:
+        lines.append(
+            "⚠ judge parameters ignored by provider: "
+            + ", ".join(unsupported_params)
         )
 
     # Per use_case sections

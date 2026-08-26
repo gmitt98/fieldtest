@@ -33,6 +33,7 @@ def write_results(
     set_name: str = "full",
     partial: bool = False,
     partial_details: Optional[list[str]] = None,
+    unsupported_params: Optional[list[str]] = None,
 ) -> None:
     """
     Write {run_id}-data.json, {run_id}-data.csv, {run_id}-report.md,
@@ -52,7 +53,8 @@ def write_results(
     json_content        = _build_json(rows, summary, delta, config, run_id, set_name)
     data_csv_content    = _build_data_csv(rows)
     md_content          = format_report(
-        rows, summary, delta, config, run_id, set_name, partial, partial_details
+        rows, summary, delta, config, run_id, set_name, partial, partial_details,
+        unsupported_params,
     )
     report_csv_content  = format_report_csv(rows, config)
 

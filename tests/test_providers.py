@@ -10,8 +10,12 @@ import pytest
 from fieldtest.errors import ProviderError
 from fieldtest.providers import get_provider_adapter
 from fieldtest.providers.anthropic import AnthropicAdapter
+from fieldtest.providers.base import JudgeGenerationConfig
 from fieldtest.providers.gemini import GeminiAdapter
 from fieldtest.providers.openai import OpenAIAdapter
+
+# Default generation config: temperature 0.0, no seed, 2048 max tokens.
+GEN = JudgeGenerationConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +56,7 @@ def test_openai_missing_api_key():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt")
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
     assert "error" in result
     assert "OPENAI_API_KEY" in result["error"]
 
@@ -61,7 +65,7 @@ def test_openai_missing_package():
     adapter = OpenAIAdapter()
     with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
         with patch.dict("sys.modules", {"openai": None}):
-            result = adapter.call("gpt-4o", "test prompt")
+            result = adapter.call("gpt-4o", "test prompt", GEN)
     assert "error" in result
     assert "openai" in result["error"].lower()
 
@@ -88,7 +92,7 @@ def test_openai_successful_call():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt")
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
 
     assert result == {"answer": "Pass", "reasoning": "Looks good"}
 
@@ -114,7 +118,7 @@ def test_openai_strips_markdown_fences():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt")
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
 
     assert result == {"answer": "Fail", "reasoning": "Bad"}
 
@@ -140,7 +144,7 @@ def test_openai_non_json_response():
             import importlib
             import fieldtest.providers.openai as oai_mod
             importlib.reload(oai_mod)
-            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt")
+            result = oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
 
     assert "error" in result
     assert "non-JSON" in result["error"]
@@ -160,7 +164,7 @@ def test_gemini_missing_api_key():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt")
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
     assert "error" in result
     assert "GEMINI_API_KEY" in result["error"]
 
@@ -169,7 +173,7 @@ def test_gemini_missing_package():
     adapter = GeminiAdapter()
     with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}):
         with patch.dict("sys.modules", {"google": None, "google.genai": None}):
-            result = adapter.call("gemini-2.5-flash", "test prompt")
+            result = adapter.call("gemini-2.5-flash", "test prompt", GEN)
     assert "error" in result
     assert "google-genai" in result["error"].lower()
 
@@ -191,7 +195,7 @@ def test_gemini_successful_call():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt")
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
 
     assert result == {"answer": "Pass", "reasoning": "Looks good"}
 
@@ -213,7 +217,7 @@ def test_gemini_strips_markdown_fences():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt")
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
 
     assert result == {"answer": "Fail", "reasoning": "Bad"}
 
@@ -235,7 +239,7 @@ def test_gemini_non_json_response():
             import importlib
             import fieldtest.providers.gemini as gem_mod
             importlib.reload(gem_mod)
-            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt")
+            result = gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
 
     assert "error" in result
     assert "non-JSON" in result["error"]
@@ -286,7 +290,7 @@ def test_anthropic_missing_api_key():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
     assert "error" in result
     assert "ANTHROPIC_API_KEY" in result["error"]
 
@@ -295,7 +299,7 @@ def test_anthropic_missing_package():
     adapter = AnthropicAdapter()
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
         with patch.dict("sys.modules", {"anthropic": None}):
-            result = adapter.call("claude-haiku-4-5", "test prompt")
+            result = adapter.call("claude-haiku-4-5", "test prompt", GEN)
     assert "error" in result
     assert "anthropic" in result["error"].lower()
 
@@ -310,7 +314,7 @@ def test_anthropic_successful_call():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
 
     assert result == {"answer": "Pass", "reasoning": "Looks good"}
 
@@ -325,7 +329,7 @@ def test_anthropic_strips_markdown_fences():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
 
     assert result == {"answer": "Fail", "reasoning": "Bad"}
 
@@ -338,7 +342,7 @@ def test_anthropic_non_json_response():
             import importlib
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
-            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
 
     assert "error" in result
     assert "non-JSON" in result["error"]
@@ -369,7 +373,7 @@ def test_anthropic_retries_on_overloaded_then_succeeds():
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
             with patch.object(ant_mod.time, "sleep") as mock_sleep:
-                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
 
     assert result == {"answer": "Pass", "reasoning": "ok"}
     assert mock_client_instance.messages.create.call_count == 2
@@ -396,7 +400,7 @@ def test_anthropic_exhausts_retries_on_persistent_overload():
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
             with patch.object(ant_mod.time, "sleep") as mock_sleep:
-                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
 
     assert "error" in result
     assert "Overloaded" in result["error"]
@@ -425,7 +429,7 @@ def test_anthropic_does_not_retry_non_529_status_errors():
             import fieldtest.providers.anthropic as ant_mod
             importlib.reload(ant_mod)
             with patch.object(ant_mod.time, "sleep") as mock_sleep:
-                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt")
+                result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
 
     assert "error" in result
     assert mock_client_instance.messages.create.call_count == 1
@@ -500,3 +504,244 @@ use_cases:
     cfg = parse_and_validate(p)
     assert cfg.defaults.provider == "gemini"
     assert cfg.defaults.model == "gemini-2.5-flash"
+
+
+# ---------------------------------------------------------------------------
+# Judge generation config (spec 02)
+# ---------------------------------------------------------------------------
+
+def test_adapter_call_accepts_generation_config():
+    """Every adapter takes a JudgeGenerationConfig and forwards its settings."""
+    gen = JudgeGenerationConfig(temperature=0.3, max_tokens=512)
+
+    mock_anthropic_module, mock_client, _ = _make_anthropic_module(
+        returns_text='{"answer": "Pass", "reasoning": "ok"}'
+    )
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", gen)
+
+    kwargs = mock_client.messages.create.call_args.kwargs
+    assert kwargs["temperature"] == 0.3
+    assert kwargs["max_tokens"] == 512
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content='{"answer": "Pass", "reasoning": "ok"}'))]
+    mock_client_instance = MagicMock()
+    mock_client_instance.chat.completions.create.return_value = mock_response
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client_instance
+
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"openai": mock_openai_module}):
+            import importlib
+            import fieldtest.providers.openai as oai_mod
+            importlib.reload(oai_mod)
+            oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", gen)
+
+    kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
+    assert kwargs["temperature"] == 0.3
+    assert kwargs["max_tokens"] == 512
+
+
+def test_openai_forwards_seed_when_set():
+    """OpenAI supports seed, so it is passed through when the user sets one."""
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content='{"answer": "Pass", "reasoning": "ok"}'))]
+    mock_client_instance = MagicMock()
+    mock_client_instance.chat.completions.create.return_value = mock_response
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client_instance
+
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"openai": mock_openai_module}):
+            import importlib
+            import fieldtest.providers.openai as oai_mod
+            importlib.reload(oai_mod)
+            result = oai_mod.OpenAIAdapter().call(
+                "gpt-4o", "test prompt", JudgeGenerationConfig(seed=42)
+            )
+
+    assert mock_client_instance.chat.completions.create.call_args.kwargs["seed"] == 42
+    assert "unsupported" not in result
+
+
+def test_openai_omits_seed_when_unset():
+    """No seed requested means no seed key — not seed=None."""
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content='{"answer": "Pass", "reasoning": "ok"}'))]
+    mock_client_instance = MagicMock()
+    mock_client_instance.chat.completions.create.return_value = mock_response
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client_instance
+
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"openai": mock_openai_module}):
+            import importlib
+            import fieldtest.providers.openai as oai_mod
+            importlib.reload(oai_mod)
+            oai_mod.OpenAIAdapter().call("gpt-4o", "test prompt", GEN)
+
+    assert "seed" not in mock_client_instance.chat.completions.create.call_args.kwargs
+
+
+def test_anthropic_adapter_reports_seed_unsupported():
+    """Anthropic has no seed parameter: drop it, name it, do not fail."""
+    mock_anthropic_module, mock_client, _ = _make_anthropic_module(
+        returns_text='{"answer": "Pass", "reasoning": "ok"}'
+    )
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call(
+                "claude-haiku-4-5", "test prompt", JudgeGenerationConfig(seed=42)
+            )
+
+    assert result["unsupported"] == ["seed"]
+    assert result["answer"] == "Pass"
+    assert "seed" not in mock_client.messages.create.call_args.kwargs
+
+
+def test_anthropic_reports_nothing_unsupported_without_seed():
+    """The unsupported key appears only when a parameter was actually dropped."""
+    mock_anthropic_module, _, _ = _make_anthropic_module(
+        returns_text='{"answer": "Pass", "reasoning": "ok"}'
+    )
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+
+    assert "unsupported" not in result
+
+
+def test_gemini_adapter_sets_max_tokens():
+    """Gemini previously did not bound output length at all."""
+    mock_response = MagicMock()
+    mock_response.text = '{"answer": "Pass", "reasoning": "ok"}'
+    mock_client_instance = MagicMock()
+    mock_client_instance.models.generate_content.return_value = mock_response
+    mock_genai_module = MagicMock()
+    mock_genai_module.Client.return_value = mock_client_instance
+    mock_google_module = MagicMock()
+    mock_google_module.genai = mock_genai_module
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"google": mock_google_module, "google.genai": mock_genai_module}):
+            import importlib
+            import fieldtest.providers.gemini as gem_mod
+            importlib.reload(gem_mod)
+            gem_mod.GeminiAdapter().call("gemini-2.5-flash", "test prompt", GEN)
+
+    mock_genai_module.types.GenerateContentConfig.assert_called_once_with(
+        temperature=0.0, max_output_tokens=2048
+    )
+
+
+def test_unsupported_params_surface_once_in_report():
+    """
+    Two judge calls that both drop the same parameter produce one report line,
+    not one per row. The record is per run, not per ResultRow.
+    """
+    from fieldtest.config import Config, Defaults, Eval, SystemConfig
+    from fieldtest.judges.llm import (
+        call_judge_llm,
+        get_unsupported_params,
+        reset_unsupported_params,
+    )
+    from fieldtest.results.report import format_report
+
+    config = Config(
+        schema_version=1,
+        system=SystemConfig(name="test", domain="test"),
+        use_cases=[],
+        defaults=Defaults(judge_seed=42),
+    )
+    ev = Eval(
+        id="ev1", tag="right", type="llm", description="test eval",
+        pass_criteria="passes", fail_criteria="fails",
+    )
+
+    fake_adapter = MagicMock()
+    fake_adapter.call.return_value = {
+        "answer": "Pass", "reasoning": "ok", "unsupported": ["seed"],
+    }
+
+    reset_unsupported_params()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=fake_adapter):
+        first  = call_judge_llm("prompt one", ev, config)
+        second = call_judge_llm("prompt two", ev, config)
+
+    # Collected once, deduped, and stripped from the response the judge sees.
+    assert get_unsupported_params() == ["seed (anthropic)"]
+    assert "unsupported" not in first
+    assert "unsupported" not in second
+
+    report = format_report(
+        rows=[], summary={}, delta={}, config=config,
+        run_id="test-run", set_name="full",
+        unsupported_params=get_unsupported_params(),
+    )
+    assert report.count("judge parameters ignored by provider") == 1
+    assert "seed (anthropic)" in report
+
+
+def _llm_judge_config(**defaults_kwargs):
+    """Config with one llm eval, so the report's judge header applies."""
+    from fieldtest.config import (
+        Config, Defaults, Eval, FixturesConfig, SystemConfig, UseCase,
+    )
+    return Config(
+        schema_version=1,
+        system=SystemConfig(name="test", domain="test"),
+        use_cases=[
+            UseCase(
+                id="uc1",
+                description="test use case",
+                evals=[Eval(
+                    id="ev1", tag="right", type="llm", description="test eval",
+                    pass_criteria="passes", fail_criteria="fails",
+                )],
+                fixtures=FixturesConfig(directory="fixtures/", sets={"full": []}),
+            )
+        ],
+        defaults=Defaults(**defaults_kwargs),
+    )
+
+
+def test_report_omits_unsupported_line_when_nothing_dropped():
+    from fieldtest.results.report import format_report
+
+    report = format_report(
+        rows=[], summary={}, delta={}, config=_llm_judge_config(),
+        run_id="test-run", set_name="full",
+        unsupported_params=[],
+    )
+    assert "judge parameters ignored" not in report
+    assert "temperature: 0.0" in report
+
+
+def test_report_omits_judge_header_for_rules_only_project():
+    """A regex-only project has no judge; the header must not name one."""
+    from fieldtest.config import Config, Defaults, SystemConfig
+    from fieldtest.results.report import format_report
+
+    config = Config(
+        schema_version=1,
+        system=SystemConfig(name="test", domain="test"),
+        use_cases=[],
+        defaults=Defaults(),
+    )
+    report = format_report(
+        rows=[], summary={}, delta={}, config=config,
+        run_id="test-run", set_name="full",
+    )
+    assert "temperature:" not in report
+    assert "judge:" not in report

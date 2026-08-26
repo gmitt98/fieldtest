@@ -115,6 +115,30 @@ export OPENAI_API_KEY=sk-...          # for openai provider
 export GEMINI_API_KEY=...             # for gemini provider
 ```
 
+### Judge generation settings
+
+The judge runs at temperature 0.0 by default, not at the provider default. A judge left
+sampling puts its own noise into every rate fieldtest reports, and you cannot tell that noise
+apart from movement in the system you are measuring.
+
+```yaml
+defaults:
+  judge_temperature: 0.0              # default; set 1.0 for the old sampling behaviour
+  judge_seed: null                    # optional, where the provider supports it
+```
+
+Not every provider supports every parameter. Where one does not, fieldtest drops the parameter,
+completes the run, and names it once in the report header rather than failing.
+
+| provider | temperature | seed | max_tokens |
+|---|---|---|---|
+| anthropic | yes | no | yes |
+| openai | yes | yes | yes |
+| gemini | yes | no | yes |
+
+Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
+guarantees determinism. What is left is a property of the provider, not of your system.
+
 ---
 
 ## How it works

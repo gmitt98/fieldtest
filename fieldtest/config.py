@@ -125,6 +125,12 @@ class Defaults(BaseModel):
     model:    str = "claude-sonnet-4-20250514"
     runs:     int = 5
 
+    # Judge generation settings. Temperature defaults to 0.0 rather than the
+    # provider default (typically 1.0) so the instrument is held still: run-to-run
+    # movement in a rate should come from the system under test, not the judge.
+    judge_temperature: float = 0.0
+    judge_seed:        Optional[int] = None
+
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:

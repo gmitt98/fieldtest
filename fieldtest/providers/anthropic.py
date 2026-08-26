@@ -10,7 +10,7 @@ import json
 import os
 import time
 
-from fieldtest.providers.base import ProviderAdapter
+from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter
 
 # Backoff schedule for HTTP 529 OverloadedError. The Anthropic SDK does not
 # auto-retry 529s (unlike 429s), so without this every burst of API load
@@ -19,12 +19,15 @@ _OVERLOAD_BACKOFF_SECONDS = (5, 10, 20, 40, 60, 60)
 
 
 class AnthropicAdapter(ProviderAdapter):
-    def call(self, model: str, prompt: str) -> dict:
+    def call(self, model: str, prompt: str, gen: JudgeGenerationConfig) -> dict:
         """
         Call Anthropic API with prompt. Returns parsed JSON dict.
         Returns {"error": str} on any failure — never raises.
         Retries HTTP 529 (OverloadedError) with exponential backoff.
+        Anthropic has no seed parameter; a requested seed is dropped and
+        reported in "unsupported".
         """
+        unsupported = ["seed"] if gen.seed is not None else []
         try:
             import anthropic as _anthropic
         except ImportError as e:
@@ -44,7 +47,8 @@ class AnthropicAdapter(ProviderAdapter):
             try:
                 message = client.messages.create(
                     model=model,
-                    max_tokens=2048,
+                    max_tokens=gen.max_tokens,
+                    temperature=gen.temperature,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 content = message.content[0].text.strip()
@@ -54,7 +58,10 @@ class AnthropicAdapter(ProviderAdapter):
                     lines = content.split("\n")
                     lines = [l for l in lines if not l.startswith("```")]
                     content = "\n".join(lines).strip()
-                return json.loads(content)
+                parsed = json.loads(content)
+                if unsupported:
+                    parsed["unsupported"] = unsupported
+                return parsed
             except _anthropic.APIStatusError as e:
                 if getattr(e, "status_code", None) == 529 and attempt < len(_OVERLOAD_BACKOFF_SECONDS):
                     last_overload = e

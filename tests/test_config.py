@@ -345,3 +345,38 @@ def test_raw_pydantic_error_not_propagated(tmp_path):
         pass
     except Exception as e:
         pytest.fail(f"Expected ConfigError, got {type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Judge generation config (spec 02)
+# ---------------------------------------------------------------------------
+
+def test_judge_temperature_defaults_to_zero():
+    """
+    The instrument ships locked. A judge left at the provider default samples at
+    roughly 1.0, which puts noise into every rate the tool reports.
+    """
+    d = Defaults()
+    assert d.judge_temperature == 0.0
+    assert d.judge_seed is None
+
+
+def test_v1_config_gets_zero_temperature_default(tmp_path):
+    """A config written before this spec loads unchanged and gets a pinned judge."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.defaults.judge_temperature == 0.0
+    assert cfg.defaults.judge_seed is None
+
+
+def test_judge_temperature_configurable(tmp_path):
+    """Anyone who wants the old sampling behavior asks for it explicitly."""
+    content = MINIMAL_VALID.replace(
+        "    schema_version: 1\n",
+        "    schema_version: 1\n"
+        "    defaults:\n"
+        "      judge_temperature: 1.0\n"
+        "      judge_seed: 7\n",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.defaults.judge_temperature == 1.0
+    assert cfg.defaults.judge_seed == 7

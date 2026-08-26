@@ -22,6 +22,7 @@ from fieldtest.config import (
 )
 from fieldtest.errors import OutputError
 from fieldtest.judges.dispatch import dispatch_judge
+from fieldtest.judges.llm import get_unsupported_params, reset_unsupported_params
 from fieldtest.results.aggregator import build_delta, build_summary, find_baseline
 from fieldtest.results.writer import write_results
 
@@ -103,6 +104,7 @@ def score(
     # EXECUTE with ThreadPoolExecutor
     # -------------------------------------------------------------------
     all_results: list[ResultRow] = []
+    reset_unsupported_params()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         future_map = {
             pool.submit(dispatch_judge, uc_id, ev, output, fixture, run, config): None
@@ -156,6 +158,7 @@ def score(
         set_name=set_name,
         partial=allow_partial and bool(partial_missing),
         partial_details=partial_missing if allow_partial else None,
+        unsupported_params=get_unsupported_params(),
     )
 
     return run_id, all_results

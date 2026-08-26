@@ -9,14 +9,15 @@ from __future__ import annotations
 import json
 import os
 
-from fieldtest.providers.base import ProviderAdapter
+from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter
 
 
 class OpenAIAdapter(ProviderAdapter):
-    def call(self, model: str, prompt: str) -> dict:
+    def call(self, model: str, prompt: str, gen: JudgeGenerationConfig) -> dict:
         """
         Call OpenAI API with prompt. Returns parsed JSON dict.
         Returns {"error": str} on any failure — never raises.
+        Supports temperature, seed, and max_tokens.
         """
         try:
             import openai as _openai
@@ -34,11 +35,15 @@ class OpenAIAdapter(ProviderAdapter):
 
         try:
             client = _openai.OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            kwargs = {
+                "model":       model,
+                "max_tokens":  gen.max_tokens,
+                "temperature": gen.temperature,
+                "messages":    [{"role": "user", "content": prompt}],
+            }
+            if gen.seed is not None:
+                kwargs["seed"] = gen.seed
+            response = client.chat.completions.create(**kwargs)
             content = response.choices[0].message.content.strip()
             # Strip markdown code fences if present.
             if content.startswith("```"):

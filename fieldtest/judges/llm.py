@@ -7,8 +7,11 @@ deterministic prompts per spec §8.
 """
 from __future__ import annotations
 
+import threading
+
 from fieldtest.config import Config, Eval, ResultRow
 from fieldtest.providers import get_provider_adapter
+from fieldtest.providers.base import JudgeGenerationConfig
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +123,32 @@ def build_scored_judge_prompt(eval: Eval, output: str) -> str:
 # LLM call
 # ---------------------------------------------------------------------------
 
+# Providers silently drop generation parameters they do not support (Anthropic
+# has no seed). Collecting the distinct set here — rather than tagging every
+# ResultRow — keeps it out of -data.json and lets the report state it once.
+_unsupported_lock = threading.Lock()
+_unsupported_params: set[str] = set()
+
+
+def reset_unsupported_params() -> None:
+    """Clear the per-run record of dropped judge parameters."""
+    with _unsupported_lock:
+        _unsupported_params.clear()
+
+
+def get_unsupported_params() -> list[str]:
+    """Distinct 'param (provider)' entries dropped during this run, sorted."""
+    with _unsupported_lock:
+        return sorted(_unsupported_params)
+
+
 def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
     """
     Call the judge LLM. Returns parsed JSON dict or {"error": str}.
     Never raises — errors are returned as dict for ResultRow.
+
+    Generation settings come from defaults; parameters the provider dropped are
+    recorded for the report header and stripped from the response.
     """
     provider_name = eval.provider or config.defaults.provider
     model         = eval.model    or config.defaults.model
@@ -133,7 +158,20 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-    return adapter.call(model, prompt)
+    gen = JudgeGenerationConfig(
+        temperature=config.defaults.judge_temperature,
+        seed=config.defaults.judge_seed,
+    )
+
+    response = adapter.call(model, prompt, gen)
+
+    dropped = response.pop("unsupported", None)
+    if dropped:
+        with _unsupported_lock:
+            for param in dropped:
+                _unsupported_params.add(f"{param} ({provider_name})")
+
+    return response
 
 
 # ---------------------------------------------------------------------------
