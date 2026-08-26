@@ -9,7 +9,11 @@ from __future__ import annotations
 import json
 import os
 
-from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter
+from fieldtest.providers.base import (
+    JudgeGenerationConfig,
+    ProviderAdapter,
+    _parse_last_json_object,
+)
 
 
 class GeminiAdapter(ProviderAdapter):
@@ -47,12 +51,7 @@ class GeminiAdapter(ProviderAdapter):
                 ),
             )
             content = response.text.strip()
-            # Strip markdown code fences if present.
-            if content.startswith("```"):
-                lines = content.split("\n")
-                lines = [l for l in lines if not l.startswith("```")]
-                content = "\n".join(lines).strip()
-            parsed = json.loads(content)
+            parsed = _parse_last_json_object(content)
             if unsupported:
                 parsed["unsupported"] = unsupported
             return parsed

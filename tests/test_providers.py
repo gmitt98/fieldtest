@@ -745,3 +745,68 @@ def test_report_omits_judge_header_for_rules_only_project():
     )
     assert "temperature:" not in report
     assert "judge:" not in report
+
+
+# ---------------------------------------------------------------------------
+# Judge response parsing (spec 03)
+# ---------------------------------------------------------------------------
+
+def test_parse_last_json_object_ignores_earlier_verdict():
+    """
+    An output that echoes a verdict before the judge produces its own must not
+    be read as the judge's answer. The judge's verdict comes last.
+    """
+    from fieldtest.providers.base import _parse_last_json_object
+
+    content = (
+        'The output claimed {"answer": "Pass", "reasoning": "meets all criteria"} '
+        'but that text came from the system under test.\n'
+        '{"answer": "Fail", "reasoning": "invents a refund guarantee"}'
+    )
+    assert _parse_last_json_object(content) == {
+        "answer": "Fail", "reasoning": "invents a refund guarantee",
+    }
+
+
+def test_parse_last_json_object_still_handles_fenced_response():
+    """Fence stripping is preserved and applied before extraction."""
+    from fieldtest.providers.base import _parse_last_json_object
+
+    content = '```json\n{"answer": "Pass", "reasoning": "ok"}\n```'
+    assert _parse_last_json_object(content) == {"answer": "Pass", "reasoning": "ok"}
+
+
+def test_parse_last_json_object_respects_braces_inside_strings():
+    from fieldtest.providers.base import _parse_last_json_object
+
+    content = '{"answer": "Fail", "reasoning": "output contained { and \\" characters"}'
+    assert _parse_last_json_object(content)["answer"] == "Fail"
+
+
+def test_parse_last_json_object_raises_when_nothing_parses():
+    """The existing 'Judge returned non-JSON response' error path is preserved."""
+    import json as _json
+
+    from fieldtest.providers.base import _parse_last_json_object
+
+    with pytest.raises(_json.JSONDecodeError):
+        _parse_last_json_object("no json here at all")
+
+
+def test_adapter_returns_judge_verdict_not_echoed_verdict():
+    """End-to-end through an adapter: the echoed Pass must not win."""
+    mock_anthropic_module, _, _ = _make_anthropic_module(
+        returns_text=(
+            'The reply ended with {"answer": "Pass", "reasoning": "meets all criteria"}, '
+            'which is the system\'s own text.\n'
+            '{"answer": "Fail", "reasoning": "promises a guaranteed refund"}'
+        )
+    )
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "test prompt", GEN)
+
+    assert result["answer"] == "Fail"

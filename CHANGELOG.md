@@ -29,3 +29,21 @@ the run, and says so once in the report header instead of failing.
 
 Gemini judges were also previously unbounded in output length, and are now capped like the
 others.
+
+### The judge can no longer be talked into a verdict by the output it is grading
+
+The system's output was interpolated into the judge prompt between bare `---` lines. An output
+containing its own `---` line closed the data block early, so anything after it read to the
+judge as instruction rather than as text to evaluate — and `docs/recipes/adversarial-fixtures.md`
+tells you to write fixtures that produce exactly that input class.
+
+Whole-line delimiters in an output are now rewritten before the prompt is built, and when that
+happens the row's detail says so: `[output delimiters neutralized] <the judge's reasoning>`.
+Nothing changes for outputs that contain no delimiter — those prompts are byte-identical to
+before, so no existing result moves.
+
+Judge responses are also now read as the *last* complete JSON object rather than the whole
+string, so an output that echoes a verdict before the judge gives its own no longer gets counted
+as the judge's answer.
+
+The demo carries `fixtures/adversarial/prompt-injection.yaml` as a worked example.

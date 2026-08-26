@@ -9,7 +9,11 @@ from __future__ import annotations
 import json
 import os
 
-from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter
+from fieldtest.providers.base import (
+    JudgeGenerationConfig,
+    ProviderAdapter,
+    _parse_last_json_object,
+)
 
 
 class OpenAIAdapter(ProviderAdapter):
@@ -45,12 +49,7 @@ class OpenAIAdapter(ProviderAdapter):
                 kwargs["seed"] = gen.seed
             response = client.chat.completions.create(**kwargs)
             content = response.choices[0].message.content.strip()
-            # Strip markdown code fences if present.
-            if content.startswith("```"):
-                lines = content.split("\n")
-                lines = [l for l in lines if not l.startswith("```")]
-                content = "\n".join(lines).strip()
-            return json.loads(content)
+            return _parse_last_json_object(content)
         except json.JSONDecodeError as e:
             return {"error": f"Judge returned non-JSON response: {e}"}
         except Exception as e:

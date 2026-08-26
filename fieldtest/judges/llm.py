@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import threading
 
+from typing import Optional
+
 from fieldtest.config import Config, Eval, ResultRow
 from fieldtest.providers import get_provider_adapter
 from fieldtest.providers.base import JudgeGenerationConfig
@@ -17,6 +19,40 @@ from fieldtest.providers.base import JudgeGenerationConfig
 # ---------------------------------------------------------------------------
 # Prompt builders — exact content per spec §8
 # ---------------------------------------------------------------------------
+
+DELIMITER   = "---"
+NEUTRALIZED = "- - -"
+
+
+def _neutralize_delimiters(output: str) -> tuple[str, bool]:
+    """
+    Rewrite lines that are exactly the delimiter. Returns (text, was_modified).
+    Only whole-line matches are rewritten; `---` inside a line of prose is left alone,
+    since it cannot terminate the block.
+
+    The system's output is untrusted data. A bare `---` on its own line closes the
+    data block from the judge's perspective, and anything after it reads as
+    instruction — which is exactly the input class adversarial fixtures are meant
+    to produce.
+    """
+    lines = output.split("\n")
+    modified = False
+    for i, line in enumerate(lines):
+        if line.strip() == DELIMITER:
+            lines[i] = line.replace(DELIMITER, NEUTRALIZED)
+            modified = True
+    return "\n".join(lines), modified
+
+
+def _flag_neutralized(detail: Optional[str], was_modified: bool) -> Optional[str]:
+    """
+    Prefix the judge's reasoning when the output was rewritten, so a user is
+    never left wondering why the judge saw something other than the literal text.
+    """
+    if not was_modified:
+        return detail
+    return f"[output delimiters neutralized] {detail or ''}".rstrip()
+
 
 def build_binary_judge_prompt(eval: Eval, output: str) -> str:
     """
@@ -38,6 +74,8 @@ def build_binary_judge_prompt(eval: Eval, output: str) -> str:
         Respond with this JSON and nothing else:
         {"answer": "Pass" or "Fail", "reasoning": "one sentence"}
     """
+    output, _ = _neutralize_delimiters(output)
+
     lines = [
         "You are evaluating the output of an AI system.",
         "",
@@ -93,6 +131,8 @@ def build_scored_judge_prompt(eval: Eval, output: str) -> str:
     Anchors sorted ascending by key.
     """
     scale_min, scale_max = eval.scale[0], eval.scale[1]
+
+    output, _ = _neutralize_delimiters(output)
 
     lines = [
         "You are evaluating the output of an AI system.",
@@ -191,6 +231,7 @@ def judge_llm_binary(
         run=run,
     )
 
+    _, neutralized = _neutralize_delimiters(output)
     prompt   = build_binary_judge_prompt(eval, output)
     response = call_judge_llm(prompt, eval, config)
 
@@ -198,7 +239,10 @@ def judge_llm_binary(
         return ResultRow(**base, error=response["error"])
 
     passed = response.get("answer") == "Pass"
-    return ResultRow(**base, passed=passed, detail=response.get("reasoning"))
+    return ResultRow(
+        **base, passed=passed,
+        detail=_flag_neutralized(response.get("reasoning"), neutralized),
+    )
 
 
 def judge_llm_scored(
@@ -214,6 +258,7 @@ def judge_llm_scored(
         run=run,
     )
 
+    _, neutralized = _neutralize_delimiters(output)
     prompt   = build_scored_judge_prompt(eval, output)
     response = call_judge_llm(prompt, eval, config)
 
@@ -222,4 +267,7 @@ def judge_llm_scored(
 
     score     = response.get("score")
     floor_hit = score == eval.scale[0] if score is not None else False
-    return ResultRow(**base, score=score, floor_hit=floor_hit, detail=response.get("reasoning"))
+    return ResultRow(
+        **base, score=score, floor_hit=floor_hit,
+        detail=_flag_neutralized(response.get("reasoning"), neutralized),
+    )

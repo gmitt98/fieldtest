@@ -10,7 +10,11 @@ import json
 import os
 import time
 
-from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter
+from fieldtest.providers.base import (
+    JudgeGenerationConfig,
+    ProviderAdapter,
+    _parse_last_json_object,
+)
 
 # Backoff schedule for HTTP 529 OverloadedError. The Anthropic SDK does not
 # auto-retry 529s (unlike 429s), so without this every burst of API load
@@ -52,13 +56,7 @@ class AnthropicAdapter(ProviderAdapter):
                     messages=[{"role": "user", "content": prompt}],
                 )
                 content = message.content[0].text.strip()
-                # Some models (e.g. Haiku) wrap JSON in markdown code fences.
-                # Strip them before parsing so json.loads() doesn't fail.
-                if content.startswith("```"):
-                    lines = content.split("\n")
-                    lines = [l for l in lines if not l.startswith("```")]
-                    content = "\n".join(lines).strip()
-                parsed = json.loads(content)
+                parsed = _parse_last_json_object(content)
                 if unsupported:
                     parsed["unsupported"] = unsupported
                 return parsed
