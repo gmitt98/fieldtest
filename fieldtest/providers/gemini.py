@@ -31,8 +31,11 @@ class GeminiAdapter(ProviderAdapter):
         """
         Call Gemini API with prompt. Returns parsed JSON dict.
         Returns {"error": str} on any failure — never raises.
-        Supports temperature, seed and max_output_tokens. Retries rate limits
-        and server errors.
+        Sends temperature, seed and max_output_tokens. Whether the model
+        accepts seed is a runtime fact, not a declared one — GenerateContentConfig
+        exposes the field and gemini-3.7-flash rejects it at the API, so the
+        shared drop path reports it as unsupported and the run completes.
+        Retries rate limits and server errors.
         """
         unsupported: list[str] = []
         try:

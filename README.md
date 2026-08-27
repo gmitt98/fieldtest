@@ -105,7 +105,7 @@ Set the provider in your config:
 ```yaml
 defaults:
   provider: gemini                    # or anthropic, openai
-  model: gemini-2.5-flash
+  model: gemini-3.7-flash
 ```
 
 And the corresponding API key:
@@ -134,7 +134,7 @@ completes the run, and names it once in the report header rather than failing.
 |---|---|---|---|
 | anthropic | model-dependent — see below | no | yes |
 | openai | yes | yes | yes |
-| gemini | yes | yes | yes |
+| gemini | yes | model-dependent | yes |
 
 The table is a starting point, not a contract — **support is per model, not per provider, and it
 changes on the provider's schedule.** Anthropic removed sampling parameters on `claude-sonnet-5`,
@@ -169,7 +169,7 @@ calibration:
     - { provider: anthropic, model: claude-haiku-4-5 }
     - { provider: anthropic, model: claude-sonnet-5 }
     - { provider: openai,    model: gpt-5 }
-    - { provider: gemini,    model: gemini-2.5-flash }
+    - { provider: gemini,    model: gemini-3.7-flash }
 ```
 
 ```bash

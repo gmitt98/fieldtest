@@ -56,7 +56,7 @@ calibration:
     - { provider: anthropic, model: claude-haiku-4-5 }
     - { provider: anthropic, model: claude-sonnet-5 }
     - { provider: openai,    model: gpt-5 }
-    - { provider: gemini,    model: gemini-2.5-flash }
+    - { provider: gemini,    model: gemini-3.7-flash }
 ```
 
 CLI:

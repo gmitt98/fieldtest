@@ -53,13 +53,13 @@ Successful returns may carry an optional `unsupported: list[str]` key naming par
 provider dropped. `call_judge_llm()` collects these and the runner surfaces the distinct set once
 in the report header, not per row.
 
-Provider support matrix as of this spec. The gemini row originally read `seed: no`; `google.genai.types.GenerateContentConfig` does expose a `seed` field, confirmed against the installed SDK, so the adapter was dropping a parameter the provider accepts and the report was naming it as unsupported. Corrected here — and a reminder that this table is the kind of thing that should be discovered rather than declared:
+Provider support matrix as of this spec. The gemini row originally read `seed: no`; `google.genai.types.GenerateContentConfig` does expose a `seed` field, confirmed against the installed SDK, so the adapter was dropping a parameter the provider accepts and the report was naming it as unsupported. Corrected — then corrected again by a live call, which is the point. `GenerateContentConfig` exposes a `seed` field, so the adapter sends it; `gemini-3.7-flash` then rejects it at the API and the generic drop path reports `unsupported: ['seed']`. The original `no` was right in effect and wrong in reason, the replacement `yes` was wrong, and neither a table nor an SDK signature could settle it. Support is per model and belongs to runtime, not to this document:
 
 | provider | temperature | seed | max_tokens |
 |---|---|---|---|
 | anthropic | yes | no | yes |
 | openai | yes | yes | yes |
-| gemini | yes | yes | yes |
+| gemini | yes | model-dependent | yes |
 
 ## §4 Compatibility
 
