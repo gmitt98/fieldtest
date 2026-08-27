@@ -287,3 +287,45 @@ def test_scoring_an_empty_set_is_refused(tmp_path):
         score(config=parse_and_validate(config_path), config_path=config_path)
 
     assert list(results.iterdir()) == [], "a refused run must write nothing"
+
+
+def test_rag_grounding_eval_can_reach_its_context(tmp_path):
+    """
+    Spec 13's reason for existing. A grounding eval asks whether every claim
+    traces to the retrieved context; before this the judge never received the
+    context and answered anyway, so a rate that looked judged was guessed.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    grounding_eval = (
+        "      - id: no_hallucination\n"
+        "        tag: safe\n"
+        "        type: llm\n"
+        "        description: no fabricated details beyond the source\n"
+        "        pass_criteria: every detail can be found in the context\n"
+        "        fail_criteria: any detail appears invented\n"
+    )
+    config_path = _project(tmp_path, evals_yaml=grounding_eval, runs=1)
+
+    # Give the fixture a context the judge must be able to read.
+    fixture = config_path.parent / "fixtures" / "fix1.yaml"
+    fixture.write_text(
+        "id: fix1\n"
+        "inputs:\n"
+        "  question: what is the limit?\n"
+        "  context: |\n"
+        "    Expenses under $75 need no approval.\n"
+    )
+
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path,
+              write_artifacts=False)
+
+    prompt = adapter.calls[0]["prompt"]
+    assert "Expenses under $75 need no approval." in prompt, (
+        "the judge was asked about grounding without being given the source"
+    )
+    assert "question: what is the limit?" in prompt
+    assert prompt.index("System input:") < prompt.index("Output to evaluate:")

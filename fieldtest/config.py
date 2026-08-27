@@ -59,6 +59,12 @@ class Eval(BaseModel):
     # type: llm scored
     scale:   Optional[list[int]]      = None   # [min, max]
     anchors: Optional[dict[int, str]] = None
+    # Whether the judge is shown the fixture's inputs alongside the output.
+    # Default true: an eval whose criteria reference "the context" or "the
+    # question" cannot be answered without them, and a judge guessing returns a
+    # verdict that looks exactly like a judged one. Set false for evals about the
+    # output alone, or to keep a large retrieved context out of every call.
+    judge_sees_inputs: bool = True
     # per-eval overrides
     model:    Optional[str] = None
     provider: Optional[str] = None

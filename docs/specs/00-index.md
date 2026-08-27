@@ -29,6 +29,7 @@ measure nothing.
 | 10 | [Inspect interop](10-inspect-interop.md) | 3 | 01 | sketch |
 | 11 | [Provider surface beyond the big three](11-provider-surface.md) | 2 | 02, 05 | draft |
 | 12 | [Verification tiers](12-verification-tiers.md) | 2 | 11 | draft |
+| 13 | [Judge input visibility](13-judge-input-visibility.md) | 1 | 03 | shipped |
 
 ## Version boundary
 

@@ -48,6 +48,31 @@ def _neutralize_delimiters(output: str) -> tuple[str, bool]:
     return "\n".join(lines), True
 
 
+def _render_inputs(inputs: Optional[dict]) -> list[str]:
+    """
+    The fixture's inputs as prompt lines, or nothing when there are none.
+
+    Keys are sorted because YAML preserves file order and prompt bytes must not
+    depend on how someone happened to type a fixture. Values are neutralized the
+    same way outputs are (spec 03): a fixture is as able to carry an injection as
+    an output, and adversarial fixtures are a documented use case, so the more
+    likely of the two.
+    """
+    if not inputs:
+        return []
+
+    lines = ["System input:", DELIMITER]
+    for key in sorted(inputs):
+        value, _ = _neutralize_delimiters(str(inputs[key]))
+        if "\n" in value:
+            lines.append(f"{key}:")
+            lines.extend(f"  {line}" for line in value.split("\n"))
+        else:
+            lines.append(f"{key}: {value}")
+    lines.extend([DELIMITER, ""])
+    return lines
+
+
 def _flag_neutralized(detail: Optional[str], was_modified: bool) -> Optional[str]:
     """
     Prefix the judge's reasoning when the output was rewritten, so a user is
@@ -58,7 +83,9 @@ def _flag_neutralized(detail: Optional[str], was_modified: bool) -> Optional[str
     return f"[output delimiters neutralized] {detail or ''}".rstrip()
 
 
-def build_binary_judge_prompt(eval: Eval, output: str) -> str:
+def build_binary_judge_prompt(
+    eval: Eval, output: str, inputs: Optional[dict] = None
+) -> str:
     """
     Build binary judge prompt. Two builders reading the spec must produce identical output.
 
@@ -99,8 +126,12 @@ def build_binary_judge_prompt(eval: Eval, output: str) -> str:
             lines.append(f"Reasoning: {ex.reasoning}")
         lines.append("---")
 
+    lines.append("")
+    # Before the output: the judge reads the question before the answer, which
+    # is the order the task is stated in.
+    lines.extend(_render_inputs(inputs if eval.judge_sees_inputs else None))
+
     lines.extend([
-        "",
         "Output to evaluate:",
         "---",
         output,
@@ -113,7 +144,9 @@ def build_binary_judge_prompt(eval: Eval, output: str) -> str:
     return "\n".join(lines)
 
 
-def build_scored_judge_prompt(eval: Eval, output: str) -> str:
+def build_scored_judge_prompt(
+    eval: Eval, output: str, inputs: Optional[dict] = None
+) -> str:
     """
     Build scored judge prompt.
 
@@ -149,8 +182,10 @@ def build_scored_judge_prompt(eval: Eval, output: str) -> str:
     for key in sorted(eval.anchors.keys()):
         lines.append(f"{key} — {eval.anchors[key]}")
 
+    lines.append("")
+    lines.extend(_render_inputs(inputs if eval.judge_sees_inputs else None))
+
     lines.extend([
-        "",
         "Output to evaluate:",
         "---",
         output,
@@ -250,7 +285,7 @@ def judge_llm_binary(
     )
 
     output, neutralized = _neutralize_delimiters(output)
-    prompt   = build_binary_judge_prompt(eval, output)
+    prompt   = build_binary_judge_prompt(eval, output, fixture.get("inputs"))
     response = call_judge_llm(prompt, eval, config)
 
     if "error" in response:
@@ -279,7 +314,7 @@ def judge_llm_scored(
     )
 
     output, neutralized = _neutralize_delimiters(output)
-    prompt   = build_scored_judge_prompt(eval, output)
+    prompt   = build_scored_judge_prompt(eval, output, fixture.get("inputs"))
     response = call_judge_llm(prompt, eval, config)
 
     if "error" in response:

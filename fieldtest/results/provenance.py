@@ -43,12 +43,23 @@ def build_judge_block(config: Config) -> dict:
             if entry:
                 overrides[ev.id] = entry
 
+    # An eval whose judge cannot see the fixture inputs is being asked a
+    # different question, so a run with opt-outs is not comparable to one
+    # without. Sorted for a stable hash.
+    blinded = sorted(
+        ev.id
+        for uc in config.use_cases
+        for ev in uc.evals
+        if ev.type == "llm" and not ev.judge_sees_inputs
+    )
+
     judge = {
         "provider":    provider,
         "model":       model,
         "temperature": config.defaults.judge_temperature,
         "seed":        config.defaults.judge_seed,
         "overrides":   overrides,
+        "blinded_evals": blinded,
     }
     judge["fingerprint"] = judge_fingerprint(judge)
     return judge
@@ -67,6 +78,7 @@ def judge_fingerprint(judge: dict) -> str:
         "temperature": judge.get("temperature"),
         "seed":        judge.get("seed"),
         "overrides":   judge.get("overrides", {}),
+        "blinded_evals": judge.get("blinded_evals", []),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()[:FINGERPRINT_LENGTH]

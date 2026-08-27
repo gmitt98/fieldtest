@@ -6,6 +6,27 @@
 
 RAG systems fail in specific ways: they hallucinate details not in the retrieved context, they answer questions the context doesn't support, and they sometimes ignore relevant context entirely. These are different failure modes and need different evals.
 
+## The judge sees your context
+
+Grounding evals ask whether a claim traces back to the retrieved excerpt, which only works if the
+judge can read the excerpt. fieldtest passes the fixture's `inputs` to the judge alongside the
+output, so `context` and `question` are both in front of it when it rules.
+
+```yaml
+# evals/fixtures/golden/expense-reimbursement.yaml
+id: expense-reimbursement
+inputs:
+  question: What is the expense reimbursement limit?
+  context: |
+    Employees may submit expenses under $75 directly through the expense portal
+    without prior approval...
+```
+
+If an eval should judge the output alone — or the context is large and you would rather not send
+it on every call — set `judge_sees_inputs: false` on that eval. Runs where a judge was blinded
+carry a different judge fingerprint, so fieldtest will not silently compare them against runs
+where it was not.
+
 ## Config snippet
 
 ```yaml
