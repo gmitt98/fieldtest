@@ -22,6 +22,17 @@ agrees with itself proves nothing without ground truth; a mock that agrees with 
 built it proves nothing without contact with the real provider. fieldtest asks its users to
 measure their instrument, and its own test suite was measuring itself.
 
+The clearest demonstration arrived after this spec was first drafted. Spec 02's provider matrix
+recorded `gemini | seed | no`. That was corrected to `yes` on the strength of
+`google.genai.types.GenerateContentConfig` exposing a `seed` field — checked against the installed
+SDK, which is a stronger source than the table it replaced. A single live call then rejected the
+parameter: `gemini-3.7-flash` accepts the request and refuses `seed`.
+
+So the table was wrong, the SDK signature was insufficient, and the original entry had been right
+in effect for the wrong reason. Three sources of truth about one boolean, none of them the
+provider, and none of them right. Nothing short of a call could settle it — which is the argument
+for this spec compressed into one field.
+
 ## §2 Requirements
 
 1. Three tiers, distinguished by what they touch: unit (no I/O), integration (real code paths, no
@@ -34,6 +45,11 @@ measure their instrument, and its own test suite was measuring itself.
 5. Live tests assert the *provider contract*, not fieldtest's logic: that a judge call returns
    parseable JSON, that a pinned temperature is accepted or rejected as documented, that the
    documented error strings still match `rejects_parameter()`.
+5b. A live test picks its model by discovery, and treats discovery as a candidate list rather
+   than a guarantee. Google's `models.list()` returned `gemini-2.5-flash`; calling it returned
+   `404 — no longer available to new users`. A tier that hardcodes a model id goes stale, and one
+   that trusts the list fails on the provider's schedule, so it must walk candidates newest-first
+   and tolerate a 404 by trying the next.
 6. Live coverage spans providers, and one credential should reach several. Requiring four accounts
    to test four adapters means three of them go untested.
 7. Documented provider error strings live in one fixture file with a source link and a date per
@@ -129,6 +145,14 @@ needs network or credentials, so contributors and CI are unaffected.
 - `test_live_judge_returns_parseable_json` (live, per provider)
 - `test_live_pinned_temperature_is_accepted_or_reported` (live, per provider)
 - `test_live_openrouter_reaches_a_model_from_each_lab` (live)
+- `test_live_unsupported_parameter_is_dropped_and_named` (live, native keys only)
+- `test_live_model_discovery_tolerates_an_unavailable_candidate` (live)
+
+The first of those two is the one the tier exists for. Verified by hand before this spec was
+written: `gpt-5` returns `unsupported: ["temperature"]` and completes, which also proves
+`max_tokens` was renamed to `max_completion_tokens`, since the call could not otherwise have
+succeeded. `gemini-3.7-flash` returns `unsupported: ["seed"]` and completes. Both paths were
+written from documentation and neither had ever been triggered by a provider.
 
 Behavioral acceptance: re-introduce each of the four defects above, one at a time, and confirm the
 suite fails. A tier that cannot catch the bug it was built for is decoration. The two integration
