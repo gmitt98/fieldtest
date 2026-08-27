@@ -31,11 +31,10 @@ class GeminiAdapter(ProviderAdapter):
         """
         Call Gemini API with prompt. Returns parsed JSON dict.
         Returns {"error": str} on any failure — never raises.
-        Gemini has no seed parameter in this contract; a requested seed is
-        dropped and reported in "unsupported".
-        Retries rate limits and server errors.
+        Supports temperature, seed and max_output_tokens. Retries rate limits
+        and server errors.
         """
-        unsupported = ["seed"] if gen.seed is not None else []
+        unsupported: list[str] = []
         try:
             from google import genai as _genai
             from google.genai import errors as _genai_errors
@@ -67,12 +66,15 @@ class GeminiAdapter(ProviderAdapter):
                     config=_genai_types.GenerateContentConfig(
                         max_output_tokens=gen.max_tokens,
                         **({"temperature": k["temperature"]} if "temperature" in k else {}),
+                        **({"seed": k["seed"]} if "seed" in k else {}),
                     ),
                 )
 
-            response = call_dropping_unsupported(
-                _invoke, {"temperature": gen.temperature}, unsupported
-            )
+            params = {"temperature": gen.temperature}
+            if gen.seed is not None:
+                params["seed"] = gen.seed
+
+            response = call_dropping_unsupported(_invoke, params, unsupported)
             content = response.text.strip()
             try:
                 parsed = _parse_last_json_object(content)
