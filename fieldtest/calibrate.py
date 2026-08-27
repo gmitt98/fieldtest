@@ -121,7 +121,12 @@ def run_calibration(
     # their latencies for no reason. --concurrency stays the total in-flight
     # budget rather than becoming per-judge, so overlapping judges does not
     # quietly multiply the load a user configured.
-    per_judge_concurrency = max(1, concurrency // len(panel))
+    # Cap the pool at the budget too. Giving every judge a floor of one worker
+    # while running all of them at once means a four-judge panel at
+    # --concurrency 1 puts four calls in flight, which is the opposite of what
+    # someone throttling a rate-limited account asked for.
+    parallel_judges       = max(1, min(len(panel), concurrency))
+    per_judge_concurrency = max(1, concurrency // parallel_judges)
 
     def _score_with(judge: PanelJudge):
         swapped = config_for_judge(config, judge)
@@ -140,7 +145,7 @@ def run_calibration(
         for judge in panel:
             progress(judge_label(judge))
 
-    with ThreadPoolExecutor(max_workers=len(panel)) as pool:
+    with ThreadPoolExecutor(max_workers=parallel_judges) as pool:
         # map preserves panel order, so the report lists judges as configured.
         scored = list(pool.map(_score_with, panel))
 

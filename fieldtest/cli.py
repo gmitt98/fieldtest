@@ -147,7 +147,10 @@ def validate(config_path: Optional[str]):
                 projected.get(set_name, 0) + uc_fixtures * runs * judge_runs * llm_evals
             )
 
-    if projected:
+    # Guard on the count. projected is a {set: count} dict, and a dict whose only
+    # value is 0 is still truthy — which printed "≈ 0 judge call(s)" on a fresh
+    # scaffold, before the user has added a single fixture.
+    if projected and max(projected.values()) > 0:
         largest = max(projected, key=lambda name: projected[name])
         detail = f"  ≈ {projected[largest]} judge call(s) for the '{largest}' set"
         if judge_runs_used > 1:
@@ -450,6 +453,16 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # precisely the one auto-detection skipped.
     baseline_data: dict = {}
     if baseline_id:
+        if baseline_path == current_path:
+            # find_baseline() skips the current run for this reason; the explicit
+            # path needs the same guard, or a mistyped id reports a clean
+            # all-unchanged diff that reads as a passing regression check.
+            click.echo(
+                f"Baseline is the same run as the one being compared "
+                f"({baseline_id}). Pass a different run id.",
+                err=True,
+            )
+            sys.exit(1)
         if baseline_path is None or not baseline_path.exists():
             click.echo(f"Baseline not found: {baseline_path}", err=True)
             sys.exit(1)

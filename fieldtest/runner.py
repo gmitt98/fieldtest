@@ -128,6 +128,15 @@ def score(
     # -------------------------------------------------------------------
     # EXECUTE with ThreadPoolExecutor
     # -------------------------------------------------------------------
+    if not all_fixture_ids:
+        raise OutputError(
+            f"No fixtures resolved for set '{set_name}'.\n"
+            f"  Add fixture ids under fixtures.sets.{set_name} in config.yaml, or\n"
+            f"  point --set at a set that has some.\n"
+            f"  Scoring nothing would write a result set measuring nothing, which\n"
+            f"  find_baseline() would then offer as a baseline for a real run."
+        )
+
     run_id = make_run_id()
     all_results: list[ResultRow] = []
     reset_unsupported_params()

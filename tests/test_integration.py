@@ -269,3 +269,21 @@ def test_repetitions_do_not_inflate_the_denominator(tmp_path):
     assert stats["failure_rate"] == 0.5
     assert stats["judge_calls"] == 6
     assert stats["judge_disagreement_rate"] == 1.0
+
+
+def test_scoring_an_empty_set_is_refused(tmp_path):
+    """
+    An empty set used to write a complete five-file result set reporting zero
+    evaluations — and that run then qualified as a baseline for a real one.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import OutputError
+    from fieldtest.runner import score
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, fixtures=())
+    results = config_path.parent / "results"
+
+    with pytest.raises(OutputError, match="No fixtures resolved"):
+        score(config=parse_and_validate(config_path), config_path=config_path)
+
+    assert list(results.iterdir()) == [], "a refused run must write nothing"
