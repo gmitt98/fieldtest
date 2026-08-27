@@ -265,3 +265,24 @@ provider: seed (gemini)` — instead of silently pretending you got a pinned see
 Documented example models moved off `gemini-2.5-flash`, which now returns 404 for new accounts
 even though it still appears in Google's own model list.
 
+### The judge can see what your system was answering
+
+An LLM judge was shown the output and nothing else. Not the question, not the retrieved context —
+just the reply, and a criterion like "every claim can be traced to the retrieved excerpt".
+
+So a grounding eval returned pass and fail without ever seeing the source. The numbers looked
+judged and were guessed, and nothing in the report distinguished the two.
+
+Fixture `inputs` now go to the judge alongside the output, delimited and neutralized the same way
+outputs already are. This changes results for every eval whose fixture has inputs, and the
+direction is not predictable: a judge that can finally read the context may pass answers it was
+failing, or fail answers it was passing on plausibility.
+
+Set `judge_sees_inputs: false` on an eval that should judge the output alone, or to keep a large
+context out of every call. That choice is part of the judge fingerprint, so a blinded run is never
+silently compared against a sighted one.
+
+Found by regenerating the bundled demo results: two rag evals jumped from 0.167 to 0.818, and the
+judge's own reasoning said why — *"no handbook excerpt was provided to verify these details
+against."* It was right.
+
