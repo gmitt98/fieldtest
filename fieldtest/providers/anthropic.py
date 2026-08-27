@@ -19,6 +19,20 @@ from fieldtest.providers.base import (
 )
 
 
+def _is_unsupported_temperature(e: Exception) -> bool:
+    """
+    Whether the provider rejected the request specifically for sending
+    temperature. Matched on the message because the API returns a generic
+    invalid_request_error, and narrowly enough that a different 400 still fails.
+    """
+    if getattr(e, "status_code", None) != 400:
+        return False
+    text = str(e).lower()
+    return "temperature" in text and (
+        "deprecated" in text or "not supported" in text or "unsupported" in text
+    )
+
+
 class AnthropicAdapter(ProviderAdapter):
     def call(
         self,
@@ -53,13 +67,34 @@ class AnthropicAdapter(ProviderAdapter):
         except Exception as e:
             return {"error": str(e)}
 
+        # Sampling parameters were removed on the newest models (Sonnet 5, Opus 5,
+        # Fable 5, Opus 4.7/4.8): sending temperature returns 400. Spec 02 §2.5
+        # already says the right thing to do — drop what the provider does not
+        # support, complete the run, and name it once — so this joins seed rather
+        # than failing every call.
+        send_temperature = True
+
         def _once() -> dict:
-            message = client.messages.create(
-                model=model,
-                max_tokens=gen.max_tokens,
-                temperature=gen.temperature,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            nonlocal send_temperature
+            kwargs = {
+                "model": model,
+                "max_tokens": gen.max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            if send_temperature:
+                kwargs["temperature"] = gen.temperature
+
+            try:
+                message = client.messages.create(**kwargs)
+            except Exception as e:
+                if send_temperature and _is_unsupported_temperature(e):
+                    send_temperature = False
+                    if "temperature" not in unsupported:
+                        unsupported.append("temperature")
+                    kwargs.pop("temperature")
+                    message = client.messages.create(**kwargs)
+                else:
+                    raise
             content = message.content[0].text.strip()
             try:
                 parsed = _parse_last_json_object(content)

@@ -1060,3 +1060,83 @@ def test_call_judge_llm_survives_an_adapter_that_breaks_the_contract():
         response = call_judge_llm("prompt", ev, config)
 
     assert "returned list, expected dict" in response["error"]
+
+
+# ---------------------------------------------------------------------------
+# Models that removed sampling parameters (found by live verification)
+# ---------------------------------------------------------------------------
+
+def _temperature_rejected_error():
+    class _E(Exception):
+        status_code = 400
+    return _E(
+        "Error code: 400 - {'type': 'error', 'error': {'type': "
+        "'invalid_request_error', 'message': '`temperature` is deprecated for "
+        "this model.'}}"
+    )
+
+
+def test_temperature_dropped_and_reported_when_the_model_rejects_it():
+    """
+    Sampling parameters were removed on Sonnet 5 / Opus 5 / Fable 5 / Opus 4.7+.
+    Spec 02 §2.5 says an unsupported parameter is dropped and named, not fatal —
+    this used to error every single judge call on those models.
+    """
+    module, client, _ = _make_anthropic_module(
+        returns_text='{"answer": "Pass", "reasoning": "ok"}'
+    )
+    client.messages.create.side_effect = [
+        _temperature_rejected_error(),
+        client.messages.create.return_value,
+    ]
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"anthropic": module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-sonnet-5", "p", GEN, RETRY)
+
+    assert result["answer"] == "Pass"
+    assert result["unsupported"] == ["temperature"]
+    # Retried without temperature rather than failing.
+    assert "temperature" not in client.messages.create.call_args.kwargs
+    assert client.messages.create.call_count == 2
+
+
+def test_temperature_retry_happens_once_not_per_call():
+    """After the first rejection the adapter stops sending it."""
+    module, client, _ = _make_anthropic_module(
+        returns_text='{"answer": "Pass", "reasoning": "ok"}'
+    )
+    ok = client.messages.create.return_value
+    client.messages.create.side_effect = [_temperature_rejected_error(), ok]
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"anthropic": module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            adapter = ant_mod.AnthropicAdapter()
+            adapter.call("claude-sonnet-5", "p", GEN, RETRY)
+
+    assert client.messages.create.call_count == 2
+
+
+def test_other_400s_still_fail_rather_than_retrying_bare():
+    """The narrow match must not swallow an unrelated bad request."""
+    class _E(Exception):
+        status_code = 400
+
+    module, client, _ = _make_anthropic_module(returns_text='{"answer": "Pass"}')
+    client.messages.create.side_effect = _E("model not found")
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"anthropic": module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("bad-model", "p", GEN, RETRY)
+
+    assert "model not found" in result["error"]
+    assert client.messages.create.call_count == 1

@@ -132,9 +132,16 @@ completes the run, and names it once in the report header rather than failing.
 
 | provider | temperature | seed | max_tokens |
 |---|---|---|---|
-| anthropic | yes | no | yes |
+| anthropic | model-dependent — see below | no | yes |
 | openai | yes | yes | yes |
 | gemini | yes | no | yes |
+
+Anthropic removed sampling parameters on its newest models: `claude-sonnet-5`, `claude-opus-5`,
+`claude-fable-5` and `claude-opus-4-7`/`4-8` reject `temperature` outright. `claude-haiku-4-5`
+and the 4.6 family still accept it. When a judge model rejects it, fieldtest drops the parameter,
+completes the run, and names it in the report header rather than failing every call — but that
+judge is no longer pinned, so treat its run-to-run variation as real. **The default judge is
+`claude-haiku-4-5` precisely because it can be pinned.**
 
 Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
 guarantees determinism. What is left is a property of the provider, not of your system.

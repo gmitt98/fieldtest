@@ -237,3 +237,17 @@ tool does not have.
 - **The cost multiplier stopped double-counting `judge_runs`**, calibration artifacts are written
   all-or-nothing, and a suppressed-artifact run no longer resolves a baseline it will never use.
 
+### Judges on the newest Anthropic models no longer fail outright
+
+`claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` and `claude-opus-4-7`/`4-8` removed sampling
+parameters, so every judge call sending `temperature` came back `400 — temperature is deprecated
+for this model`. Since fieldtest pins temperature to 0.0 by default, that meant *every* call to
+those models errored.
+
+The adapter now drops `temperature` when the model rejects it, retries once, and names it in the
+report header — the same path `seed` already took on providers that lack it. A judge run that way
+is not pinned, and the header says so.
+
+**The default judge is now `claude-haiku-4-5`.** A judge that can be held still is worth more than
+a larger one that cannot, and it costs less per call.
+
