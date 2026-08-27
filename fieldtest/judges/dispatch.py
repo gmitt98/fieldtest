@@ -22,6 +22,7 @@ def dispatch_judge(
     fixture: dict,
     run: int,
     config: Config,
+    judge_run: int = 1,
 ) -> ResultRow:
     """
     Route to the correct judge. Returns a ResultRow always.
@@ -39,6 +40,7 @@ def dispatch_judge(
         type=eval.type,
         fixture_id=fixture["id"],
         run=run,
+        judge_run=judge_run,
     )
 
     eval_type = eval.type

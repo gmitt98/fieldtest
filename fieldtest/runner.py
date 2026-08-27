@@ -17,6 +17,7 @@ from fieldtest.config import (
     ResultRow,
     load_fixture,
     resolve_dataset_version,
+    resolve_judge_runs,
     resolve_runs,
     resolve_set,
 )
@@ -97,9 +98,18 @@ def score(
                     run_outputs.append((n, p.read_text()))
                 elif allow_partial:
                     pass  # skip missing — already warned
+            judge_runs = resolve_judge_runs(config, uc)
             for ev in uc.evals:
                 for run_number, run_output in run_outputs:
-                    judge_tasks.append((uc.id, ev, run_output, fixture, run_number))
+                    # Repetitions only mean something for a sampling judge; a
+                    # regex or rule returns the same answer every time, so
+                    # repeating it would inflate the bill and the row count for
+                    # no information.
+                    reps = judge_runs if ev.type == "llm" else 1
+                    for judge_run in range(1, reps + 1):
+                        judge_tasks.append(
+                            (uc.id, ev, run_output, fixture, run_number, judge_run)
+                        )
 
     # -------------------------------------------------------------------
     # EXECUTE with ThreadPoolExecutor
@@ -108,8 +118,10 @@ def score(
     reset_unsupported_params()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         future_map = {
-            pool.submit(dispatch_judge, uc_id, ev, output, fixture, run, config): None
-            for (uc_id, ev, output, fixture, run) in judge_tasks
+            pool.submit(
+                dispatch_judge, uc_id, ev, output, fixture, run, config, judge_run
+            ): None
+            for (uc_id, ev, output, fixture, run, judge_run) in judge_tasks
         }
         for future in as_completed(future_map):
             result = future.result()

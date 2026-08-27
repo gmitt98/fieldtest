@@ -19,7 +19,7 @@ from fieldtest.results.aggregator import build_delta, build_summary, find_baseli
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_config(evals: list[Eval] | None = None) -> Config:
+def _make_config(evals: list[Eval] | None = None, judge_runs: int = 1) -> Config:
     if evals is None:
         evals = [_make_eval_def("ev1", is_scored=False)]
     return Config(
@@ -30,7 +30,9 @@ def _make_config(evals: list[Eval] | None = None) -> Config:
                 id="uc1",
                 description="test",
                 evals=evals,
-                fixtures=FixturesConfig(directory="fixtures/", sets={"full": []}),
+                fixtures=FixturesConfig(
+                    directory="fixtures/", sets={"full": []}, judge_runs=judge_runs
+                ),
             )
         ],
         defaults=Defaults(),
@@ -55,10 +57,11 @@ def _make_eval_def(eval_id: str, is_scored: bool = False) -> Eval:
 def _row(passed: bool | None = True, error: str | None = None,
          skipped: bool = False, score: int | None = None,
          eval_id: str = "ev1", tag: str = "right", ev_type: str = "regex",
-         floor_hit: bool = False) -> ResultRow:
+         floor_hit: bool = False, fixture_id: str = "fix1", run: int = 1,
+         judge_run: int = 1) -> ResultRow:
     return ResultRow(
         use_case="uc1", eval_id=eval_id, tag=tag, type=ev_type,
-        fixture_id="fix1", run=1,
+        fixture_id=fixture_id, run=run, judge_run=judge_run,
         passed=passed, error=error, skipped=skipped,
         score=score, floor_hit=floor_hit,
     )
@@ -610,3 +613,176 @@ def test_delta_buckets_unchanged_by_overlap_flag(tmp_path):
     assert [e["eval_id"] for e in delta["decreased"]] == ["down"]
     assert delta["unchanged"] == ["same"]
     assert all("overlapping" in e for e in delta["increased"] + delta["decreased"])
+
+
+# ---------------------------------------------------------------------------
+# Judge variance decomposition (spec 06)
+# ---------------------------------------------------------------------------
+
+def _reps(verdicts: list[bool], fixture_id="fix1", run=1, **kw) -> list[ResultRow]:
+    """One output judged len(verdicts) times."""
+    return [
+        _row(passed=v, fixture_id=fixture_id, run=run, judge_run=i + 1, **kw)
+        for i, v in enumerate(verdicts)
+    ]
+
+
+def test_judge_runs_defaults_to_one():
+    from fieldtest.config import resolve_judge_runs
+
+    config = _make_config()
+    assert config.use_cases[0].fixtures.judge_runs == 1
+    assert resolve_judge_runs(config, config.use_cases[0]) == 1
+
+
+def test_judge_runs_one_produces_identical_output_to_v1():
+    """Nobody pays for repeatability unless they ask: no judge fields at all."""
+    config = _make_config()
+    rows = [_row(passed=True), _row(passed=False, run=2)]
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert "judge_runs" not in stats
+    assert "judge_disagreement_rate" not in stats
+    assert stats["failure_rate"] == 0.5
+
+
+def test_result_row_carries_judge_run():
+    """Raw rows stay decomposable in -data.csv without needing the summary."""
+    row = _row(judge_run=3)
+    assert row.judge_run == 3
+    assert row.model_dump()["judge_run"] == 3
+
+
+def test_binary_disagreement_rate_computed():
+    config = _make_config(judge_runs=3)
+    rows = (
+        _reps([True, True, True], run=1)      # agrees
+        + _reps([True, False, True], run=2)   # disagrees
+        + _reps([False, False, False], run=3) # agrees
+    )
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["judge_runs"] == 3
+    assert stats["judge_disagreement_rate"] == round(1 / 3, 6)
+
+
+def test_binary_verdict_collapses_by_majority():
+    config = _make_config(judge_runs=3)
+    rows = _reps([True, False, True], run=1)   # majority pass
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["total_runs"] == 1
+    assert stats["failure_rate"] == 0.0
+
+
+def test_binary_tie_collapses_to_fail():
+    """A tie means the judge could not decide; for a safe eval that is a fail."""
+    config = _make_config(judge_runs=2)
+    rows = _reps([True, False], run=1)
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["failure_rate"] == 1.0
+
+
+def test_failure_rate_denominator_unaffected_by_judge_runs():
+    """judge_runs: 3 must not triple the denominator and skew every rate."""
+    single = build_summary(
+        [_row(passed=True, run=1), _row(passed=False, run=2)],
+        _make_config(),
+    )["uc1"]["right"]["ev1"]
+
+    tripled = build_summary(
+        _reps([True, True, True], run=1) + _reps([False, False, False], run=2),
+        _make_config(judge_runs=3),
+    )["uc1"]["right"]["ev1"]
+
+    assert single["total_runs"] == tripled["total_runs"] == 2
+    assert single["failure_rate"] == tripled["failure_rate"] == 0.5
+
+
+def test_scored_variance_decomposes_into_system_and_judge():
+    """Two sources of variance were summed and blamed on the system."""
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=2)
+
+    def _srow(score, run, judge_run):
+        return _row(passed=None, score=score, run=run, judge_run=judge_run,
+                    eval_id="ev1", tag="good", ev_type="llm")
+
+    # Output 1 judged 2 and 4; output 2 judged 4 and 2. Per-output means are
+    # both 3, so all of the spread belongs to the judge, none to the system.
+    rows = [_srow(2, 1, 1), _srow(4, 1, 2), _srow(4, 2, 1), _srow(2, 2, 2)]
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+
+    assert stats["judge_runs"] == 2
+    assert stats["system_stddev"] == 0.0
+    assert stats["judge_stddev"] == 1.0
+    assert stats["stddev"] == 1.0        # unchanged definition over all values
+
+
+def test_scored_variance_attributes_spread_to_system_when_judge_is_stable():
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=2)
+
+    def _srow(score, run, judge_run):
+        return _row(passed=None, score=score, run=run, judge_run=judge_run,
+                    eval_id="ev1", tag="good", ev_type="llm")
+
+    # The judge agrees with itself every time; the outputs genuinely differ.
+    rows = [_srow(2, 1, 1), _srow(2, 1, 2), _srow(4, 2, 1), _srow(4, 2, 2)]
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+
+    assert stats["judge_stddev"] == 0.0
+    assert stats["system_stddev"] == 1.0
+
+
+def test_scored_summary_has_no_judge_fields_at_one_repetition():
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    rows = [
+        _row(passed=None, score=4, eval_id="ev1", tag="good", ev_type="llm"),
+        _row(passed=None, score=5, eval_id="ev1", tag="good", ev_type="llm", run=2),
+    ]
+    stats = build_summary(rows, _make_config(evals))["uc1"]["good"]["ev1"]
+
+    assert "system_stddev" not in stats
+    assert "judge_stddev" not in stats
+
+
+def test_collapse_rows_is_identity_at_one_repetition():
+    from fieldtest.results.aggregator import collapse_rows
+
+    config = _make_config()
+    rows = [_row(passed=True), _row(passed=False, run=2)]
+    assert collapse_rows(rows, config) == rows
+
+
+def test_collapse_rows_matches_headline_rate():
+    """
+    The matrix and tag health count rows. Without collapsing they report 5/6
+    while the summary reports 1 of 2, and the two numbers contradict each other.
+    """
+    from fieldtest.results.aggregator import collapse_rows
+
+    config = _make_config(judge_runs=3)
+    rows = _reps([True, True, True], run=1) + _reps([True, False, False], run=2)
+
+    collapsed = collapse_rows(rows, config)
+    assert len(collapsed) == 2
+    assert sorted(r.passed for r in collapsed) == [False, True]
+
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+    passed_in_view = sum(1 for r in collapsed if r.passed)
+    assert passed_in_view / len(collapsed) == 1 - stats["failure_rate"]
+
+
+def test_collapse_rows_leaves_scored_and_error_rows_alone():
+    from fieldtest.results.aggregator import collapse_rows
+
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=2)
+    rows = [
+        _row(passed=None, score=4, eval_id="ev1", tag="good", ev_type="llm", judge_run=1),
+        _row(passed=None, score=2, eval_id="ev1", tag="good", ev_type="llm", judge_run=2),
+        _row(passed=None, error="boom", eval_id="ev1", tag="good", ev_type="llm"),
+    ]
+    assert len(collapse_rows(rows, config)) == 3

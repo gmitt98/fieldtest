@@ -733,3 +733,52 @@ def test_history_shows_judge_model(tmp_path):
     assert "JUDGE" in result.output
     assert "claude-haiku-3-5" in result.output
     assert "claude-sonnet-4" in result.output
+
+
+def test_validate_prints_projected_call_count(tmp_path):
+    """Cost is multiplicative — a user should meet the 3x bill before paying it."""
+    config = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      judge_runs: 3
+      sets:
+        full: [fix1, fix2]
+"""
+    evals_dir = _setup_project(tmp_path, config=config)
+    for fid in ("fix1", "fix2"):
+        (evals_dir / "fixtures").mkdir(exist_ok=True)
+        (evals_dir / "fixtures" / f"{fid}.yaml").write_text(
+            f"id: {fid}\ninputs:\n  q: x\n"
+        )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    # 2 fixtures × 5 runs × 3 judge_runs × 1 llm eval
+    assert "30 judge call(s)" in result.output
+    assert "judge_runs: 3" in result.output
+
+
+def test_validate_omits_call_count_without_llm_evals(tmp_path):
+    """A regex-only project makes no judge calls; projecting a bill would be wrong."""
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "judge call(s)" not in result.output

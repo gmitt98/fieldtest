@@ -139,6 +139,34 @@ completes the run, and names it once in the report header rather than failing.
 Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
 guarantees determinism. What is left is a property of the provider, not of your system.
 
+### Judging each output more than once
+
+Temperature 0.0 reduces judge disagreement but does not eliminate it, and `stddev` on a scored
+eval is the spread across different outputs *scored by a judge that was itself varying*. Two
+sources of variance, summed and reported as one number attributed to your system.
+
+Set `judge_runs` to judge each output more than once and see them separated:
+
+```yaml
+fixtures:
+  directory: fixtures/
+  runs: 5          # generator outputs per fixture
+  judge_runs: 3    # judge repetitions per output (default 1)
+```
+
+The report gains a Judge Repeatability table: `system spread` is the variation between your
+outputs, `judge spread` is the variation the judge introduced judging the same output twice, and
+for binary evals `judge disagreement` is the share of outputs the judge could not decide the same
+way every time.
+
+A judge spread near zero is a well-specified eval. A judge spread comparable to the system spread
+means the eval's criteria are ambiguous — that diagnostic is the point of the feature.
+
+**This multiplies your bill.** `runs × judge_runs × llm evals × fixtures` judge calls;
+`fieldtest validate` prints the projection for the full set so you meet the number before paying
+it. `failure_rate` is computed from collapsed verdicts (majority, ties resolved to fail), so rates
+stay comparable no matter how many repetitions you run.
+
 ### Judge retries
 
 Judge errors do not fail a run. They are excluded from the failure rate and counted separately,

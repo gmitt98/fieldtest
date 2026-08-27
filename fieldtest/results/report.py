@@ -232,6 +232,19 @@ def format_report(
             "unknown, so deltas may reflect an instrument change."
         )
 
+    current_judge_runs = 1
+    if config.use_cases:
+        from fieldtest.config import resolve_judge_runs
+        current_judge_runs = resolve_judge_runs(config, config.use_cases[0])
+
+    baseline_judge_runs = delta.get("baseline_judge_runs", current_judge_runs)
+    if delta.get("baseline_run_id") and baseline_judge_runs != current_judge_runs:
+        lines.append(
+            f"⚠ baseline judged each output {baseline_judge_runs}× and this run "
+            f"{current_judge_runs}× — failure rates remain comparable, judge spread "
+            f"figures do not."
+        )
+
     # Judge errors shrink the sample rather than failing the run, so say so where
     # the rates are read rather than leaving it to be inferred from two numbers.
     from fieldtest.results.aggregator import summarize_judge_errors
@@ -356,6 +369,43 @@ def format_report(
                                 f"outputs/{row.fixture_id}/run-{row.run}.txt"
                             )
 
+            lines.append("")
+
+        # --- Judge repeatability -----------------------------------------
+        # How much of the reported spread belongs to the instrument rather than
+        # the system. Near zero is a well-specified eval; anything else is an
+        # eval whose criteria are ambiguous. That diagnostic is the point.
+        repeat_rows: list[str] = []
+        for tag in ["right", "good", "safe"]:
+            for eval_id, stats in uc_stats.get(tag, {}).items():
+                if "judge_runs" not in stats:
+                    continue
+                disagreement = stats.get("judge_disagreement_rate")
+                dis_str = f"{round(disagreement * 100, 1)}%" if disagreement is not None else "—"
+                sys_str = (
+                    f"{stats['system_stddev']}" if stats.get("system_stddev") is not None else "—"
+                )
+                jdg_str = (
+                    f"{stats['judge_stddev']}" if stats.get("judge_stddev") is not None else "—"
+                )
+                repeat_rows.append(f"| {eval_id} | {dis_str} | {sys_str} | {jdg_str} |")
+
+        if repeat_rows:
+            reps = next(
+                stats["judge_runs"]
+                for tag in ["right", "good", "safe"]
+                for stats in uc_stats.get(tag, {}).values()
+                if "judge_runs" in stats
+            )
+            lines.append(f"### Judge Repeatability (judge_runs: {reps})")
+            lines.append("| eval | judge disagreement | system spread | judge spread |")
+            lines.append("|------|--------------------|---------------|--------------|")
+            lines.extend(repeat_rows)
+            lines.append("")
+            lines.append(
+                "  spread near zero means the judge is repeatable; a judge spread "
+                "comparable to the system spread means the eval's criteria are ambiguous."
+            )
             lines.append("")
 
         # Floor hits

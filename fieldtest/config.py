@@ -99,6 +99,11 @@ class FixturesConfig(BaseModel):
     directory: str           = "fixtures/"
     sets:      dict[str, Union[list[str], str]]  # set_name → [ids] | "dir/*" | "all"
     runs:      Optional[int] = None
+    # Judge repetitions per output — how many times the same output is judged,
+    # independently of how many outputs the generator produced. Default 1, so an
+    # existing config produces identical rows, summaries and deltas, and nobody
+    # pays the multiplied bill unless they ask for it.
+    judge_runs: int = 1
     # Optional dataset snapshot tag — surfaces in result metadata so that
     # find_baseline() skips runs from a different snapshot, and `fieldtest diff`
     # warns when an explicit baseline crosses versions. Existing configs that
@@ -206,6 +211,7 @@ class ResultRow(BaseModel):
     type:        str
     fixture_id:  str
     run:         int
+    judge_run:   int = 1              # which judge repetition produced this row
     passed:      Optional[bool] = None
     score:       Optional[int]  = None
     floor_hit:   bool           = False
@@ -278,6 +284,11 @@ def resolve_runs(config: Config, use_case: UseCase) -> int:
     if use_case.fixtures.runs is not None:
         return use_case.fixtures.runs
     return config.defaults.runs  # Defaults model defaults to 5
+
+
+def resolve_judge_runs(config: Config, use_case: UseCase) -> int:
+    """Judge repetitions per output for a use case. Defaults to 1."""
+    return use_case.fixtures.judge_runs
 
 
 def resolve_dataset_version(config: Config) -> Optional[str]:

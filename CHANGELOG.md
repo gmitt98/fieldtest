@@ -110,3 +110,27 @@ want to gate on what the sample actually supports.
 and get every new field at its default, which reproduces v1 behaviour exactly. `fieldtest init`
 scaffolds v2.
 
+### You can now see how much of the spread is the judge
+
+`runs: 5` produced five outputs, each judged exactly once. So the `stddev` on a scored eval was
+the spread across five different outputs scored by a judge that was itself sampling — two
+sources of variance summed into one number and attributed to your system. There was no way to
+ask the judge the same question twice.
+
+`fixtures.judge_runs` (default 1) sets how many times each output is judged. Above 1, the report
+gains a Judge Repeatability table separating `system spread` from `judge spread`, and for binary
+evals a `judge disagreement` rate: the share of outputs the judge did not rule on the same way
+every time.
+
+A judge spread near zero means the eval is well specified. A judge spread that rivals the system
+spread means the criteria are ambiguous, and that is the diagnostic worth having.
+
+Rates stay comparable across configurations: `failure_rate` is computed from one collapsed
+verdict per output — majority, with ties resolved to fail, because a tie means the judge could
+not decide and on a `safe` eval that is not a pass. The fixture × eval matrix and tag health
+count the same collapsed verdicts, while `-data.csv` and `-data.json` keep every raw repetition
+with a `judge_run` column so you can do your own decomposition.
+
+Because the cost is multiplicative, `fieldtest validate` now prints the projected judge call
+count for the full set.
+

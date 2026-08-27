@@ -419,3 +419,18 @@ def test_judge_retry_configurable(tmp_path):
     assert cfg.defaults.judge_retry.initial_delay == 0.5
     # Unset fields keep their defaults.
     assert cfg.defaults.judge_retry.max_delay == 60.0
+
+
+def test_judge_runs_defaults_to_one(tmp_path):
+    """Nobody pays the multiplied bill unless they ask for it."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.use_cases[0].fixtures.judge_runs == 1
+
+
+def test_judge_runs_parses_when_set(tmp_path):
+    content = MINIMAL_VALID.replace(
+        "          directory: fixtures/\n",
+        "          directory: fixtures/\n          judge_runs: 3\n",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.use_cases[0].fixtures.judge_runs == 3

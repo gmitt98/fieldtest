@@ -121,6 +121,31 @@ def validate(config_path: Optional[str]):
     )
     click.echo(f"  {fixture_count} explicitly listed fixture(s)")
 
+    # Cost is multiplicative: runs × judge_runs × llm evals × fixtures. Say it
+    # before the bill, not after — judge_runs: 3 is a 3x charge.
+    from fieldtest.config import resolve_judge_runs, resolve_runs
+    from fieldtest.config import resolve_set as _resolve_set
+
+    projected  = 0
+    judge_runs_used = 1
+    for uc in config.use_cases:
+        llm_evals = sum(1 for ev in uc.evals if ev.type == "llm")
+        if not llm_evals:
+            continue
+        try:
+            uc_fixtures = len(_resolve_set("full", uc, base_dir))
+        except Exception:
+            uc_fixtures = 0
+        judge_runs = resolve_judge_runs(config, uc)
+        judge_runs_used = max(judge_runs_used, judge_runs)
+        projected += uc_fixtures * resolve_runs(config, uc) * judge_runs * llm_evals
+
+    if projected:
+        detail = f"  ≈ {projected} judge call(s) for the full set"
+        if judge_runs_used > 1:
+            detail += f" (judge_runs: {judge_runs_used})"
+        click.echo(detail)
+
     if warnings:
         click.echo("")
         for w in warnings:
