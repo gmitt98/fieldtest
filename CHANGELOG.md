@@ -216,3 +216,24 @@ tool does not have.
 - **`fieldtest diff` reads the baseline file once** instead of three times, and the judge prompt
   is rewritten once per call instead of twice.
 
+### Calibration fixes from review
+
+- **The panel table counts judge calls**, not every row the pass produced. Regex, rule and
+  reference rows were counted as judge calls, so the table contradicted the projection the same
+  command had just printed.
+- **A judge that produced no verdict is named.** One that errored on every call silently dropped
+  out of the pairwise matrix and Fleiss' kappa, leaving a smaller panel's numbers presented as the
+  configured panel's.
+- **Every eval appears in the report.** An eval only one judge could rule on has no disagreement
+  score, and was therefore dropped from the ranking *and* from the per-eval sections — hiding
+  exactly the eval the panel could not evaluate.
+- **Duplicate panel judges are rejected**, and `kappa_threshold` is bounded to [-1, 1]. The same
+  model twice agrees with itself and inflates every figure; a threshold of `60` used to load
+  cleanly and flag a perfect panel as failing.
+- **Panel judges run concurrently**, sharing `--concurrency` as a total budget rather than
+  multiplying it. Independent passes over the same files no longer cost the sum of their latencies.
+- **Two use cases may declare the same eval id** without their verdicts being merged into one
+  meaningless agreement figure.
+- **The cost multiplier stopped double-counting `judge_runs`**, calibration artifacts are written
+  all-or-nothing, and a suppressed-artifact run no longer resolves a baseline it will never use.
+
