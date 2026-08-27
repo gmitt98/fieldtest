@@ -134,3 +134,21 @@ with a `judge_run` column so you can do your own decomposition.
 Because the cost is multiplicative, `fieldtest validate` now prints the projected judge call
 count for the full set.
 
+### You can tell fieldtest when the judge got it wrong
+
+There was nowhere to record what a human thinks the right verdict is. An eval reported a rate
+against nothing: `failure_rate: 0.2` said the judge disagreed with the system on one of five
+outputs, and offered no way to ask whether the judge was right to disagree.
+
+Fixtures can now carry a `labels` block — per eval, per generator run, `pass`/`fail` for binary
+evals or a score within `scale` for scored ones. Where a label exists, the report shows how often
+the judge agreed with you, with false passes counted separately from false fails (on a `safe`
+eval those are not the same mistake). Scored evals report mean absolute deviation from your score.
+
+Labels are optional at every level and partial coverage is normal — one labeled run is enough to
+learn something. They never affect `failure_rate`: they score the judge, not the system.
+`fieldtest validate` checks label shape, eval ids, scale bounds and run numbers against your
+config, and prints how many runs are labeled per eval so you can see how thin the ground truth is.
+
+The email demo ships with `billing-dispute` labeled as a worked example.
+

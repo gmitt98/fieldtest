@@ -118,7 +118,78 @@ def collapse_rows(rows: list[ResultRow], config: Config) -> list[ResultRow]:
     return collapsed
 
 
-def build_summary(rows: list[ResultRow], config: Config) -> dict:
+def _judge_agreement(
+    eval_id: str,
+    valid_rows: list[ResultRow],
+    labels: dict,
+    is_scored: bool,
+) -> dict:
+    """
+    How well the judge agreed with the human, where a human said anything.
+
+    Labels do not score the system — they score the judge. failure_rate is
+    untouched by their presence. Partial coverage is the normal state: only
+    labeled (fixture, run) pairs contribute.
+
+    False passes are reported separately from false fails because on a `safe`
+    eval they are the asymmetric error that matters, and a single agreement
+    number hides them.
+    """
+    by_output = _group_by_output(valid_rows)
+
+    compared    = 0
+    agreed      = 0
+    false_pass  = 0
+    false_fail  = 0
+    deviations: list[float] = []
+
+    for (fixture_id, run), reps in by_output.items():
+        label = labels.get((fixture_id, eval_id, run))
+        if label is None:
+            continue
+
+        if is_scored:
+            scores = [r.score for r in reps if r.score is not None]
+            if not scores or not isinstance(label, int) or isinstance(label, bool):
+                continue
+            judged = sum(scores) / len(scores)
+            compared += 1
+            deviations.append(abs(judged - label))
+            if judged == label:
+                agreed += 1
+        else:
+            if label not in ("pass", "fail"):
+                continue
+            verdict = collapse_verdicts(reps)
+            human_passed = label == "pass"
+            compared += 1
+            if verdict == human_passed:
+                agreed += 1
+            elif verdict and not human_passed:
+                false_pass += 1
+            else:
+                false_fail += 1
+
+    if not compared:
+        return {}
+
+    fields = {
+        "labeled_runs":    compared,
+        "judge_agreement": round(agreed / compared, 6),
+    }
+    if is_scored:
+        fields["mean_absolute_deviation"] = round(sum(deviations) / len(deviations), 4)
+    else:
+        fields["judge_false_pass"] = false_pass
+        fields["judge_false_fail"] = false_fail
+    return fields
+
+
+def build_summary(
+    rows: list[ResultRow],
+    config: Config,
+    labels: Optional[dict] = None,
+) -> dict:
     """
     Group rows by use_case → tag → eval_id and compute stats.
 
@@ -141,6 +212,7 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
             }
 
     uc_by_id = {uc.id: uc for uc in config.use_cases}
+    labels = labels or {}
 
     # Group: use_case → tag → eval_id → rows
     groups: dict[str, dict[str, dict[str, list[ResultRow]]]] = {}
@@ -178,7 +250,7 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                     ) if mean is not None else None
                     s_min  = min(scores) if scores else None
                     s_max  = max(scores) if scores else None
-                    judge_fields = {}
+                    judge_fields = _judge_agreement(eval_id, valid_rows, labels, True)
                     if judge_runs > 1 and scores:
                         # Two sources of variance were summed and reported as one
                         # number attributed to the system. Separate them.
@@ -192,6 +264,7 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                             output_means.append(sum(rep_scores) / len(rep_scores))
                             within.append(_population_stddev(rep_scores))
                         judge_fields = {
+                            **judge_fields,
                             "system_stddev": round(_population_stddev(output_means), 4),
                             "judge_stddev":  round(sum(within) / len(within), 4) if within else 0.0,
                             "judge_runs":    judge_runs,
@@ -209,7 +282,9 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                         **judge_fields,
                     }
                 else:
-                    judge_fields: dict = {}
+                    judge_fields: dict = _judge_agreement(
+                        eval_id, valid_rows, labels, False
+                    )
                     if judge_runs > 1:
                         # Rates come from collapsed verdicts, not raw repetition
                         # rows: otherwise judge_runs: 3 triples the denominator
@@ -225,6 +300,7 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                         total_runs   = len(collapsed)
                         failed_count = sum(1 for v in collapsed.values() if v is False)
                         judge_fields = {
+                            **judge_fields,
                             "judge_disagreement_rate": (
                                 round(disagreeing / len(by_output), 6) if by_output else None
                             ),

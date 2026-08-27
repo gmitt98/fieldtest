@@ -146,6 +146,18 @@ def validate(config_path: Optional[str]):
             detail += f" (judge_runs: {judge_runs_used})"
         click.echo(detail)
 
+    # Ground truth: how thin is it, and does it line up with the config?
+    from fieldtest.config import validate_fixture_labels
+
+    label_errors, label_coverage = validate_fixture_labels(config, base_dir)
+    warnings.extend(label_errors)
+
+    if label_coverage:
+        click.echo("")
+        click.echo("  human labels:")
+        for eval_id in sorted(label_coverage):
+            click.echo(f"    {eval_id}: {label_coverage[eval_id]} labeled run(s)")
+
     if warnings:
         click.echo("")
         for w in warnings:

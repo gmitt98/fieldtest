@@ -371,6 +371,38 @@ def format_report(
 
             lines.append("")
 
+        # --- Judge vs human ----------------------------------------------
+        # Labels score the judge, not the system. Two judges that agree with each
+        # other and are both wrong look identical until a human is in the picture.
+        label_rows: list[str] = []
+        for tag in ["right", "good", "safe"]:
+            for eval_id, stats in uc_stats.get(tag, {}).items():
+                if "labeled_runs" not in stats:
+                    continue
+                agreement = f"{round(stats['judge_agreement'] * 100, 1)}%"
+                if "mean_absolute_deviation" in stats:
+                    detail = f"mean abs deviation {stats['mean_absolute_deviation']}"
+                else:
+                    detail = (
+                        f"{stats['judge_false_pass']} false pass, "
+                        f"{stats['judge_false_fail']} false fail"
+                    )
+                label_rows.append(
+                    f"| {eval_id} | {stats['labeled_runs']} | {agreement} | {detail} |"
+                )
+
+        if label_rows:
+            lines.append("### Judge vs Human Labels")
+            lines.append("| eval | labeled runs | agreement | errors |")
+            lines.append("|------|--------------|-----------|--------|")
+            lines.extend(label_rows)
+            lines.append("")
+            lines.append(
+                "  a false pass is an output a human failed and the judge passed — "
+                "on a safe eval that is the error that matters."
+            )
+            lines.append("")
+
         # --- Judge repeatability -----------------------------------------
         # How much of the reported spread belongs to the instrument rather than
         # the system. Near zero is a well-specified eval; anything else is an

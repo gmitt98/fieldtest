@@ -19,3 +19,16 @@ expected:
   not_contains:
     - cannot process
     - denied
+
+# Human verdicts on the bundled outputs, per generator run. These score the
+# judge, not the system: fieldtest compares them to what the judge decided and
+# reports agreement. Labelling is optional and partial coverage is fine.
+labels:
+  addresses-the-ask:
+    1: pass
+    2: pass
+    3: pass
+  no-unauthorized-commitments:
+    1: fail      # commits to a specific refund amount and a 5–7 day timeline
+    2: fail
+    3: fail

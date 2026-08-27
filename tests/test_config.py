@@ -434,3 +434,116 @@ def test_judge_runs_parses_when_set(tmp_path):
     )
     cfg = parse_and_validate(_write_config(tmp_path, content))
     assert cfg.use_cases[0].fixtures.judge_runs == 3
+
+
+# ---------------------------------------------------------------------------
+# Human labels (spec 07)
+# ---------------------------------------------------------------------------
+
+def _label_project(tmp_path, labels_yaml: str, eval_yaml: str | None = None):
+    """Build a project with one fixture carrying a labels block."""
+    from fieldtest.config import validate_fixture_labels
+
+    evals = eval_yaml or """\
+          - id: ev1
+            tag: right
+            type: llm
+            description: checks something
+            pass_criteria: it is fine
+            fail_criteria: it is not
+"""
+    config = f"""\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+defaults:
+  runs: 3
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+{evals}
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+    (tmp_path / "config.yaml").write_text(config)
+    (tmp_path / "fixtures").mkdir(exist_ok=True)
+    (tmp_path / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n  q: x\n" + labels_yaml
+    )
+    cfg = parse_and_validate(tmp_path / "config.yaml")
+    return validate_fixture_labels(cfg, tmp_path)
+
+
+def test_labels_parsed_per_eval_per_run():
+    from fieldtest.config import extract_labels
+
+    fixture = {"id": "f1", "labels": {"ev1": {1: "pass", 3: "fail"}}}
+    assert extract_labels(fixture) == {("ev1", 1): "pass", ("ev1", 3): "fail"}
+
+
+def test_fixture_without_labels_extracts_nothing():
+    from fieldtest.config import extract_labels
+
+    assert extract_labels({"id": "f1", "inputs": {}}) == {}
+
+
+def test_valid_labels_report_coverage(tmp_path):
+    errors, coverage = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: pass\n    2: fail\n"
+    )
+    assert errors == []
+    assert coverage == {"ev1": 2}
+
+
+def test_label_type_mismatch_is_config_error(tmp_path):
+    errors, _ = _label_project(tmp_path, "labels:\n  ev1:\n    1: 4\n")
+    assert any("must be 'pass' or 'fail'" in e for e in errors)
+
+
+def test_label_references_unknown_eval_is_config_error(tmp_path):
+    errors, _ = _label_project(tmp_path, "labels:\n  nope:\n    1: pass\n")
+    assert any("unknown eval 'nope'" in e for e in errors)
+
+
+def test_label_run_number_exceeding_runs_is_config_error(tmp_path):
+    errors, _ = _label_project(tmp_path, "labels:\n  ev1:\n    9: pass\n")
+    assert any("exceeds runs: 3" in e for e in errors)
+
+
+SCORED_EVAL = """\
+          - id: ev1
+            tag: good
+            type: llm
+            binary: false
+            description: rate it
+            scale: [1, 5]
+            anchors:
+              1: bad
+              5: great
+"""
+
+
+def test_label_score_outside_scale_is_config_error(tmp_path):
+    errors, _ = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: 9\n", eval_yaml=SCORED_EVAL
+    )
+    assert any("outside scale 1–5" in e for e in errors)
+
+
+def test_scored_label_must_be_integer(tmp_path):
+    errors, _ = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: pass\n", eval_yaml=SCORED_EVAL
+    )
+    assert any("must be an integer score" in e for e in errors)
+
+
+def test_valid_scored_label_accepted(tmp_path):
+    errors, coverage = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: 4\n", eval_yaml=SCORED_EVAL
+    )
+    assert errors == []
+    assert coverage == {"ev1": 1}

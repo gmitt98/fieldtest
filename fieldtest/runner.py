@@ -15,6 +15,7 @@ from typing import Optional
 from fieldtest.config import (
     Config,
     ResultRow,
+    extract_labels,
     load_fixture,
     resolve_dataset_version,
     resolve_judge_runs,
@@ -85,12 +86,17 @@ def score(
     # EVALUATE — build flat list of judge tasks
     # -------------------------------------------------------------------
     judge_tasks = []
+    # Human verdicts, keyed (fixture_id, eval_id, run). Used to score the judge,
+    # never to score the system.
+    human_labels: dict = {}
     for uc in config.use_cases:
         fixture_ids = resolve_set(set_name, uc, base_dir)
         runs        = resolve_runs(config, uc)
         for fid in fixture_ids:
             fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
             fixture      = load_fixture(fixture_path)
+            for (eval_id, run_number), value in extract_labels(fixture).items():
+                human_labels[(fid, eval_id, run_number)] = value
             run_outputs  = []
             for n in range(1, runs + 1):
                 p = outputs_dir / fid / f"run-{n}.txt"
@@ -145,7 +151,7 @@ def score(
     # -------------------------------------------------------------------
     # AGGREGATE
     # -------------------------------------------------------------------
-    summary = build_summary(all_results, config)
+    summary = build_summary(all_results, config, labels=human_labels)
 
     # Auto-detect baseline — same set + dataset_version only, to avoid misleading
     # cross-set or cross-snapshot deltas.

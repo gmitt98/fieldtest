@@ -786,3 +786,113 @@ def test_collapse_rows_leaves_scored_and_error_rows_alone():
         _row(passed=None, error="boom", eval_id="ev1", tag="good", ev_type="llm"),
     ]
     assert len(collapse_rows(rows, config)) == 3
+
+
+# ---------------------------------------------------------------------------
+# Human labels (spec 07)
+# ---------------------------------------------------------------------------
+
+def test_fixture_without_labels_unchanged():
+    """No labels means no new fields — consumers unaffected until a user opts in."""
+    config = _make_config()
+    rows = [_row(passed=True), _row(passed=False, run=2)]
+
+    without = build_summary(rows, config)["uc1"]["right"]["ev1"]
+    empty   = build_summary(rows, config, labels={})["uc1"]["right"]["ev1"]
+
+    assert without == empty
+    assert "judge_agreement" not in without
+    assert "labeled_runs" not in without
+
+
+def test_judge_agreement_computed_from_labels():
+    config = _make_config()
+    rows = [
+        _row(passed=True,  run=1),   # human: pass  → agree
+        _row(passed=False, run=2),   # human: fail  → agree
+        _row(passed=True,  run=3),   # human: fail  → disagree
+    ]
+    labels = {
+        ("fix1", "ev1", 1): "pass",
+        ("fix1", "ev1", 2): "fail",
+        ("fix1", "ev1", 3): "fail",
+    }
+    stats = build_summary(rows, config, labels=labels)["uc1"]["right"]["ev1"]
+
+    assert stats["labeled_runs"] == 3
+    assert stats["judge_agreement"] == round(2 / 3, 6)
+
+
+def test_false_pass_and_false_fail_counted_separately():
+    """On a safe eval the false pass is the asymmetric error that matters."""
+    config = _make_config()
+    rows = [
+        _row(passed=True,  run=1),   # human: fail → false pass
+        _row(passed=False, run=2),   # human: pass → false fail
+        _row(passed=True,  run=3),   # human: pass → agree
+    ]
+    labels = {
+        ("fix1", "ev1", 1): "fail",
+        ("fix1", "ev1", 2): "pass",
+        ("fix1", "ev1", 3): "pass",
+    }
+    stats = build_summary(rows, config, labels=labels)["uc1"]["right"]["ev1"]
+
+    assert stats["judge_false_pass"] == 1
+    assert stats["judge_false_fail"] == 1
+    assert stats["judge_agreement"] == round(1 / 3, 6)
+
+
+def test_partial_label_coverage_allowed():
+    """Partial coverage is the normal state and must not degrade anything."""
+    config = _make_config()
+    rows = [_row(passed=True, run=1), _row(passed=False, run=2), _row(passed=True, run=3)]
+    labels = {("fix1", "ev1", 2): "fail"}
+
+    stats = build_summary(rows, config, labels=labels)["uc1"]["right"]["ev1"]
+
+    assert stats["labeled_runs"] == 1
+    assert stats["judge_agreement"] == 1.0
+    assert stats["total_runs"] == 3          # unlabeled runs still scored
+
+
+def test_failure_rate_unaffected_by_labels():
+    """Labels score the judge, never the system."""
+    config = _make_config()
+    rows = [_row(passed=True, run=1), _row(passed=False, run=2)]
+    labels = {("fix1", "ev1", 1): "fail", ("fix1", "ev1", 2): "fail"}
+
+    unlabeled = build_summary(rows, config)["uc1"]["right"]["ev1"]
+    labeled   = build_summary(rows, config, labels=labels)["uc1"]["right"]["ev1"]
+
+    assert labeled["failure_rate"] == unlabeled["failure_rate"] == 0.5
+    assert labeled["failure_rate_ci"] == unlabeled["failure_rate_ci"]
+    assert labeled["judge_agreement"] == 0.5
+
+
+def test_scored_labels_report_mean_absolute_deviation():
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals)
+
+    def _srow(score, run):
+        return _row(passed=None, score=score, run=run,
+                    eval_id="ev1", tag="good", ev_type="llm")
+
+    rows = [_srow(4, 1), _srow(2, 2)]
+    labels = {("fix1", "ev1", 1): 4, ("fix1", "ev1", 2): 5}
+    stats = build_summary(rows, config, labels=labels)["uc1"]["good"]["ev1"]
+
+    assert stats["labeled_runs"] == 2
+    assert stats["mean_absolute_deviation"] == 1.5     # |4-4| and |2-5|
+    assert "judge_false_pass" not in stats
+
+
+def test_labels_compare_against_collapsed_verdict():
+    """With repetitions, the human is compared to one verdict per output."""
+    config = _make_config(judge_runs=3)
+    rows = _reps([True, False, True], run=1)          # collapses to pass
+    labels = {("fix1", "ev1", 1): "pass"}
+
+    stats = build_summary(rows, config, labels=labels)["uc1"]["right"]["ev1"]
+    assert stats["labeled_runs"] == 1
+    assert stats["judge_agreement"] == 1.0

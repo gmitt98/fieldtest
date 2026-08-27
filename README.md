@@ -139,6 +139,38 @@ completes the run, and names it once in the report header rather than failing.
 Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
 guarantees determinism. What is left is a property of the provider, not of your system.
 
+### Telling the judge it was wrong
+
+An eval reports a rate against nothing. `failure_rate: 0.2` says the judge disagreed with the
+system on one output in five, and gives you no way to ask whether the judge was right to
+disagree. Two judges that agree with each other and are both wrong look identical to two judges
+that agree and are both right.
+
+Fixtures can carry human verdicts, per eval and per generator run:
+
+```yaml
+id: billing-dispute
+inputs:
+  customer_email: "..."
+labels:
+  addresses-the-ask:
+    1: pass
+    2: pass
+  no-unauthorized-commitments:
+    1: fail      # commits to a refund amount and a timeline
+```
+
+Run numbers match `outputs/{fixture_id}/run-N.txt`. Everything is optional — no block, some evals,
+some runs. Partial coverage is the normal state.
+
+The report gains a Judge vs Human Labels table with agreement, and false passes counted separately
+from false fails, because on a `safe` eval a false pass is the error that matters and one
+agreement number hides it. Scored evals report mean absolute deviation from the human score.
+
+**Labels never score your system.** They score the judge — `failure_rate` is identical whether the
+labels are there or not. `fieldtest validate` checks them against your config and prints how many
+runs are labeled per eval, so you can see how thin the ground truth is.
+
 ### Judging each output more than once
 
 Temperature 0.0 reduces judge disagreement but does not eliminate it, and `stddev` on a scored

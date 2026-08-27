@@ -782,3 +782,84 @@ def test_validate_omits_call_count_without_llm_evals(tmp_path):
         catch_exceptions=False,
     )
     assert "judge call(s)" not in result.output
+
+
+def test_validate_reports_label_coverage(tmp_path):
+    """A user should be able to see how thin the ground truth is."""
+    config = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+defaults:
+  runs: 3
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "fixtures").mkdir(exist_ok=True)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n  q: x\nlabels:\n  ev1:\n    1: pass\n    2: fail\n"
+    )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "human labels:" in result.output
+    assert "ev1: 2 labeled run(s)" in result.output
+
+
+def test_validate_flags_bad_label(tmp_path):
+    config = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "fixtures").mkdir(exist_ok=True)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n  q: x\nlabels:\n  ghost:\n    1: pass\n"
+    )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "unknown eval 'ghost'" in result.output
+
+
+def test_validate_silent_about_labels_when_none(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "human labels:" not in result.output
