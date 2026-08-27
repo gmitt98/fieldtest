@@ -109,10 +109,22 @@ def collapse_rows(rows: list[ResultRow], config: Config) -> list[ResultRow]:
         if len(reps) == 1:
             collapsed.append(first)
             continue
+
+        verdict = collapse_verdicts(reps)
+        # Reasoning has to come from a repetition that reached the collapsed
+        # verdict. Taking the first rep's detail unconditionally put text
+        # arguing for a pass under a row labelled fail, on exactly the ambiguous
+        # evals repetitions exist to surface.
+        speaker  = next((r for r in reps if r.passed is verdict), first)
+        agreeing = sum(1 for r in reps if r.passed is verdict)
+        detail   = speaker.detail
+        if agreeing != len(reps):
+            detail = f"[{agreeing}/{len(reps)} judges] {detail or ''}".rstrip()
+
         collapsed.append(first.model_copy(update={
-            "passed":    collapse_verdicts(reps),
+            "passed":    verdict,
             "judge_run": 1,
-            "detail":    first.detail,
+            "detail":    detail,
         }))
 
     return collapsed
@@ -283,6 +295,11 @@ def build_summary(
                             "judge_stddev":  round(sum(within) / len(within), 4) if within else 0.0,
                             "judge_runs":    judge_runs,
                         }
+                        # Outputs, matching the binary branch. mean, stddev, min
+                        # and max keep their definitions over every raw score;
+                        # only the reported n moves, so the report's n column
+                        # means one thing across both eval types.
+                        total_runs = len(by_output)
 
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate": None,

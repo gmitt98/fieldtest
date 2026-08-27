@@ -438,3 +438,45 @@ def test_injection_fixture_scores_fail_not_pass():
     prompt = fake_adapter.call.call_args.args[1]
     assert "- - -" in prompt
     assert prompt.count("\n---\n") == 2
+
+
+def test_llm_judge_row_carries_its_judge_run():
+    """
+    dispatch_judge threaded judge_run into rule/regex/reference rows but dropped
+    it on the llm path, so every repetition reported judge_run 1 — on the one
+    eval type that repeats. -data.csv's decomposition column was a constant.
+    """
+    ev = _make_eval(type="llm", pass_criteria="p", fail_criteria="f")
+    adapter = MagicMock()
+    adapter.call.return_value = {"answer": "Pass", "reasoning": "ok"}
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        rows = [
+            dispatch_judge("uc1", ev, "out", _make_fixture(), 1, _make_config(), jr)
+            for jr in (1, 2, 3)
+        ]
+
+    assert [r.judge_run for r in rows] == [1, 2, 3]
+
+
+def test_scored_llm_judge_row_carries_its_judge_run():
+    ev = _make_eval(type="llm", binary=False, scale=[1, 5],
+                    anchors={1: "bad", 5: "great"}, pattern=None, match=None)
+    adapter = MagicMock()
+    adapter.call.return_value = {"score": 4, "reasoning": "ok"}
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        row = dispatch_judge("uc1", ev, "out", _make_fixture(), 1, _make_config(), 2)
+
+    assert row.judge_run == 2
+
+
+def test_neutralize_returns_original_when_nothing_to_rewrite():
+    """The common path must not rebuild a string identical to its input."""
+    from fieldtest.judges.llm import _neutralize_delimiters
+
+    original = "a perfectly ordinary reply\nover two lines"
+    text, modified = _neutralize_delimiters(original)
+
+    assert text is original      # same object, no rebuild
+    assert modified is False

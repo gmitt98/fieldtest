@@ -69,9 +69,13 @@ def dispatch_judge(
 
     elif eval_type == "llm":
         if eval.binary:
-            return judge_llm_binary(use_case_id, eval, output, fixture, run, config)
+            return judge_llm_binary(
+                use_case_id, eval, output, fixture, run, config, judge_run
+            )
         else:
-            return judge_llm_scored(use_case_id, eval, output, fixture, run, config)
+            return judge_llm_scored(
+                use_case_id, eval, output, fixture, run, config, judge_run
+            )
 
     elif eval_type == "reference":
         return judge_reference(use_case_id, eval, output, fixture, run)

@@ -58,12 +58,12 @@ def _row(passed: bool | None = True, error: str | None = None,
          skipped: bool = False, score: int | None = None,
          eval_id: str = "ev1", tag: str = "right", ev_type: str = "regex",
          floor_hit: bool = False, fixture_id: str = "fix1", run: int = 1,
-         judge_run: int = 1) -> ResultRow:
+         judge_run: int = 1, detail: str | None = None) -> ResultRow:
     return ResultRow(
         use_case="uc1", eval_id=eval_id, tag=tag, type=ev_type,
         fixture_id=fixture_id, run=run, judge_run=judge_run,
         passed=passed, error=error, skipped=skipped,
-        score=score, floor_hit=floor_hit,
+        score=score, floor_hit=floor_hit, detail=detail,
     )
 
 
@@ -974,3 +974,66 @@ def test_delta_shape_is_the_same_with_and_without_a_baseline(tmp_path):
     assert set(with_baseline) == set(without_baseline)
     assert without_baseline["baseline_pre_judge"] is False
     assert without_baseline["baseline_judge_runs"] is None
+
+
+def test_scored_and_binary_report_n_in_the_same_unit():
+    """
+    The binary branch moved total_runs to collapsed outputs under judge_runs > 1
+    while the scored branch stayed on raw repetitions, so one report table
+    rendered an n column meaning two different things row to row.
+    """
+    evals = [_make_eval_def("binary_ev", is_scored=False),
+             _make_eval_def("scored_ev", is_scored=True)]
+    config = _make_config(evals, judge_runs=3)
+
+    rows = []
+    for run in (1, 2):
+        for jr in (1, 2, 3):
+            rows.append(_row(passed=True, run=run, judge_run=jr, eval_id="binary_ev"))
+            rows.append(_row(passed=None, score=4, run=run, judge_run=jr,
+                             eval_id="scored_ev", tag="good", ev_type="llm"))
+
+    summary = build_summary(rows, config)
+    binary = summary["uc1"]["right"]["binary_ev"]
+    scored = summary["uc1"]["good"]["scored_ev"]
+
+    assert binary["total_runs"] == 2      # outputs
+    assert scored["total_runs"] == 2      # outputs, not 6 repetitions
+    # The raw-score statistics keep their definitions over every value.
+    assert scored["mean"] == 4.0
+
+
+def test_collapsed_row_detail_matches_its_verdict():
+    """
+    The collapsed row took the first repetition's reasoning unconditionally, so
+    a majority-fail output could carry text arguing that it passed.
+    """
+    from fieldtest.results.aggregator import collapse_rows
+
+    config = _make_config(judge_runs=3)
+    reps = [
+        _row(passed=True,  run=1, judge_run=1, detail="meets all criteria"),
+        _row(passed=False, run=1, judge_run=2, detail="invents a refund guarantee"),
+        _row(passed=False, run=1, judge_run=3, detail="invents a refund guarantee"),
+    ]
+
+    collapsed = collapse_rows(reps, config)
+
+    assert len(collapsed) == 1
+    row = collapsed[0]
+    assert row.passed is False
+    assert "invents a refund guarantee" in row.detail
+    assert "meets all criteria" not in row.detail
+    # The split itself is worth seeing on an ambiguous eval.
+    assert "[2/3 judges]" in row.detail
+
+
+def test_collapsed_row_detail_unannotated_when_judges_agree():
+    from fieldtest.results.aggregator import collapse_rows
+
+    config = _make_config(judge_runs=3)
+    reps = [_row(passed=False, run=1, judge_run=i, detail="clear violation")
+            for i in (1, 2, 3)]
+
+    row = collapse_rows(reps, config)[0]
+    assert row.detail == "clear violation"

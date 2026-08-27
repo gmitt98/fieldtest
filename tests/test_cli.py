@@ -951,3 +951,87 @@ def test_calibrate_writes_artifacts(tmp_path):
     assert "Judge Calibration" in written[0].read_text()
     # Calibration output must not look like a scoring result.
     assert not list((evals_dir / "results").glob("*-data.json"))
+
+
+# ---------------------------------------------------------------------------
+# diff --baseline must actually recompute (ultrareview bug_003)
+# ---------------------------------------------------------------------------
+
+def _plant_scored_run(evals_dir: Path, run_id: str, failure_rate: float,
+                      judge: dict | None = None, baseline_run_id: str | None = None) -> None:
+    """A run with a real summary, so build_delta has something to compare."""
+    data = {
+        "schema_version": 2,
+        "run_id": run_id,
+        "set": "full",
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": failure_rate,
+            "failure_rate_ci": [0.0, 1.0],
+            "total_runs": 5,
+            "error_count": 0,
+        }}}},
+        "delta": {
+            "baseline_run_id": baseline_run_id,
+            "increased": [], "decreased": [], "unchanged": [],
+            "baseline_pre_judge": False, "baseline_judge_runs": 1,
+        },
+    }
+    if judge is not None:
+        data["judge"] = judge
+    (evals_dir / "results" / f"{run_id}-data.json").write_text(json.dumps(data))
+
+
+def test_diff_explicit_baseline_is_actually_used(tmp_path):
+    """
+    The stored delta was frozen at score time against whatever find_baseline()
+    auto-detected. Reusing it made --baseline a silent no-op.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _plant_scored_run(evals_dir, "run-old", failure_rate=0.0, judge=_JUDGE_HAIKU)
+    # run-new auto-detected nothing, so its stored delta is empty.
+    _plant_scored_run(evals_dir, "run-new", failure_rate=0.8, judge=_JUDGE_HAIKU,
+                      baseline_run_id=None)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-new", "--baseline", "run-old",
+         "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    # Recomputed against run-old: the failure rate went 0.0 → 0.8.
+    assert "run-old" in result.output
+    assert "ev1" in result.output
+
+
+def test_diff_explicit_baseline_warns_on_judge_mismatch(tmp_path):
+    """Spec 01 §2.5 — and it has to fire through the actual flag."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_scored_run(evals_dir, "run-old", failure_rate=0.0, judge=_JUDGE_HAIKU)
+    _plant_scored_run(evals_dir, "run-new", failure_rate=0.2, judge=_JUDGE_SONNET,
+                      baseline_run_id=None)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-new", "--baseline", "run-old",
+         "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+    assert "Judge mismatch" in result.output
+    assert "claude-haiku-3-5 → claude-sonnet-4" in result.output
+
+
+def test_diff_explicit_baseline_missing_is_an_error(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_scored_run(evals_dir, "run-new", failure_rate=0.2, judge=_JUDGE_HAIKU)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-new", "--baseline", "nope",
+         "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "Baseline not found" in result.output

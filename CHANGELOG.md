@@ -197,3 +197,22 @@ tool does not have.
 - **`fieldtest validate` projects the largest set you actually declare** instead of assuming
   `full` exists and silently printing nothing when it does not.
 
+### Further fixes from a multi-agent review pass
+
+- **`judge_run` is recorded correctly on LLM rows.** It was threaded into rule, regex and
+  reference rows but dropped on the LLM path, so every repetition reported `judge_run: 1` — on
+  the one eval type that repeats. The column `-data.csv` publishes for your own decomposition was
+  a constant.
+- **`fieldtest diff --baseline` compares against the run you name.** It was silently ignored: the
+  command reused the delta frozen at score time against whatever baseline was auto-detected then.
+  With judge fingerprints now filtering baselines, the run you name is often exactly the one
+  auto-detection skipped, which is when you most need the flag.
+- **Scored and binary evals report `n` in the same unit.** Under `judge_runs > 1` the binary
+  branch counted outputs and the scored branch counted repetitions, so one report table showed an
+  `n` column meaning two different things row to row.
+- **A collapsed row's reasoning matches its verdict.** With repetitions, the row took the first
+  repetition's reasoning even when that repetition argued the opposite way, so a majority-fail
+  output could carry text explaining why it passed. Split decisions are now marked `[2/3 judges]`.
+- **`fieldtest diff` reads the baseline file once** instead of three times, and the judge prompt
+  is rewritten once per call instead of twice.
+

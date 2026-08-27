@@ -442,7 +442,31 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         sys.exit(1)
 
     current_data = json.loads(current_path.read_text())
-    delta = current_data.get("delta", {})
+
+    # An explicit --baseline has to actually recompute. The stored delta was
+    # frozen at score time against whatever find_baseline() auto-detected then,
+    # so reusing it silently compares against the wrong run — and with judge
+    # fingerprints now filtering baselines, the run the user names is often
+    # precisely the one auto-detection skipped.
+    baseline_data: dict = {}
+    if baseline_id:
+        if baseline_path is None or not baseline_path.exists():
+            click.echo(f"Baseline not found: {baseline_path}", err=True)
+            sys.exit(1)
+        from fieldtest.results.aggregator import build_delta
+
+        baseline_data = json.loads(baseline_path.read_text())
+        delta = build_delta(current_data.get("summary", {}), baseline_path)
+    else:
+        delta = current_data.get("delta", {})
+        base_id = delta.get("baseline_run_id")
+        if base_id:
+            auto_path = results_dir / f"{base_id}-data.json"
+            if auto_path.exists():
+                try:
+                    baseline_data = json.loads(auto_path.read_text())
+                except Exception:
+                    baseline_data = {}
 
     click.echo(f"Comparing: {current_path.stem}")
     click.echo(f"Baseline:  {delta.get('baseline_run_id', '—')}")
@@ -451,16 +475,9 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # Warn if the user is comparing across dataset snapshots — only fires when
     # both runs declare a version and they differ. Either side unversioned is
     # treated as backwards-compat silence.
-    cur_ver = current_data.get("dataset_version")
-    base_ver = None
+    cur_ver     = current_data.get("dataset_version")
+    base_ver    = baseline_data.get("dataset_version")
     base_run_id = delta.get("baseline_run_id")
-    if base_run_id:
-        bp = results_dir / f"{base_run_id}-data.json"
-        if bp.exists():
-            try:
-                base_ver = json.loads(bp.read_text()).get("dataset_version")
-            except Exception:
-                base_ver = None
     if cur_ver is not None and base_ver is not None and cur_ver != base_ver:
         click.echo(
             f"⚠ Dataset version mismatch — current: {cur_ver}, baseline: {base_ver}. "
@@ -474,14 +491,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     from fieldtest.results.provenance import describe_judge_change
 
     cur_judge  = current_data.get("judge")
-    base_judge = None
-    if base_run_id:
-        bp = results_dir / f"{base_run_id}-data.json"
-        if bp.exists():
-            try:
-                base_judge = json.loads(bp.read_text()).get("judge")
-            except Exception:
-                base_judge = None
+    base_judge = baseline_data.get("judge")
 
     if cur_judge and base_judge:
         change = describe_judge_change(cur_judge, base_judge)
