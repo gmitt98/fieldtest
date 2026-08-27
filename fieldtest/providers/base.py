@@ -92,6 +92,72 @@ def make_is_retryable(*modules_and_names) -> Callable[[BaseException], bool]:
     return is_retryable
 
 
+# Generation parameters a provider may reject outright. Anthropic removed
+# sampling on Sonnet 5 / Opus 5 / Fable 5 / Opus 4.7+; OpenAI's reasoning models
+# are reported to do the same. Rather than track every provider's rules — which
+# change on their schedule, not ours — detect the rejection and degrade.
+DROPPABLE_PARAMS = ("temperature", "seed", "top_p", "top_k")
+
+_REJECTION_MARKERS = (
+    "deprecated",
+    "not supported",
+    "unsupported",
+    "not permitted",
+    "cannot be used",
+    "does not support",
+)
+
+
+def rejects_parameter(e: BaseException, name: str) -> bool:
+    """
+    Whether a provider refused the request because of one named generation
+    parameter, rather than for some other reason.
+
+    Matched on the message because providers report this as a generic bad
+    request. Deliberately narrow on both halves — the parameter has to be named
+    AND the message has to read as a support complaint — so an unrelated 400
+    still fails on the first attempt instead of being retried with fields
+    silently removed.
+    """
+    code = _status_code(e)
+    if code is not None and not (400 <= code < 500):
+        return False
+    text = str(e).lower()
+    return name in text and any(marker in text for marker in _REJECTION_MARKERS)
+
+
+def call_dropping_unsupported(
+    invoke: Callable[[dict], Any],
+    kwargs: dict,
+    unsupported: list,
+    droppable: tuple = DROPPABLE_PARAMS,
+) -> Any:
+    """
+    Call invoke(kwargs), dropping any generation parameter the provider rejects
+    by name and retrying, until it accepts the request or fails for some other
+    reason.
+
+    Spec 02 §2.5: where a provider does not support a requested parameter, the
+    adapter ignores it and records the fact once per run rather than failing.
+    Names collected here reach the report header, so a judge running without the
+    parameters you asked for says so instead of looking pinned.
+    """
+    attempt = dict(kwargs)
+    while True:
+        try:
+            return invoke(attempt)
+        except Exception as e:
+            dropped = next(
+                (p for p in droppable if p in attempt and rejects_parameter(e, p)),
+                None,
+            )
+            if dropped is None:
+                raise
+            attempt.pop(dropped)
+            if dropped not in unsupported:
+                unsupported.append(dropped)
+
+
 def with_retry(
     fn: Callable[[], dict],
     policy: RetryPolicy,

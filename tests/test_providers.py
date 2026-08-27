@@ -3,7 +3,7 @@ tests/test_providers.py
 
 Tests for provider adapters and factory.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 import pytest
 
@@ -837,12 +837,11 @@ def _drive_adapter(provider: str, *, side_effect=None, returns_text=None, retry=
         module = MagicMock()
         module.APIStatusError = _StatusError
         client = MagicMock()
+        msg = MagicMock()
+        msg.content = [MagicMock(text=returns_text)]
+        client.messages.create.return_value = msg
         if side_effect is not None:
             client.messages.create.side_effect = side_effect
-        else:
-            msg = MagicMock()
-            msg.content = [MagicMock(text=returns_text)]
-            client.messages.create.return_value = msg
         module.Anthropic.return_value = client
         env, mods = {"ANTHROPIC_API_KEY": "k"}, {"anthropic": module}
         target = lambda m: m.AnthropicAdapter()
@@ -852,12 +851,11 @@ def _drive_adapter(provider: str, *, side_effect=None, returns_text=None, retry=
     elif provider == "openai":
         module = MagicMock()
         client = MagicMock()
+        resp = MagicMock()
+        resp.choices = [MagicMock(message=MagicMock(content=returns_text))]
+        client.chat.completions.create.return_value = resp
         if side_effect is not None:
             client.chat.completions.create.side_effect = side_effect
-        else:
-            resp = MagicMock()
-            resp.choices = [MagicMock(message=MagicMock(content=returns_text))]
-            client.chat.completions.create.return_value = resp
         module.OpenAI.return_value = client
         env, mods = {"OPENAI_API_KEY": "k"}, {"openai": module}
         target = lambda m: m.OpenAIAdapter()
@@ -867,12 +865,11 @@ def _drive_adapter(provider: str, *, side_effect=None, returns_text=None, retry=
     else:
         genai = MagicMock()
         client = MagicMock()
+        resp = MagicMock()
+        resp.text = returns_text
+        client.models.generate_content.return_value = resp
         if side_effect is not None:
             client.models.generate_content.side_effect = side_effect
-        else:
-            resp = MagicMock()
-            resp.text = returns_text
-            client.models.generate_content.return_value = resp
         genai.Client.return_value = client
         google = MagicMock()
         google.genai = genai
@@ -1140,3 +1137,25 @@ def test_other_400s_still_fail_rather_than_retrying_bare():
 
     assert "model not found" in result["error"]
     assert client.messages.create.call_count == 1
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
+def test_all_adapters_drop_a_rejected_parameter(provider):
+    """
+    Provider parameter support changes on their schedule, not ours. Any provider
+    that rejects a generation parameter by name must degrade to a run that
+    reports the fact, not fail every judge call.
+    """
+    class _Rejected(Exception):
+        status_code = 400
+
+    err = _Rejected("Unsupported parameter: 'temperature' is not supported with this model.")
+    result, calls, sleeps = _drive_adapter(
+        provider,
+        side_effect=[err, DEFAULT],
+        returns_text='{"answer": "Pass", "reasoning": "ok"}',
+    )
+
+    assert result.get("answer") == "Pass"
+    assert result["unsupported"] == ["temperature"]
+    assert sleeps == 0        # a refused parameter is not a transient failure

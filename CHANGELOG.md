@@ -244,10 +244,11 @@ parameters, so every judge call sending `temperature` came back `400 — tempera
 for this model`. Since fieldtest pins temperature to 0.0 by default, that meant *every* call to
 those models errored.
 
-The adapter now drops `temperature` when the model rejects it, retries once, and names it in the
-report header — the same path `seed` already took on providers that lack it. A judge run that way
-is not pinned, and the header says so.
+This is not an Anthropic problem, so the fix is not an Anthropic fix. **Any** provider that
+rejects **any** generation parameter by name now has that parameter dropped, the call retried, and
+the fact named once in the report header — the same path `seed` already took. fieldtest keeps no
+list of which model supports what, because that list would be wrong within weeks. A judge run that
+way is not pinned, and the header says so.
 
 **The default judge is now `claude-haiku-4-5`.** A judge that can be held still is worth more than
 a larger one that cannot, and it costs less per call.
-

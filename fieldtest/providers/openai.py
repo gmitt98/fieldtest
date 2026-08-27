@@ -14,6 +14,7 @@ from fieldtest.providers.base import (
     ProviderAdapter,
     RetryPolicy,
     _parse_last_json_object,
+    call_dropping_unsupported,
     make_is_retryable,
     with_retry,
 )
@@ -52,6 +53,7 @@ class OpenAIAdapter(ProviderAdapter):
         except Exception as e:
             return {"error": str(e)}
 
+        unsupported: list[str] = []
         kwargs = {
             "model":       model,
             "max_tokens":  gen.max_tokens,
@@ -62,13 +64,20 @@ class OpenAIAdapter(ProviderAdapter):
             kwargs["seed"] = gen.seed
 
         def _once() -> dict:
-            response = client.chat.completions.create(**kwargs)
+            # Reasoning models reject sampling parameters; drop what this model
+            # refuses rather than erroring every judge call.
+            response = call_dropping_unsupported(
+                lambda k: client.chat.completions.create(**k), kwargs, unsupported
+            )
             content = response.choices[0].message.content.strip()
             try:
-                return _parse_last_json_object(content)
+                parsed = _parse_last_json_object(content)
             except json.JSONDecodeError as e:
                 # A malformed verdict is an answer, not a transient failure.
                 return {"error": f"Judge returned non-JSON response: {e}"}
+            if unsupported:
+                parsed["unsupported"] = unsupported
+            return parsed
 
         return with_retry(
             _once,
