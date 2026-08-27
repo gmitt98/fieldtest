@@ -352,8 +352,12 @@ def format_report(
                 # An eval scored on fewer runs than it attempted is reporting a
                 # rate from a shrunken sample. Mark it where the rate is read.
                 scored    = stats.get("total_runs") or 0
-                attempted = scored + errs
-                err_str   = f"{errs} ⚠ {scored}/{attempted} scored" if errs else f"{errs}"
+                # Outputs, not judge calls: the rate's denominator is outputs,
+                # so a shrunken-sample warning has to be counted in the same unit.
+                attempted = stats.get("outputs_attempted") or (scored + errs)
+                err_str   = (
+                    f"{errs} ⚠ {scored}/{attempted} scored" if errs else f"{errs}"
+                )
 
                 lines.append(
                     f"| {eval_id} | {lbl_str} | {pr_str} | {scored} | {mean_str} | "
@@ -379,10 +383,11 @@ def format_report(
             for eval_id, stats in uc_stats.get(tag, {}).items():
                 if "labeled_runs" not in stats:
                     continue
-                agreement = f"{round(stats['judge_agreement'] * 100, 1)}%"
                 if "mean_absolute_deviation" in stats:
+                    agreement = "—"
                     detail = f"mean abs deviation {stats['mean_absolute_deviation']}"
                 else:
+                    agreement = f"{round(stats['judge_agreement'] * 100, 1)}%"
                     detail = (
                         f"{stats['judge_false_pass']} false pass, "
                         f"{stats['judge_false_fail']} false fail"

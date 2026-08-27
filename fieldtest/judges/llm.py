@@ -205,6 +205,18 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
 
     response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
 
+    # Adapters promise a dict and never raising. A third-party adapter that
+    # breaks that contract must produce one errored row, not abort the run:
+    # this call is inside a ThreadPoolExecutor, and an exception here reaches
+    # future.result() and takes every other eval down with it.
+    if not isinstance(response, dict):
+        return {
+            "error": (
+                f"Judge adapter for '{provider_name}' returned "
+                f"{type(response).__name__}, expected dict"
+            )
+        }
+
     dropped = response.pop("unsupported", None)
     if dropped:
         with _unsupported_lock:

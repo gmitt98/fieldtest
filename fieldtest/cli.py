@@ -126,22 +126,30 @@ def validate(config_path: Optional[str]):
     from fieldtest.config import resolve_judge_runs, resolve_runs
     from fieldtest.config import resolve_set as _resolve_set
 
-    projected  = 0
+    # Project the largest declared set rather than assuming "full" exists. A
+    # project with only smoke/regression sets is exactly the one that needs the
+    # number, and silently printing nothing would defeat the purpose.
+    projected: dict[str, int] = {}
     judge_runs_used = 1
     for uc in config.use_cases:
         llm_evals = sum(1 for ev in uc.evals if ev.type == "llm")
         if not llm_evals:
             continue
-        try:
-            uc_fixtures = len(_resolve_set("full", uc, base_dir))
-        except Exception:
-            uc_fixtures = 0
         judge_runs = resolve_judge_runs(config, uc)
         judge_runs_used = max(judge_runs_used, judge_runs)
-        projected += uc_fixtures * resolve_runs(config, uc) * judge_runs * llm_evals
+        runs = resolve_runs(config, uc)
+        for set_name in uc.fixtures.sets:
+            try:
+                uc_fixtures = len(_resolve_set(set_name, uc, base_dir))
+            except Exception:
+                continue
+            projected[set_name] = (
+                projected.get(set_name, 0) + uc_fixtures * runs * judge_runs * llm_evals
+            )
 
     if projected:
-        detail = f"  ≈ {projected} judge call(s) for the full set"
+        largest = max(projected, key=lambda name: projected[name])
+        detail = f"  ≈ {projected[largest]} judge call(s) for the '{largest}' set"
         if judge_runs_used > 1:
             detail += f" (judge_runs: {judge_runs_used})"
         click.echo(detail)

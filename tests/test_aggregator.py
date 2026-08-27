@@ -300,9 +300,9 @@ def test_summarize_judge_errors_counts_calls_and_affected_evals():
     from fieldtest.results.aggregator import summarize_judge_errors
 
     rows = [
-        _row(passed=True),
-        _row(passed=None, error="overloaded"),
-        _row(passed=None, error="overloaded"),
+        _row(passed=True, run=1),
+        _row(passed=None, error="overloaded", run=2),
+        _row(passed=None, error="overloaded", run=3),
     ]
     result = summarize_judge_errors(build_summary(rows, _make_config()))
 
@@ -317,9 +317,9 @@ def test_report_header_shows_error_count_when_nonzero():
 
     config = _make_config()
     rows = [
-        _row(passed=True),
-        _row(passed=None, error="overloaded"),
-        _row(passed=None, error="overloaded"),
+        _row(passed=True, run=1),
+        _row(passed=None, error="overloaded", run=2),
+        _row(passed=None, error="overloaded", run=3),
     ]
     report = format_report(
         rows=rows, summary=build_summary(rows, config), delta={},
@@ -348,9 +348,9 @@ def test_eval_marked_when_total_runs_below_configured():
 
     config = _make_config()
     rows = [
-        _row(passed=True),
-        _row(passed=True),
-        _row(passed=None, error="overloaded"),
+        _row(passed=True, run=1),
+        _row(passed=True, run=2),
+        _row(passed=None, error="overloaded", run=3),
     ]
     report = format_report(
         rows=rows, summary=build_summary(rows, config), delta={},
@@ -554,8 +554,10 @@ def test_scored_eval_summary_unchanged():
     assert set(stats) == {
         "failure_rate", "mean", "min", "max", "stddev",
         "floor_hits", "total_runs", "error_count",
+        "judge_calls", "outputs_attempted",
     }
     assert "failure_rate_ci" not in stats
+    assert "confidence" not in stats
 
 
 def test_delta_flags_overlapping_intervals(tmp_path):
@@ -896,3 +898,79 @@ def test_labels_compare_against_collapsed_verdict():
     stats = build_summary(rows, config, labels=labels)["uc1"]["right"]["ev1"]
     assert stats["labeled_runs"] == 1
     assert stats["judge_agreement"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Review findings — regression tests
+# ---------------------------------------------------------------------------
+
+def test_judge_calls_and_outputs_counted_in_their_own_units():
+    from fieldtest.results.aggregator import summarize_judge_errors
+
+    """
+    A judge call is one repetition; an output is one generator run. Conflating
+    them reported '3 of 4 calls failed' where the truth was 3 of 6, and claimed
+    an eval was scored on 1 of 4 outputs where it was 1 of 2.
+    """
+    config = _make_config(judge_runs=3)
+    rows = (
+        _reps([True, True, True], run=1)
+        + [_row(passed=None, error="overloaded", run=2, judge_run=i) for i in (1, 2, 3)]
+    )
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["total_runs"] == 1          # outputs scored
+    assert stats["error_count"] == 3         # judge calls that errored
+    assert stats["judge_calls"] == 6         # judge calls attempted
+    assert stats["outputs_attempted"] == 2   # outputs attempted
+
+    errors = summarize_judge_errors(build_summary(rows, config))
+    assert errors["failed"] == 3
+    assert errors["total"] == 6
+    assert errors["affected"] == [("ev1", 1, 2)]
+
+
+def test_judge_error_units_unchanged_at_one_repetition():
+    """At judge_runs: 1 calls and outputs coincide, which is why this hid."""
+    from fieldtest.results.aggregator import summarize_judge_errors
+
+    config = _make_config()
+    rows = [_row(passed=True, run=1), _row(passed=None, error="boom", run=2)]
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["judge_calls"] == stats["outputs_attempted"] == 2
+    assert summarize_judge_errors(build_summary(rows, config))["total"] == 2
+
+
+def test_scored_labels_report_no_agreement_figure():
+    """
+    Exact equality between an integer label and a mean across repetitions is
+    almost never true: a judge returning 3, 4, 4 against a human's 4 matches
+    perfectly on central tendency and would have scored zero agreement.
+    """
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=3)
+
+    rows = [
+        _row(passed=None, score=s, run=1, judge_run=i + 1,
+             eval_id="ev1", tag="good", ev_type="llm")
+        for i, s in enumerate([3, 4, 4])
+    ]
+    labels = {("fix1", "ev1", 1): 4}
+    stats = build_summary(rows, config, labels=labels)["uc1"]["good"]["ev1"]
+
+    assert "judge_agreement" not in stats
+    assert stats["labeled_runs"] == 1
+    assert stats["mean_absolute_deviation"] == round(abs(11 / 3 - 4), 4)
+
+
+def test_delta_shape_is_the_same_with_and_without_a_baseline(tmp_path):
+    """A consumer indexing .delta must not meet two different shapes."""
+    baseline = _write_data_json(tmp_path, "old-1", "full", judge={"fingerprint": "a"})
+
+    with_baseline    = build_delta({}, baseline)
+    without_baseline = build_delta({}, None)
+
+    assert set(with_baseline) == set(without_baseline)
+    assert without_baseline["baseline_pre_judge"] is False
+    assert without_baseline["baseline_judge_runs"] is None

@@ -1001,3 +1001,62 @@ def test_retry_succeeds_after_transient_failures():
                 result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "p", GEN, RETRY)
 
     assert result == {"answer": "Pass", "reasoning": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Judge response must be a dict (review finding)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("payload", ['"just a string"', "[1,2,3]", "null", "42"])
+def test_parse_last_json_object_rejects_non_objects(payload):
+    """
+    A bare scalar or an object-free array is a malformed verdict, not a crash.
+    Every caller indexes the return value, so the dict contract must hold.
+    """
+    import json as _json
+
+    from fieldtest.providers.base import _parse_last_json_object
+
+    with pytest.raises(_json.JSONDecodeError):
+        _parse_last_json_object(payload)
+
+
+def test_non_object_response_becomes_an_errored_row_not_a_crash():
+    """The adapter's documented 'never raises' contract has to survive this."""
+    mock_anthropic_module, _, _ = _make_anthropic_module(returns_text='["Pass"]')
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+            import importlib
+            import fieldtest.providers.anthropic as ant_mod
+            importlib.reload(ant_mod)
+            result = ant_mod.AnthropicAdapter().call("claude-haiku-4-5", "p", GEN, RETRY)
+
+    assert "Judge returned non-JSON response" in result["error"]
+
+
+def test_call_judge_llm_survives_an_adapter_that_breaks_the_contract():
+    """
+    call_judge_llm runs inside a ThreadPoolExecutor. An exception here reaches
+    future.result() and takes every other eval in the run down with it, so a
+    third-party adapter returning the wrong type must yield one errored row.
+    """
+    from fieldtest.config import Config, Defaults, Eval, SystemConfig
+    from fieldtest.judges.llm import call_judge_llm
+
+    config = Config(
+        schema_version=2,
+        system=SystemConfig(name="t", domain="t"),
+        use_cases=[],
+        defaults=Defaults(),
+    )
+    ev = Eval(id="ev1", tag="right", type="llm", description="d",
+              pass_criteria="p", fail_criteria="f")
+
+    rogue = MagicMock()
+    rogue.call.return_value = ["not", "a", "dict"]
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=rogue):
+        response = call_judge_llm("prompt", ev, config)
+
+    assert "returned list, expected dict" in response["error"]

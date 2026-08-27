@@ -178,3 +178,22 @@ measurement of your system.
 The report ranks judges on evidence and stops there. Picking one has cost and latency inputs the
 tool does not have.
 
+### Fixes from review of the above
+
+- **A malformed judge response no longer aborts the run.** A judge answering with a bare JSON
+  scalar or an object-free array (`"looks fine"`, `[1,2,3]`) produced a non-dict that crashed
+  scoring for every eval in the run, not just that one. It is now reported the same way any other
+  unparseable verdict is — one errored row.
+- **Judge errors are counted in the right units.** With `judge_runs` above 1, the report added
+  judge calls to outputs and reported, for example, "3 of 4 calls failed" where the truth was 3
+  of 6, and "1 of 4 runs scored" where it was 1 of 2. Summaries now carry `judge_calls` and
+  `outputs_attempted` alongside `total_runs`.
+- **Scored evals no longer report a `judge_agreement` figure.** It was exact equality between an
+  integer human label and a mean across repetitions, so a judge returning 3, 4, 4 against a
+  human's 4 scored zero agreement while matching perfectly. `mean_absolute_deviation` reports the
+  same comparison honestly.
+- **The `delta` object has one shape.** `baseline_pre_judge` and `baseline_judge_runs` were
+  missing on runs with no baseline.
+- **`fieldtest validate` projects the largest set you actually declare** instead of assuming
+  `full` exists and silently printing nothing when it does not.
+

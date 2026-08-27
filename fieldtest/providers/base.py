@@ -213,6 +213,14 @@ def _parse_last_json_object(content: str) -> dict:
         if isinstance(parsed, dict):
             return parsed
 
-    # Nothing balanced parsed — let json raise on the whole string so the
-    # adapter's existing error message and error path are unchanged.
-    return json.loads(content)
+    # Nothing balanced parsed. Let json raise on the whole string so the
+    # adapter's existing error message and error path are unchanged — and hold
+    # the return type to dict, because every caller indexes into it. A judge
+    # answering with a bare scalar or an object-free array is a malformed
+    # verdict, which is the same failure as unparseable text, not a crash.
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise json.JSONDecodeError(
+            f"expected a JSON object, got {type(parsed).__name__}", content, 0
+        )
+    return parsed
