@@ -65,11 +65,32 @@ requires = pytest.mark.skipif(
 )
 ```
 
-**OpenRouter is the primary live credential.** One key reaches Anthropic, OpenAI, Google, xAI and
-open-weight models behind `vendor/model` slugs, which turns "we have never made a real OpenAI or
-Gemini call" from a four-account problem into a one-key problem. Provider-native keys remain
-supported for testing the bespoke Anthropic and Gemini adapters, which OpenRouter does not
-exercise — it reaches those models through the OpenAI protocol, not through those adapters.
+**OpenRouter is the primary live credential, and it is not sufficient on its own.** One key
+reaches Anthropic, OpenAI, Google, xAI and open-weight models behind `vendor/model` slugs, which
+turns "we have never made a real OpenAI or Gemini call" from a four-account problem into a one-key
+problem for the happy path.
+
+But it cannot exercise the parameter-rejection path, and that was established empirically rather
+than assumed. Calling `openai/o3-mini` through OpenRouter with `temperature: 0.0` and `max_tokens`
+set — the exact combination OpenAI documents as a 400 on reasoning models — **succeeded, with
+nothing reported as dropped**. OpenRouter absorbs the incompatibility somewhere upstream; its
+docs describe what happens when a parameter is *absent* and are silent on what happens when an
+unsupported one is *present*.
+
+That is good for users and bad for tests. `rejects_parameter()` and `call_dropping_unsupported()`
+exist precisely for the case OpenRouter hides, so the live tier needs **provider-native keys** to
+reach it:
+
+| Path | OpenRouter | Native key |
+|---|---|---|
+| Adapter works, JSON parses | yes | yes |
+| Cross-lab and open-weight coverage | yes | no (one lab each) |
+| Parameter rejection drops and reports | **no — absorbed upstream** | yes |
+| Bespoke Anthropic / Gemini adapters | no — OpenAI protocol only | yes |
+
+A live tier that only ever runs through OpenRouter would report green while leaving the newest,
+least-tested code in the adapters completely unexercised — the same shape of false confidence this
+spec was written to correct.
 
 Documented rejections, versioned as data rather than as assertions scattered through tests:
 

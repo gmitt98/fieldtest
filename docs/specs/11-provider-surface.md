@@ -35,6 +35,19 @@ order of how much work each asks of them.
    credential: a single key and base URL reach Anthropic, OpenAI, Google, xAI, Meta, Qwen,
    DeepSeek and Mistral models behind `vendor/model` slugs. A user who wants to calibrate a panel
    across four labs should not need four accounts to do it.
+
+   Verified before this spec was written, not after: fieldtest's existing OpenAI adapter reaches
+   OpenRouter with no code change at all, because the `openai` SDK honours `OPENAI_BASE_URL`.
+   `openai/gpt-4o-mini`, `openai/o3-mini` and `meta-llama/llama-3.3-70b-instruct` all returned
+   parseable verdicts through it, with `seed` accepted. The premise of layer 1 is therefore
+   demonstrated rather than assumed — an `openai_compatible` adapter is mostly a way to configure
+   `base_url` from `config.yaml` instead of the environment.
+
+   One caveat belongs in the docs beside the recommendation: OpenRouter appears to absorb
+   parameters the underlying model does not accept. `openai/o3-mini` took `temperature` and
+   `max_tokens` without complaint, where OpenAI documents both as a 400. Convenient in use, and it
+   means a judge reached this way may not be pinned the way the config says — see spec 12 for why
+   the live test tier cannot rely on it.
 1c. **A user can register their own adapter** for anything that does not speak that protocol,
    without forking fieldtest. This mirrors `@rule`, which already loads user code from
    `evals/rules.py` — the precedent for user-supplied behavior in a project directory exists and
