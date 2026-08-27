@@ -152,3 +152,29 @@ config, and prints how many runs are labeled per eval so you can see how thin th
 
 The email demo ships with `billing-dispute` labeled as a worked example.
 
+### `fieldtest calibrate` — put the judge itself under test
+
+fieldtest could measure your system. It could not measure the thing measuring your system. Every
+`llm` eval ran exactly one judge, with no voting, no agreement computation, and no way to ask
+whether that judge deserved the authority the report gave it.
+
+Declare a panel in config and run `fieldtest calibrate`. Each judge scores the same `outputs/`
+directory — cheap here, because your generator already wrote those files to disk — and you get,
+per eval: pairwise agreement, Cohen's kappa, and Fleiss' kappa across the panel, or mean absolute
+deviation and Spearman correlation for scored evals.
+
+Kappa, not raw agreement, because on a `safe` eval whose true failure rate is 5%, two judges that
+both always answer pass agree 95% of the time and have demonstrated nothing.
+
+The output that matters is the ranked list: your evals ordered by how much the panel disagreed.
+Those are the ones whose `pass_criteria` are ambiguous. Where fixtures carry `labels`, each judge
+is also ranked by agreement with the human, with false passes and false fails kept apart.
+
+`--dry-run` prints the projected call count and exits without calling anything — a four-judge
+panel at `judge_runs: 3` is twelve times a normal run. Calibration writes its own
+`{run_id}-calibration.json` and `.md`, and never participates in `fieldtest diff`: it is not a
+measurement of your system.
+
+The report ranks judges on evidence and stops there. Picking one has cost and latency inputs the
+tool does not have.
+

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import textwrap
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -863,3 +864,90 @@ def test_validate_silent_about_labels_when_none(tmp_path):
         catch_exceptions=False,
     )
     assert "human labels:" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# calibrate command (spec 08)
+# ---------------------------------------------------------------------------
+
+_CALIBRATION_CONFIG = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+calibration:
+  panel:
+    - { provider: anthropic, model: claude-haiku-3-5 }
+    - { provider: openai,    model: gpt-5 }
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: safe
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+
+
+def test_calibrate_errors_without_panel(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["calibrate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code != 0
+    assert "calibration" in result.output
+    assert "panel:" in result.output
+
+
+def test_dry_run_makes_no_provider_calls(tmp_path):
+    evals_dir = _setup_project(tmp_path, config=_CALIBRATION_CONFIG)
+    (evals_dir / "fixtures").mkdir(exist_ok=True)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text("id: fix1\ninputs:\n  q: x\n")
+
+    with patch("fieldtest.runner.score") as mock_score:
+        result = CliRunner().invoke(
+            main,
+            ["calibrate", "--dry-run", "--config", str(evals_dir / "config.yaml")],
+            catch_exceptions=False,
+        )
+
+    assert result.exit_code == 0
+    assert mock_score.call_count == 0
+    assert "Dry run — nothing called." in result.output
+    # 1 fixture × 5 runs × 1 eval × 2 judges
+    assert "10 judge call(s)" in result.output
+
+
+def test_calibrate_writes_artifacts(tmp_path):
+    from fieldtest.config import ResultRow
+
+    evals_dir = _setup_project(tmp_path, config=_CALIBRATION_CONFIG)
+    (evals_dir / "fixtures").mkdir(exist_ok=True)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text("id: fix1\ninputs:\n  q: x\n")
+
+    rows = [
+        ResultRow(use_case="uc1", eval_id="ev1", tag="safe", type="llm",
+                  fixture_id="fix1", run=i, passed=(i != 2))
+        for i in (1, 2, 3)
+    ]
+
+    with patch("fieldtest.runner.score", return_value=("r", rows)):
+        result = CliRunner().invoke(
+            main, ["calibrate", "--config", str(evals_dir / "config.yaml")],
+            catch_exceptions=False,
+        )
+
+    assert result.exit_code == 0
+    written = list((evals_dir / "results").glob("*-calibration.md"))
+    assert len(written) == 1
+    assert "Judge Calibration" in written[0].read_text()
+    # Calibration output must not look like a scoring result.
+    assert not list((evals_dir / "results").glob("*-data.json"))
