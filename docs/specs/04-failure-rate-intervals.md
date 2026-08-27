@@ -44,13 +44,19 @@ Binary eval summary entry gains:
 ```json
 {
   "failure_rate": 0.2,
-  "failure_rate_ci": [0.0362, 0.6194],
+  "failure_rate_ci": [0.0362, 0.6245],
   "confidence": 0.95,
   "total_runs": 5,
   "error_count": 0,
   "floor_hits": 0
 }
 ```
+
+The upper bound in that example was originally written as `0.6194`, which no standard interval
+reproduces. The Wilson score interval for 1 failure in 5 runs at 95% is `[0.0362, 0.6245]`,
+confirmed by deriving it a second way — bisecting on the score statistic rather than evaluating
+the closed form — and agreeing to four places on `1/5`, `0/5`, `3/9` and `20/100`. Corrected here
+so the spec matches the implementation and both match the statistic.
 
 `failure_rate_ci` is `null` when `failure_rate` is `null`, which is the existing `total_runs == 0`
 case and the scored-eval case.
