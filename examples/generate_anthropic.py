@@ -46,7 +46,7 @@ def call_system(inputs: dict) -> str:
     user_message = str(inputs)
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",   # your system model — change freely
+        model="claude-sonnet-5",   # your system model — change freely
         max_tokens=4096,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],

@@ -83,7 +83,7 @@ the more frequent one, since judge models deprecate on the provider's schedule, 
 
 Every run now writes a `judge` block: provider, model, temperature, seed, per-eval overrides, and
 a `fingerprint` over all of it. Runs whose fingerprints differ are no longer auto-compared, and
-`fieldtest diff --baseline` names what changed (`claude-haiku-3-5 → claude-sonnet-4`) instead of
+`fieldtest diff --baseline` names what changed (`claude-haiku-4-5 → claude-sonnet-5`) instead of
 showing you a delta that means nothing. `fieldtest history` gained a JUDGE column so a rate series
 is readable at a glance.
 

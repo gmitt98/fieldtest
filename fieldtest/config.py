@@ -128,7 +128,7 @@ VALID_PROVIDERS = {"anthropic", "gemini", "openai"}
 
 class Defaults(BaseModel):
     provider: str = "anthropic"
-    model:    str = "claude-sonnet-4-20250514"
+    model:    str = "claude-sonnet-5"
     runs:     int = 5
 
     # Judge generation settings. Temperature defaults to 0.0 rather than the

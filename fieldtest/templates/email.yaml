@@ -143,5 +143,5 @@ use_cases:
 # Global defaults for judge LLM — NOT your system's model
 defaults:
   provider: anthropic         # anthropic | openai | gemini
-  model: claude-sonnet-4-20250514     # judge model for LLM evals
+  model: claude-sonnet-5     # judge model for LLM evals
   runs: 5

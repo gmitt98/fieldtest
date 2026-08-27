@@ -53,8 +53,8 @@ Config addition:
 ```yaml
 calibration:
   panel:
-    - { provider: anthropic, model: claude-haiku-3-5-20251001 }
-    - { provider: anthropic, model: claude-sonnet-4-20250514 }
+    - { provider: anthropic, model: claude-haiku-4-5 }
+    - { provider: anthropic, model: claude-sonnet-5 }
     - { provider: openai,    model: gpt-5 }
     - { provider: gemini,    model: gemini-2.5-flash }
 ```
