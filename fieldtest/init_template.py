@@ -79,7 +79,7 @@ use_cases:
 # For OpenAI: pip install fieldtest[openai]
 defaults:
   provider: anthropic       # anthropic | openai
-  model: claude-sonnet-4-20250514   # anthropic: claude-sonnet-4-20250514, claude-haiku-3-5-20251001
+  model: claude-sonnet-5   # anthropic: claude-sonnet-5, claude-haiku-4-5
                             # openai: gpt-4o, gpt-4o-mini
   runs: 5
 """

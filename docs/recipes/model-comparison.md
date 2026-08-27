@@ -33,7 +33,7 @@ fieldtest score --set full
 # Results saved as run 2026-04-01T10-00-00-a1b2
 
 # Run with model B
-python evals/runner.py claude-sonnet-4-20250514
+python evals/runner.py claude-sonnet-5
 fieldtest score --set full
 # Results saved as run 2026-04-01T10-05-00-c3d4
 # Delta section automatically compares to the previous run

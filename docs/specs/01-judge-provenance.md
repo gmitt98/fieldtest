@@ -8,7 +8,7 @@
 `summary`, `delta`. It does not write which judge produced the scores.
 
 `find_baseline()` filters candidate baselines on `set` and `dataset_version`. It does not filter
-on the judge. So changing `defaults.model` from `claude-haiku-3-5` to `claude-sonnet-4` and
+on the judge. So changing `defaults.model` from `claude-haiku-4-5` to `claude-sonnet-5` and
 rescoring the same `outputs/` directory produces a `fieldtest diff` that is indistinguishable
 from a system regression.
 
@@ -42,7 +42,7 @@ Added to the top level of `-data.json`:
 {
   "judge": {
     "provider": "anthropic",
-    "model": "claude-haiku-3-5-20251001",
+    "model": "claude-haiku-4-5",
     "overrides": {
       "no_policy_invention": { "provider": "openai", "model": "gpt-5" }
     },

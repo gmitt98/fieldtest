@@ -63,7 +63,7 @@ fieldtest demo --example extraction
 fieldtest view
 ```
 
-Runs all four eval types including LLM judges. Each example uses `claude-haiku-3-5-20251001` as the judge model by default (fast, cheap). Every example has at least one intentional failure so you can see how regressions surface in the report.
+Runs all four eval types including LLM judges. Each example uses `claude-haiku-4-5` as the judge model by default (fast, cheap). Every example has at least one intentional failure so you can see how regressions surface in the report.
 
 ### Available examples
 
@@ -148,8 +148,8 @@ Declare a panel in config:
 ```yaml
 calibration:
   panel:
-    - { provider: anthropic, model: claude-haiku-3-5-20251001 }
-    - { provider: anthropic, model: claude-sonnet-4-20250514 }
+    - { provider: anthropic, model: claude-haiku-4-5 }
+    - { provider: anthropic, model: claude-sonnet-5 }
     - { provider: openai,    model: gpt-5 }
     - { provider: gemini,    model: gemini-2.5-flash }
 ```
@@ -407,7 +407,7 @@ use_cases:
 
 defaults:
   provider: anthropic
-  model: claude-haiku-3-5-20251001   # judge model — NOT your system's model
+  model: claude-haiku-4-5   # judge model — NOT your system's model
   runs: 3
 ```
 
@@ -465,7 +465,7 @@ import yaml
 import anthropic
 
 SYSTEM_PROMPT = "You are a resume tailoring assistant..."
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-5"
 
 def tailor_resume(resume_text, job_text):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -971,7 +971,7 @@ The fields most commonly used for CI gating:
   "dataset_version": "v2",
   "judge": {
     "provider": "anthropic",
-    "model": "claude-haiku-3-5-20251001",
+    "model": "claude-haiku-4-5",
     "temperature": 0.0,
     "seed": null,
     "overrides": {},

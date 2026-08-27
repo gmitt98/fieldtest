@@ -59,6 +59,13 @@ def score(
     outputs_dir  = base_dir / "outputs"
     results_dir  = base_dir / "results"
 
+    # Rule evals need their registry populated. Doing this here rather than in
+    # each CLI command means every caller of score() is correct by construction
+    # — `fieldtest calibrate` reused this path and crashed on any project with a
+    # rule eval, because rule loading lived only in the `score` command.
+    from fieldtest.judges.registry import load_rules
+    load_rules(base_dir / "rules.py")
+
     # -------------------------------------------------------------------
     # VALIDATE OUTPUTS
     # -------------------------------------------------------------------

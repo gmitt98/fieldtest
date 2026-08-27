@@ -45,7 +45,7 @@ use_cases:
       runs: 2
 defaults:
   provider: anthropic
-  model: claude-haiku-3-5-20251001
+  model: claude-haiku-4-5
   runs: 2
 """
 
@@ -670,11 +670,11 @@ def test_score_data_json_has_null_version_when_unset(tmp_path):
 # ---------------------------------------------------------------------------
 
 _JUDGE_HAIKU = {
-    "provider": "anthropic", "model": "claude-haiku-3-5", "temperature": 0.0,
+    "provider": "anthropic", "model": "claude-haiku-4-5", "temperature": 0.0,
     "seed": None, "overrides": {}, "fingerprint": "aaaaaaaa",
 }
 _JUDGE_SONNET = {
-    "provider": "anthropic", "model": "claude-sonnet-4", "temperature": 0.0,
+    "provider": "anthropic", "model": "claude-sonnet-5", "temperature": 0.0,
     "seed": None, "overrides": {}, "fingerprint": "bbbbbbbb",
 }
 
@@ -692,7 +692,7 @@ def test_diff_warns_on_judge_mismatch_with_explicit_baseline(tmp_path):
     )
     assert result.exit_code == 0
     assert "Judge mismatch" in result.output
-    assert "claude-haiku-3-5 → claude-sonnet-4" in result.output
+    assert "claude-haiku-4-5 → claude-sonnet-5" in result.output
 
 
 def test_diff_silent_when_judge_matches(tmp_path):
@@ -732,8 +732,8 @@ def test_history_shows_judge_model(tmp_path):
         catch_exceptions=False,
     )
     assert "JUDGE" in result.output
-    assert "claude-haiku-3-5" in result.output
-    assert "claude-sonnet-4" in result.output
+    assert "claude-haiku-4-5" in result.output
+    assert "claude-sonnet-5" in result.output
 
 
 def test_validate_prints_projected_call_count(tmp_path):
@@ -877,7 +877,7 @@ system:
   domain: test domain
 calibration:
   panel:
-    - { provider: anthropic, model: claude-haiku-3-5 }
+    - { provider: anthropic, model: claude-haiku-4-5 }
     - { provider: openai,    model: gpt-5 }
 use_cases:
   - id: uc1
@@ -1020,7 +1020,7 @@ def test_diff_explicit_baseline_warns_on_judge_mismatch(tmp_path):
     )
 
     assert "Judge mismatch" in result.output
-    assert "claude-haiku-3-5 → claude-sonnet-4" in result.output
+    assert "claude-haiku-4-5 → claude-sonnet-5" in result.output
 
 
 def test_diff_explicit_baseline_missing_is_an_error(tmp_path):

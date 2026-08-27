@@ -29,7 +29,7 @@ No calibration panel configured.
 
     calibration:
       panel:
-        - { provider: anthropic, model: claude-haiku-3-5-20251001 }
+        - { provider: anthropic, model: claude-haiku-4-5 }
         - { provider: openai,    model: gpt-5 }
 
   A panel needs at least two judges — agreement is a property of a pair."""

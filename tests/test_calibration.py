@@ -299,9 +299,13 @@ def test_calibrate_runs_each_panel_judge_over_same_outputs(tmp_path):
     with patch("fieldtest.runner.score", side_effect=fake_score):
         run_id, data = run_calibration(config, tmp_path / "config.yaml")
 
-    assert seen_judges == [
+    # Panel members run concurrently, so the order side effects land in is not
+    # guaranteed — only that each configured judge scored exactly once.
+    assert sorted(seen_judges) == sorted([
         ("anthropic", "haiku"), ("anthropic", "sonnet"), ("openai", "gpt-5")
-    ]
+    ])
+    # Reported order IS guaranteed: pool.map preserves the panel's order, so the
+    # report always lists judges as configured.
     assert [m["judge"] for m in data["panel"]] == [
         "anthropic/haiku", "anthropic/sonnet", "openai/gpt-5"
     ]
