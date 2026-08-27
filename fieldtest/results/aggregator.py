@@ -109,10 +109,22 @@ def collapse_rows(rows: list[ResultRow], config: Config) -> list[ResultRow]:
         if len(reps) == 1:
             collapsed.append(first)
             continue
+
+        verdict = collapse_verdicts(reps)
+        # Reasoning has to come from a repetition that reached the collapsed
+        # verdict. Taking the first rep's detail unconditionally put text
+        # arguing for a pass under a row labelled fail, on exactly the ambiguous
+        # evals repetitions exist to surface.
+        speaker  = next((r for r in reps if r.passed is verdict), first)
+        agreeing = sum(1 for r in reps if r.passed is verdict)
+        detail   = speaker.detail
+        if agreeing != len(reps):
+            detail = f"[{agreeing}/{len(reps)} judges] {detail or ''}".rstrip()
+
         collapsed.append(first.model_copy(update={
-            "passed":    collapse_verdicts(reps),
+            "passed":    verdict,
             "judge_run": 1,
-            "detail":    first.detail,
+            "detail":    detail,
         }))
 
     return collapsed
@@ -155,8 +167,6 @@ def _judge_agreement(
             judged = sum(scores) / len(scores)
             compared += 1
             deviations.append(abs(judged - label))
-            if judged == label:
-                agreed += 1
         else:
             if label not in ("pass", "fail"):
                 continue
@@ -173,16 +183,23 @@ def _judge_agreement(
     if not compared:
         return {}
 
-    fields = {
-        "labeled_runs":    compared,
-        "judge_agreement": round(agreed / compared, 6),
-    }
     if is_scored:
-        fields["mean_absolute_deviation"] = round(sum(deviations) / len(deviations), 4)
-    else:
-        fields["judge_false_pass"] = false_pass
-        fields["judge_false_fail"] = false_fail
-    return fields
+        # No agreement figure here. It would be exact equality between an integer
+        # label and a mean across repetitions, which is almost never equal once
+        # the judge varies at all — a judge returning 3, 4, 4 against a human's 4
+        # would score zero agreement while matching perfectly on central
+        # tendency. Deviation reports the same comparison honestly.
+        return {
+            "labeled_runs":            compared,
+            "mean_absolute_deviation": round(sum(deviations) / len(deviations), 4),
+        }
+
+    return {
+        "labeled_runs":     compared,
+        "judge_agreement":  round(agreed / compared, 6),
+        "judge_false_pass": false_pass,
+        "judge_false_fail": false_fail,
+    }
 
 
 def build_summary(
@@ -240,6 +257,15 @@ def build_summary(
                 error_count = len(error_rows)
                 total_runs  = len(valid_rows)
 
+                # Two different units, and conflating them misreports both. A
+                # judge call is one repetition; an output is one generator run
+                # that may have been judged several times. At judge_runs: 1 they
+                # coincide, which is why the distinction went unnoticed.
+                judge_calls       = len(valid_rows) + len(error_rows)
+                outputs_attempted = len(
+                    {(r.fixture_id, r.run) for r in valid_rows + error_rows}
+                )
+
                 if is_scored:
                     scores = [r.score for r in valid_rows if r.score is not None]
                     floor_hits = sum(1 for s in scores if scale_min is not None and s == scale_min)
@@ -269,6 +295,11 @@ def build_summary(
                             "judge_stddev":  round(sum(within) / len(within), 4) if within else 0.0,
                             "judge_runs":    judge_runs,
                         }
+                        # Outputs, matching the binary branch. mean, stddev, min
+                        # and max keep their definitions over every raw score;
+                        # only the reported n moves, so the report's n column
+                        # means one thing across both eval types.
+                        total_runs = len(by_output)
 
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate": None,
@@ -279,6 +310,8 @@ def build_summary(
                         "floor_hits":   floor_hits,
                         "total_runs":   total_runs,
                         "error_count":  error_count,
+                        "judge_calls":  judge_calls,
+                        "outputs_attempted": outputs_attempted,
                         **judge_fields,
                     }
                 else:
@@ -324,6 +357,8 @@ def build_summary(
                         "floor_hits":      0,
                         "total_runs":      total_runs,
                         "error_count":     error_count,
+                        "judge_calls":     judge_calls,
+                        "outputs_attempted": outputs_attempted,
                         **judge_fields,
                     }
 
@@ -352,11 +387,14 @@ def summarize_judge_errors(summary: dict) -> Optional[dict]:
     for uc_stats in summary.values():
         for tag_stats in uc_stats.values():
             for eval_id, stats in tag_stats.items():
-                errors    = stats.get("error_count") or 0
-                scored    = stats.get("total_runs") or 0
-                attempted = scored + errors
+                errors = stats.get("error_count") or 0
+                scored = stats.get("total_runs") or 0
+                # Summaries written before judge repetitions existed carry
+                # neither field, and there scored + errors is the call count.
+                calls     = stats.get("judge_calls") or (scored + errors)
+                attempted = stats.get("outputs_attempted") or (scored + errors)
                 failed   += errors
-                total    += attempted
+                total    += calls
                 if errors:
                     affected.append((eval_id, scored, attempted))
 
@@ -397,7 +435,17 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     - |current - previous| < 0.001 → "unchanged".
     - up → "increased", down → "decreased". No "better"/"worse".
     """
-    empty = {"baseline_run_id": None, "increased": [], "decreased": [], "unchanged": []}
+    # Every key present on every path. A consumer that reads .delta.baseline_pre_judge
+    # must not get one shape on a run with a baseline and another on a run without,
+    # for the same reason judge.overrides serializes as {} rather than being omitted.
+    empty = {
+        "baseline_run_id":     None,
+        "increased":           [],
+        "decreased":           [],
+        "unchanged":           [],
+        "baseline_pre_judge":  False,
+        "baseline_judge_runs": None,
+    }
 
     if baseline_path is None or not baseline_path.exists():
         return empty

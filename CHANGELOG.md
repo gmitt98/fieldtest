@@ -178,3 +178,62 @@ measurement of your system.
 The report ranks judges on evidence and stops there. Picking one has cost and latency inputs the
 tool does not have.
 
+### Fixes from review of the above
+
+- **A malformed judge response no longer aborts the run.** A judge answering with a bare JSON
+  scalar or an object-free array (`"looks fine"`, `[1,2,3]`) produced a non-dict that crashed
+  scoring for every eval in the run, not just that one. It is now reported the same way any other
+  unparseable verdict is — one errored row.
+- **Judge errors are counted in the right units.** With `judge_runs` above 1, the report added
+  judge calls to outputs and reported, for example, "3 of 4 calls failed" where the truth was 3
+  of 6, and "1 of 4 runs scored" where it was 1 of 2. Summaries now carry `judge_calls` and
+  `outputs_attempted` alongside `total_runs`.
+- **Scored evals no longer report a `judge_agreement` figure.** It was exact equality between an
+  integer human label and a mean across repetitions, so a judge returning 3, 4, 4 against a
+  human's 4 scored zero agreement while matching perfectly. `mean_absolute_deviation` reports the
+  same comparison honestly.
+- **The `delta` object has one shape.** `baseline_pre_judge` and `baseline_judge_runs` were
+  missing on runs with no baseline.
+- **`fieldtest validate` projects the largest set you actually declare** instead of assuming
+  `full` exists and silently printing nothing when it does not.
+
+### Further fixes from a multi-agent review pass
+
+- **`judge_run` is recorded correctly on LLM rows.** It was threaded into rule, regex and
+  reference rows but dropped on the LLM path, so every repetition reported `judge_run: 1` — on
+  the one eval type that repeats. The column `-data.csv` publishes for your own decomposition was
+  a constant.
+- **`fieldtest diff --baseline` compares against the run you name.** It was silently ignored: the
+  command reused the delta frozen at score time against whatever baseline was auto-detected then.
+  With judge fingerprints now filtering baselines, the run you name is often exactly the one
+  auto-detection skipped, which is when you most need the flag.
+- **Scored and binary evals report `n` in the same unit.** Under `judge_runs > 1` the binary
+  branch counted outputs and the scored branch counted repetitions, so one report table showed an
+  `n` column meaning two different things row to row.
+- **A collapsed row's reasoning matches its verdict.** With repetitions, the row took the first
+  repetition's reasoning even when that repetition argued the opposite way, so a majority-fail
+  output could carry text explaining why it passed. Split decisions are now marked `[2/3 judges]`.
+- **`fieldtest diff` reads the baseline file once** instead of three times, and the judge prompt
+  is rewritten once per call instead of twice.
+
+### Calibration fixes from review
+
+- **The panel table counts judge calls**, not every row the pass produced. Regex, rule and
+  reference rows were counted as judge calls, so the table contradicted the projection the same
+  command had just printed.
+- **A judge that produced no verdict is named.** One that errored on every call silently dropped
+  out of the pairwise matrix and Fleiss' kappa, leaving a smaller panel's numbers presented as the
+  configured panel's.
+- **Every eval appears in the report.** An eval only one judge could rule on has no disagreement
+  score, and was therefore dropped from the ranking *and* from the per-eval sections — hiding
+  exactly the eval the panel could not evaluate.
+- **Duplicate panel judges are rejected**, and `kappa_threshold` is bounded to [-1, 1]. The same
+  model twice agrees with itself and inflates every figure; a threshold of `60` used to load
+  cleanly and flag a perfect panel as failing.
+- **Panel judges run concurrently**, sharing `--concurrency` as a total budget rather than
+  multiplying it. Independent passes over the same files no longer cost the sum of their latencies.
+- **Two use cases may declare the same eval id** without their verdicts being merged into one
+  meaningless agreement figure.
+- **The cost multiplier stopped double-counting `judge_runs`**, calibration artifacts are written
+  all-or-nothing, and a suppressed-artifact run no longer resolves a baseline it will never use.
+

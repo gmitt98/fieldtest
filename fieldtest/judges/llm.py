@@ -36,12 +36,16 @@ def _neutralize_delimiters(output: str) -> tuple[str, bool]:
     to produce.
     """
     lines = output.split("\n")
-    modified = False
+    if not any(line.strip() == DELIMITER for line in lines):
+        # The common case. Returning the original avoids rebuilding a string
+        # identical to the one passed in, which matters because this runs once
+        # per judge call and judge_runs multiplies that.
+        return output, False
+
     for i, line in enumerate(lines):
         if line.strip() == DELIMITER:
             lines[i] = line.replace(DELIMITER, NEUTRALIZED)
-            modified = True
-    return "\n".join(lines), modified
+    return "\n".join(lines), True
 
 
 def _flag_neutralized(detail: Optional[str], was_modified: bool) -> Optional[str]:
@@ -205,6 +209,18 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
 
     response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
 
+    # Adapters promise a dict and never raising. A third-party adapter that
+    # breaks that contract must produce one errored row, not abort the run:
+    # this call is inside a ThreadPoolExecutor, and an exception here reaches
+    # future.result() and takes every other eval down with it.
+    if not isinstance(response, dict):
+        return {
+            "error": (
+                f"Judge adapter for '{provider_name}' returned "
+                f"{type(response).__name__}, expected dict"
+            )
+        }
+
     dropped = response.pop("unsupported", None)
     if dropped:
         with _unsupported_lock:
@@ -219,7 +235,8 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
 # ---------------------------------------------------------------------------
 
 def judge_llm_binary(
-    use_case_id: str, eval: Eval, output: str, fixture: dict, run: int, config: Config
+    use_case_id: str, eval: Eval, output: str, fixture: dict, run: int,
+    config: Config, judge_run: int = 1,
 ) -> ResultRow:
     base = dict(
         use_case=use_case_id,
@@ -229,9 +246,10 @@ def judge_llm_binary(
         type=eval.type,
         fixture_id=fixture["id"],
         run=run,
+        judge_run=judge_run,
     )
 
-    _, neutralized = _neutralize_delimiters(output)
+    output, neutralized = _neutralize_delimiters(output)
     prompt   = build_binary_judge_prompt(eval, output)
     response = call_judge_llm(prompt, eval, config)
 
@@ -246,7 +264,8 @@ def judge_llm_binary(
 
 
 def judge_llm_scored(
-    use_case_id: str, eval: Eval, output: str, fixture: dict, run: int, config: Config
+    use_case_id: str, eval: Eval, output: str, fixture: dict, run: int,
+    config: Config, judge_run: int = 1,
 ) -> ResultRow:
     base = dict(
         use_case=use_case_id,
@@ -256,9 +275,10 @@ def judge_llm_scored(
         type=eval.type,
         fixture_id=fixture["id"],
         run=run,
+        judge_run=judge_run,
     )
 
-    _, neutralized = _neutralize_delimiters(output)
+    output, neutralized = _neutralize_delimiters(output)
     prompt   = build_scored_judge_prompt(eval, output)
     response = call_judge_llm(prompt, eval, config)
 

@@ -121,6 +121,7 @@ def score(
     # -------------------------------------------------------------------
     # EXECUTE with ThreadPoolExecutor
     # -------------------------------------------------------------------
+    run_id = make_run_id()
     all_results: list[ResultRow] = []
     reset_unsupported_params()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -152,11 +153,18 @@ def score(
     # -------------------------------------------------------------------
     # AGGREGATE
     # -------------------------------------------------------------------
+    if not write_artifacts:
+        # A calibration panel member is one judge's pass over the same outputs,
+        # not a measurement of the system. It writes no result set — so it must
+        # not reach find_baseline() — and nothing downstream reads the summary
+        # or delta, so resolving a baseline here would be pure waste, repeated
+        # once per panel judge.
+        return run_id, all_results
+
     summary = build_summary(all_results, config, labels=human_labels)
 
     # Auto-detect baseline — same set + dataset_version only, to avoid misleading
     # cross-set or cross-snapshot deltas.
-    run_id = make_run_id()
     if baseline_path is None:
         baseline_path = find_baseline(
             results_dir, run_id, set_name,
@@ -169,12 +177,6 @@ def score(
     # -------------------------------------------------------------------
     # REPORT
     # -------------------------------------------------------------------
-    if not write_artifacts:
-        # A calibration panel member is one judge's pass over the same outputs,
-        # not a measurement of the system. Writing it as a normal result set
-        # would put it in front of find_baseline().
-        return run_id, all_results
-
     write_results(
         rows=all_results,
         summary=summary,

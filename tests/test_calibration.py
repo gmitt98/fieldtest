@@ -226,7 +226,7 @@ def test_human_agreement_reported_when_labels_present():
         ("accurate", _rows([True, False, True])),
         ("lenient",  _rows([True, True,  True])),
     ]
-    labels = {"ev1": {("f1", 1): "pass", ("f1", 2): "fail", ("f1", 3): "pass"}}
+    labels = {("uc1", "ev1"): {("f1", 1): "pass", ("f1", 2): "fail", ("f1", 3): "pass"}}
 
     stats = analyze(config, judge_rows, labels)["evals"]["ev1"]
 
@@ -255,7 +255,7 @@ def test_scored_analysis_reports_signed_bias_against_human():
         ("high", _scored_rows([5, 5])),
         ("low",  _scored_rows([2, 2])),
     ]
-    labels = {"ev1": {("f1", 1): 3, ("f1", 2): 3}}
+    labels = {("uc1", "ev1"): {("f1", 1): 3, ("f1", 2): 3}}
 
     stats = analyze(config, judge_rows, labels)["evals"]["ev1"]
 
@@ -370,3 +370,230 @@ def test_calibration_report_warns_when_no_labels():
         "ranked_by_disagreement": [], "has_labels": False,
     })
     assert "shared bias as readily as shared accuracy" in report
+
+
+# ---------------------------------------------------------------------------
+# Review findings — regression tests
+# ---------------------------------------------------------------------------
+
+def test_panel_calls_count_judge_calls_only():
+    """
+    len(rows) counted regex, rule and reference rows as judge calls, so the
+    panel table contradicted the projection the same command had just printed.
+    """
+    from fieldtest.calibrate import run_calibration
+
+    rows = _rows([True, False]) + [
+        ResultRow(use_case="uc1", eval_id="has_greeting", tag="good", type="rule",
+                  fixture_id="f1", run=1, passed=True),
+        ResultRow(use_case="uc1", eval_id="no_policy", tag="safe", type="regex",
+                  fixture_id="f1", run=1, passed=True, error="rule blew up"),
+    ]
+
+    with patch("fieldtest.runner.score", return_value=("r", rows)):
+        _, data = run_calibration(_config(), Path("evals/config.yaml"))
+
+    for member in data["panel"]:
+        assert member["calls"] == 2      # the two llm rows, not all four
+        assert member["errors"] == 0     # the regex error is not a judge error
+
+
+def test_run_calibration_actually_analyses_the_rows():
+    """
+    A guard on the plumbing itself: the suite once passed with judge_rows never
+    populated, because nothing asserted the analysis reached the output.
+    """
+    from fieldtest.calibrate import run_calibration
+
+    with patch("fieldtest.runner.score", return_value=("r", _rows([True, False, True]))):
+        _, data = run_calibration(_config(), Path("evals/config.yaml"))
+
+    assert data["evals"], "panel rows never reached analyze()"
+    assert data["evals"]["ev1"]["judges_participating"] == 3
+
+
+def test_judge_that_produced_nothing_is_named():
+    """A judge that errored on every call used to vanish without a word."""
+    config = _config()
+    working = _rows([True, False, True])
+    dead = [
+        ResultRow(use_case="uc1", eval_id="ev1", tag="safe", type="llm",
+                  fixture_id="f1", run=i, error="openai package not installed")
+        for i in (1, 2, 3)
+    ]
+
+    stats = analyze(
+        config,
+        [("anthropic/haiku", working), ("anthropic/sonnet", working), ("openai/gpt-5", dead)],
+        labels={},
+    )["evals"]["ev1"]
+
+    assert stats["judges_participating"] == 2
+    assert stats["judges_configured"] == 3
+    assert stats["judges_absent"] == ["openai/gpt-5"]
+
+
+def test_eval_without_a_disagreement_score_still_renders():
+    """
+    Only one judge could rule, so there is no agreement figure — and the eval
+    the panel failed to evaluate is precisely the one that must not disappear.
+    """
+    from fieldtest.calibrate import format_calibration
+
+    report = format_calibration({
+        "run_id": "r", "set": "full", "panel": [], "has_labels": False,
+        "ranked_by_disagreement": ["ranked_ev"],
+        "kappa_threshold": 0.6,
+        "evals": {
+            "ranked_ev": {"type": "binary", "pairwise": [], "mean_agreement": 1.0,
+                          "fleiss_kappa": 1.0, "disagreement": 0.0,
+                          "judges_participating": 2, "judges_configured": 2,
+                          "judges_absent": []},
+            "unranked_ev": {"type": "binary", "pairwise": [], "mean_agreement": None,
+                            "fleiss_kappa": None, "disagreement": None,
+                            "judges_participating": 1, "judges_configured": 2,
+                            "judges_absent": ["openai/gpt-5"]},
+        },
+    })
+
+    assert "### unranked_ev" in report
+    assert "no two judges ruled on a shared output" in report
+    assert "produced no verdict here" in report
+    # And no empty pairwise table under it.
+    assert report.count("| judge pair | raw agreement | Cohen's kappa |") == 1
+
+
+def test_same_eval_id_in_two_use_cases_stays_separate():
+    """Config enforces unique fixture ids, not unique eval ids."""
+    shared = Eval(id="tone", tag="good", type="llm", description="d",
+                  pass_criteria="p", fail_criteria="f")
+    config = Config(
+        schema_version=2,
+        system=SystemConfig(name="t", domain="t"),
+        use_cases=[
+            UseCase(id="uc_support", description="d", evals=[shared.model_copy()],
+                    fixtures=FixturesConfig(directory="f/", sets={"full": ["a"]})),
+            UseCase(id="uc_sales", description="d", evals=[shared.model_copy()],
+                    fixtures=FixturesConfig(directory="f/", sets={"full": ["b"]})),
+        ],
+        defaults=Defaults(),
+        calibration=CalibrationConfig(panel=PANEL),
+    )
+
+    def rows_for(uc, fixture, verdicts):
+        return [
+            ResultRow(use_case=uc, eval_id="tone", tag="good", type="llm",
+                      fixture_id=fixture, run=i + 1, passed=v)
+            for i, v in enumerate(verdicts)
+        ]
+
+    # Judges agree in support, split in sales.
+    judge_rows = [
+        ("j1", rows_for("uc_support", "a", [True, True]) + rows_for("uc_sales", "b", [True, True])),
+        ("j2", rows_for("uc_support", "a", [True, True]) + rows_for("uc_sales", "b", [False, False])),
+        ("j3", rows_for("uc_support", "a", [True, True]) + rows_for("uc_sales", "b", [True, False])),
+    ]
+
+    evals = analyze(config, judge_rows, labels={})["evals"]
+
+    assert set(evals) == {"uc_support/tone", "uc_sales/tone"}
+    assert evals["uc_support/tone"]["disagreement"] == 0.0
+    assert evals["uc_sales/tone"]["disagreement"] > 0.0
+
+
+def test_panel_judges_share_the_concurrency_budget():
+    """Overlapping judges must not quietly multiply the configured load."""
+    from fieldtest.calibrate import run_calibration
+
+    seen = []
+
+    def fake_score(**kwargs):
+        seen.append(kwargs["concurrency"])
+        return "r", _rows([True])
+
+    with patch("fieldtest.runner.score", side_effect=fake_score):
+        run_calibration(_config(), Path("evals/config.yaml"), concurrency=6)
+
+    assert seen == [2, 2, 2]      # 6 split across a 3-judge panel
+
+
+def test_calibration_write_is_all_or_nothing(tmp_path):
+    """A panel run is already paid for; a formatting error must not half-write it."""
+    from fieldtest.calibrate import write_calibration
+
+    with patch(
+        "fieldtest.calibrate.format_calibration", side_effect=RuntimeError("boom")
+    ):
+        with pytest.raises(RuntimeError):
+            write_calibration({"run_id": "r1", "set": "full"}, tmp_path, "r1")
+
+    assert list(tmp_path.glob("*")) == []
+
+
+def test_projection_multiplier_is_the_panel_size(tmp_path):
+    """per_judge already carries judge_runs; folding it in again overstated cost."""
+    config = _config(judge_runs=3)
+    (tmp_path / "fixtures").mkdir()
+    (tmp_path / "fixtures" / "f1.yaml").write_text("id: f1\ninputs:\n  q: x\n")
+
+    projection = project_calls(config, tmp_path, "full")
+    assert projection["multiplier"] == 3          # three judges, not nine
+    assert projection["per_judge"] == 15          # 1 fixture × 5 runs × 3 judge_runs
+
+
+def test_write_artifacts_false_writes_nothing_through_the_real_score_path(tmp_path):
+    """
+    The suppression tests above patch runner.score, so they verify the mock. This
+    one calls the real thing: delete the early return in runner.score() and this
+    fails, which is the guarantee 'a panel member must not reach find_baseline()'
+    actually rests on.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import find_baseline
+    from fieldtest.runner import score
+
+    evals_dir = tmp_path / "evals"
+    (evals_dir / "fixtures").mkdir(parents=True)
+    (evals_dir / "outputs" / "fix1").mkdir(parents=True)
+    (evals_dir / "results").mkdir()
+
+    (evals_dir / "config.yaml").write_text(
+        "schema_version: 2\n"
+        "system:\n  name: t\n  domain: t\n"
+        "defaults:\n  runs: 1\n"
+        "use_cases:\n"
+        "  - id: uc1\n"
+        "    description: d\n"
+        "    evals:\n"
+        "      - id: has_hello\n"
+        "        tag: right\n"
+        "        type: regex\n"
+        "        description: says hello\n"
+        '        pattern: "hello"\n'
+        "        match: true\n"
+        "    fixtures:\n"
+        "      directory: fixtures/\n"
+        "      sets:\n"
+        "        full: [fix1]\n"
+    )
+    (evals_dir / "fixtures" / "fix1.yaml").write_text("id: fix1\ninputs:\n  q: x\n")
+    (evals_dir / "outputs" / "fix1" / "run-1.txt").write_text("hello there")
+
+    config = parse_and_validate(evals_dir / "config.yaml")
+    results_dir = evals_dir / "results"
+
+    _, rows = score(
+        config=config, config_path=evals_dir / "config.yaml",
+        set_name="full", write_artifacts=False,
+    )
+
+    assert rows and rows[0].passed is True
+    assert list(results_dir.iterdir()) == []
+    assert find_baseline(results_dir, "current", "full") is None
+
+    # And the same run with artifacts on does write, so the test is not vacuous.
+    score(
+        config=config, config_path=evals_dir / "config.yaml",
+        set_name="full", write_artifacts=True,
+    )
+    assert list(results_dir.glob("*-data.json"))

@@ -193,11 +193,36 @@ class CalibrationConfig(BaseModel):
 
     @field_validator("panel")
     @classmethod
-    def panel_needs_two(cls, v: list) -> list:
+    def panel_needs_two_distinct(cls, v: list) -> list:
         if len(v) < 2:
             raise ValueError(
                 "calibration.panel needs at least two judges — agreement is a "
                 "property of a pair."
+            )
+        # The same model twice is not two raters. It would agree with itself,
+        # pull every eval's disagreement down, and make Fleiss' kappa an invalid
+        # computation over a duplicated rater.
+        seen: set = set()
+        for judge in v:
+            key = (judge.provider, judge.model)
+            if key in seen:
+                raise ValueError(
+                    f"calibration.panel lists {judge.provider}/{judge.model} twice. "
+                    f"A duplicate judge agrees with itself and inflates every "
+                    f"agreement figure."
+                )
+            seen.add(key)
+        return v
+
+    @field_validator("kappa_threshold")
+    @classmethod
+    def kappa_threshold_in_range(cls, v: float) -> float:
+        # Kappa is bounded to [-1, 1]. A threshold of 60 (meaning percent) would
+        # otherwise load cleanly and flag a perfect panel as failing.
+        if not (-1.0 <= v <= 1.0):
+            raise ValueError(
+                f"calibration.kappa_threshold must be between -1 and 1, got {v}. "
+                f"Kappa is a chance-corrected coefficient, not a percentage."
             )
         return v
 
