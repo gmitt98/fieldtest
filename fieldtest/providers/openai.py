@@ -67,7 +67,13 @@ class OpenAIAdapter(ProviderAdapter):
             # Reasoning models reject sampling parameters; drop what this model
             # refuses rather than erroring every judge call.
             response = call_dropping_unsupported(
-                lambda k: client.chat.completions.create(**k), kwargs, unsupported
+                lambda k: client.chat.completions.create(**k),
+                kwargs,
+                unsupported,
+                # Reasoning models (o1, o3, o4, GPT-5.x) reject max_tokens and
+                # require max_completion_tokens. Renaming keeps the output bound
+                # that spec 02 §2.4 requires; dropping it would remove it.
+                renames={"max_tokens": "max_completion_tokens"},
             )
             content = response.choices[0].message.content.strip()
             try:

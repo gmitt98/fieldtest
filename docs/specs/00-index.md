@@ -27,6 +27,7 @@ measure nothing.
 | 08 | [`fieldtest calibrate`](08-calibrate-command.md) | 2 | 01, 02, 06, 07 | shipped |
 | 09 | [Discovery position](09-discovery-position.md) | 3 | none | sketch |
 | 10 | [Inspect interop](10-inspect-interop.md) | 3 | 01 | sketch |
+| 11 | [Provider surface beyond the big three](11-provider-surface.md) | 2 | 02, 05 | draft |
 
 ## Version boundary
 
@@ -41,6 +42,14 @@ shape as a gating contract.
 `parse_and_validate()` accepts `schema_version: 1` configs unchanged for one minor release,
 defaulting all v2 fields to values that reproduce v1 behavior exactly. See each spec's
 compatibility section.
+
+## Added after the fact
+
+Spec 11 was written after live verification, not before it. Two providers turned out to have
+removed generation parameters fieldtest depends on, which made the adapter layer's real shape
+visible: parameter support is per model and changes on the provider's schedule, so an adapter
+that discovers support beats one that declares it. Once that was true, supporting endpoints
+fieldtest does not ship an adapter for became cheap rather than speculative.
 
 ## What is deliberately not here
 
