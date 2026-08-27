@@ -88,3 +88,11 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Spec 12 verification tiers. Unit and integration run by default; the live
+# tier needs provider credentials and is opt-in, so a provider outage can
+# never look like a contributor error.
+markers = [
+    "integration: real code paths, no network",
+    "live: requires provider credentials; skipped without them",
+]
+addopts = "-m 'not live'"
