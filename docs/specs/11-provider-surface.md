@@ -43,11 +43,12 @@ order of how much work each asks of them.
    demonstrated rather than assumed — an `openai_compatible` adapter is mostly a way to configure
    `base_url` from `config.yaml` instead of the environment.
 
-   One caveat belongs in the docs beside the recommendation: OpenRouter appears to absorb
-   parameters the underlying model does not accept. `openai/o3-mini` took `temperature` and
-   `max_tokens` without complaint, where OpenAI documents both as a 400. Convenient in use, and it
-   means a judge reached this way may not be pinned the way the config says — see spec 12 for why
-   the live test tier cannot rely on it.
+   One caveat belongs in the docs beside the recommendation: OpenRouter absorbs parameters the
+   underlying model does not accept. `openai/o3-mini` took `temperature` and `max_tokens` without
+   complaint; the same models called natively reject both — `gpt-5` returns
+   `unsupported: ["temperature"]` through fieldtest's own adapter. Convenient in use, and it means
+   a judge reached through OpenRouter may not be pinned the way the config says, with nothing in
+   the report to reveal it. See spec 12 for why the live test tier cannot rely on it.
 1c. **A user can register their own adapter** for anything that does not speak that protocol,
    without forking fieldtest. This mirrors `@rule`, which already loads user code from
    `evals/rules.py` — the precedent for user-supplied behavior in a project directory exists and
@@ -188,6 +189,14 @@ Also out of scope: validating that a registered provider behaves. A user's adapt
 instead of returning `{"error": ...}` produces one errored row, the same as any other judge
 failure — `call_judge_llm()` already refuses to trust the type it gets back. fieldtest does not
 sandbox user code here any more than it does for `@rule`.
+
+And explicitly out of scope: a per-provider capability table for registered adapters. The three
+built-in providers have already demonstrated why. Anthropic removed sampling parameters on its
+5-series models, OpenAI's reasoning models reject `temperature` and rename `max_tokens`, and
+Gemini exposes a `seed` field in its SDK that the model then refuses. Each was discovered by a
+call, none by a table, and the table was wrong twice in one day. A registered provider declares
+nothing about what it supports; `call_dropping_unsupported()` finds out, and the report says what
+was dropped.
 
 Also out of scope: judging the judges. Whether a 7B model is fit to score a `safe` eval is exactly
 the question spec 08 answers with kappa and human labels, and it should be answered with evidence
