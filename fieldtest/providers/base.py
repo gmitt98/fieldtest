@@ -131,6 +131,7 @@ def call_dropping_unsupported(
     kwargs: dict,
     unsupported: list,
     droppable: tuple = DROPPABLE_PARAMS,
+    renames: Optional[dict] = None,
 ) -> Any:
     """
     Call invoke(kwargs), dropping any generation parameter the provider rejects
@@ -141,12 +142,27 @@ def call_dropping_unsupported(
     adapter ignores it and records the fact once per run rather than failing.
     Names collected here reach the report header, so a judge running without the
     parameters you asked for says so instead of looking pinned.
+
+    `renames` handles the case where a provider still accepts the capability
+    under a different key — OpenAI's reasoning models reject `max_tokens` and
+    require `max_completion_tokens`. That is a rename, not a loss, so it is not
+    reported as unsupported: dropping it would leave the judge unbounded, which
+    spec 02 §2.4 requires every adapter to prevent.
     """
-    attempt = dict(kwargs)
+    renames  = renames or {}
+    attempt  = dict(kwargs)
+
     while True:
         try:
             return invoke(attempt)
         except Exception as e:
+            renamed = next(
+                (p for p in renames if p in attempt and rejects_parameter(e, p)), None
+            )
+            if renamed is not None:
+                attempt[renames[renamed]] = attempt.pop(renamed)
+                continue
+
             dropped = next(
                 (p for p in droppable if p in attempt and rejects_parameter(e, p)),
                 None,

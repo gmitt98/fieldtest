@@ -1159,3 +1159,46 @@ def test_all_adapters_drop_a_rejected_parameter(provider):
     assert result.get("answer") == "Pass"
     assert result["unsupported"] == ["temperature"]
     assert sleeps == 0        # a refused parameter is not a transient failure
+
+
+def test_openai_renames_max_tokens_for_reasoning_models():
+    """
+    Reasoning models reject max_tokens and require max_completion_tokens. It has
+    to be renamed, not dropped: spec 02 §2.4 requires every adapter to bound
+    output, and an unbounded judge is a worse outcome than a failed one.
+    """
+    class _Rejected(Exception):
+        status_code = 400
+
+    err = _Rejected(
+        "Unsupported parameter: 'max_tokens' is not supported with this model. "
+        "Use 'max_completion_tokens' instead."
+    )
+    result, calls, _ = _drive_adapter(
+        "openai",
+        side_effect=[err, DEFAULT],
+        returns_text='{"answer": "Pass", "reasoning": "ok"}',
+    )
+
+    assert result["answer"] == "Pass"
+    # A rename is not a capability loss, so it is not reported as unsupported.
+    assert "unsupported" not in result
+
+
+def test_openai_handles_the_value_form_of_the_temperature_rejection():
+    """o1-mini phrases it as a value complaint rather than a parameter one."""
+    class _Rejected(Exception):
+        status_code = 400
+
+    err = _Rejected(
+        "Unsupported value: 'temperature' does not support 0.0 with this model. "
+        "Only the default (1) value is supported."
+    )
+    result, _, _ = _drive_adapter(
+        "openai",
+        side_effect=[err, DEFAULT],
+        returns_text='{"answer": "Pass", "reasoning": "ok"}',
+    )
+
+    assert result["answer"] == "Pass"
+    assert result["unsupported"] == ["temperature"]
