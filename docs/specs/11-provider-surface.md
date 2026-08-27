@@ -25,8 +25,33 @@ fourth maintenance burden.
 
 ## §2 Requirements
 
+The surface has three layers, in descending order of how many users each serves and ascending
+order of how much work each asks of them.
+
 1. A user can point fieldtest at any endpoint that speaks the OpenAI chat-completions protocol,
-   without fieldtest shipping a named adapter for it.
+   without fieldtest shipping a named adapter for it. This layer covers OpenRouter, vLLM, Ollama,
+   Together, Fireworks, and xAI — most of the gap, with one adapter.
+1b. **OpenRouter is called out by name in the docs**, because it collapses the long tail into one
+   credential: a single key and base URL reach Anthropic, OpenAI, Google, xAI, Meta, Qwen,
+   DeepSeek and Mistral models behind `vendor/model` slugs. A user who wants to calibrate a panel
+   across four labs should not need four accounts to do it.
+
+   Verified before this spec was written, not after: fieldtest's existing OpenAI adapter reaches
+   OpenRouter with no code change at all, because the `openai` SDK honours `OPENAI_BASE_URL`.
+   `openai/gpt-4o-mini`, `openai/o3-mini` and `meta-llama/llama-3.3-70b-instruct` all returned
+   parseable verdicts through it, with `seed` accepted. The premise of layer 1 is therefore
+   demonstrated rather than assumed — an `openai_compatible` adapter is mostly a way to configure
+   `base_url` from `config.yaml` instead of the environment.
+
+   One caveat belongs in the docs beside the recommendation: OpenRouter appears to absorb
+   parameters the underlying model does not accept. `openai/o3-mini` took `temperature` and
+   `max_tokens` without complaint, where OpenAI documents both as a 400. Convenient in use, and it
+   means a judge reached this way may not be pinned the way the config says — see spec 12 for why
+   the live test tier cannot rely on it.
+1c. **A user can register their own adapter** for anything that does not speak that protocol,
+   without forking fieldtest. This mirrors `@rule`, which already loads user code from
+   `evals/rules.py` — the precedent for user-supplied behavior in a project directory exists and
+   should not be reinvented.
 2. Configuration is per use case in `config.yaml`, versioned with everything else, consistent
    with how `defaults.provider` and the calibration panel already work.
 3. Authentication is by environment variable name, never by literal key in config. The variable
@@ -60,6 +85,44 @@ providers:
 
 `providers` maps a provider name to its connection settings. The three built-in names keep
 working with no `providers` block at all, so every existing config is unaffected.
+
+OpenRouter needs no special case — it is this shape with a different base URL:
+
+```yaml
+defaults:
+  provider: openai_compatible
+  model: qwen/qwen-2.5-72b-instruct
+
+providers:
+  openai_compatible:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+```
+
+### Rolling your own
+
+For an endpoint that does not speak the OpenAI protocol, a user registers an adapter the same way
+they already register rule evals — a decorator in a file fieldtest loads from the project
+directory:
+
+```python
+# evals/providers.py
+from fieldtest import provider
+
+@provider("my-inference-service")
+def call(model: str, prompt: str, gen, retry) -> dict:
+    """Return the judge's parsed JSON dict, or {"error": str}. Never raise."""
+    ...
+```
+
+`load_providers()` mirrors `load_rules()`: same location convention, same memoization, same
+`ConfigError` on import failure, and loaded by `score()` so every caller gets it. A registered
+name satisfies `VALID_PROVIDERS` validation, so it can appear in `defaults.provider`, in a
+per-eval override, and in a calibration panel with no further plumbing.
+
+The function signature is deliberately the same shape as `ProviderAdapter.call()` rather than a
+new one. A user who outgrows the decorator subclasses `ProviderAdapter` and registers the
+instance; a user who never does is not asked to learn a class hierarchy to make one HTTP call.
 
 ```python
 class ProviderSettings(BaseModel):
@@ -103,6 +166,11 @@ Tests in `tests/test_providers.py` and `tests/test_config.py`:
 - `test_fingerprint_includes_base_url`
 - `test_fingerprint_differs_across_endpoints_for_the_same_model`
 - `test_validate_reports_unset_provider_env_vars`
+- `test_user_registered_provider_is_valid_in_config`
+- `test_user_registered_provider_used_by_score`
+- `test_user_registered_provider_may_appear_in_a_calibration_panel`
+- `test_provider_registration_failure_is_a_config_error`
+- `test_registered_provider_that_raises_produces_an_error_row_not_a_crash`
 
 Behavioral acceptance: serve any small open-weight model with `vllm serve` or `ollama serve`,
 point a config at it, and score a fixture set. Then run `fieldtest calibrate` with a panel mixing
@@ -111,9 +179,15 @@ the case this whole spec exists to make possible.
 
 ## §6 Out of scope
 
-Adapters for providers that do not speak the OpenAI protocol. Anthropic and Gemini earn bespoke
-adapters because fieldtest already had them; a third bespoke shape should have to justify itself
-against `openai_compatible` first.
+Shipping adapters for providers that do not speak the OpenAI protocol. Anthropic and Gemini earn
+bespoke adapters because fieldtest already had them; a third bespoke shape in the box should have
+to justify itself against `openai_compatible` and `@provider` first. The point of layer 1c is that
+fieldtest does not have to predict which provider a user needs.
+
+Also out of scope: validating that a registered provider behaves. A user's adapter that raises
+instead of returning `{"error": ...}` produces one errored row, the same as any other judge
+failure — `call_judge_llm()` already refuses to trust the type it gets back. fieldtest does not
+sandbox user code here any more than it does for `@rule`.
 
 Also out of scope: judging the judges. Whether a 7B model is fit to score a `safe` eval is exactly
 the question spec 08 answers with kappa and human labels, and it should be answered with evidence
