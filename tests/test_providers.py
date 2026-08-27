@@ -1252,3 +1252,51 @@ def test_gemini_omits_seed_when_unset():
             gem_mod.GeminiAdapter().call("gemini-2.5-flash", "p", GEN, RETRY)
 
     assert "seed" not in genai.types.GenerateContentConfig.call_args.kwargs
+
+
+# ---------------------------------------------------------------------------
+# Documented provider rejections (spec 12 §3) — no network
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "rejection",
+    __import__("tests.fixtures.provider_errors", fromlist=["REJECTIONS"]).REJECTIONS,
+    ids=lambda r: f"{r.provider}-{r.param}",
+)
+def test_rejects_parameter_matches_every_documented_rejection(rejection):
+    """
+    The detector is string matching against wording providers change without
+    notice. When one rephrases, this test fails and the fixture is where the fix
+    goes — rather than the drop path silently ceasing to fire and every judge
+    call to that model erroring.
+    """
+    from fieldtest.providers.base import rejects_parameter
+
+    class _Rejected(Exception):
+        status_code = 400
+
+    assert rejects_parameter(_Rejected(rejection.message), rejection.param), (
+        f"{rejection.provider} rejection of {rejection.param} no longer matches "
+        f"(source: {rejection.source}, confirmed {rejection.confirmed})"
+    )
+
+
+@pytest.mark.parametrize(
+    "message",
+    __import__("tests.fixtures.provider_errors",
+               fromlist=["UNRELATED_BAD_REQUESTS"]).UNRELATED_BAD_REQUESTS,
+)
+def test_rejects_parameter_ignores_unrelated_bad_requests(message):
+    """
+    The other half. A 400 that names no parameter must fail on the first attempt
+    rather than be retried with fields stripped out one at a time.
+    """
+    from fieldtest.providers.base import rejects_parameter
+
+    class _Rejected(Exception):
+        status_code = 400
+
+    for param in ("temperature", "seed", "max_tokens", "top_p"):
+        assert not rejects_parameter(_Rejected(message), param), (
+            f"matched {param!r} in an unrelated failure: {message!r}"
+        )
