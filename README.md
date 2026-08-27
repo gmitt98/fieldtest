@@ -139,6 +139,47 @@ completes the run, and names it once in the report header rather than failing.
 Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
 guarantees determinism. What is left is a property of the provider, not of your system.
 
+### Measuring the judge itself — `fieldtest calibrate`
+
+fieldtest can measure your system. `calibrate` measures the thing measuring your system.
+
+Declare a panel in config:
+
+```yaml
+calibration:
+  panel:
+    - { provider: anthropic, model: claude-haiku-3-5-20251001 }
+    - { provider: anthropic, model: claude-sonnet-4-20250514 }
+    - { provider: openai,    model: gpt-5 }
+    - { provider: gemini,    model: gemini-2.5-flash }
+```
+
+```bash
+fieldtest calibrate --dry-run     # projected call count, calls nothing
+fieldtest calibrate
+```
+
+Each judge scores the same `outputs/` directory — which costs a directory read, because your
+generator already wrote them — and the report gives you, per eval, pairwise agreement, Cohen's
+kappa, and Fleiss' kappa across the panel. Scored evals get mean absolute deviation and Spearman
+correlation instead.
+
+**Kappa rather than raw agreement is the point.** On a `safe` eval whose true failure rate is 5%,
+two judges that both always answer pass show 95% raw agreement and a kappa near zero. Raw
+agreement alone would certify a useless judge.
+
+The actionable output is the ranked list: evals ordered by how much the panel disagreed, most
+contested first. Those are the evals whose `pass_criteria` need rewriting. Where your fixtures
+carry `labels`, each judge is also ranked by agreement with the human — the number that actually
+matters, since judge-to-judge agreement without ground truth measures shared bias as readily as
+shared accuracy.
+
+Results are written as `{run_id}-calibration.json` and `{run_id}-calibration.md`. They never
+participate in `fieldtest diff`: a calibration run is not a measurement of your system.
+
+**A four-judge panel with `judge_runs: 3` is twelve times a normal run.** `--dry-run` prints the
+number before you spend it.
+
 ### Telling the judge it was wrong
 
 An eval reports a rate against nothing. `failure_rate: 0.2` says the judge disagreed with the

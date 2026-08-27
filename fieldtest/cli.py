@@ -165,6 +165,78 @@ def validate(config_path: Optional[str]):
 
 
 # ---------------------------------------------------------------------------
+# calibrate
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("set_name", default="full", metavar="[SET]")
+@click.option("--config", "config_path", default=None, type=click.Path(),
+              help="Path to config.yaml (default: evals/config.yaml)")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Print the projected call count and exit without calling anything")
+@click.option("--concurrency", default=5, type=int,
+              help="Max parallel judge calls (default: 5)")
+def calibrate(set_name: str, config_path: Optional[str], dry_run: bool, concurrency: int):
+    """Run a panel of judges over the same outputs and report how much they agree."""
+    from fieldtest.calibrate import (
+        project_calls,
+        require_panel,
+        run_calibration,
+        write_calibration,
+    )
+
+    path = Path(config_path) if config_path else _default_config_path()
+    config = _load_config(path)
+
+    try:
+        panel = require_panel(config)
+        projection = project_calls(config, path.resolve().parent, set_name)
+    except Exception as e:
+        _handle_error(e)
+        return
+
+    click.echo(f"Panel: {len(panel)} judge(s)")
+    for judge in panel:
+        click.echo(f"  {judge.provider}/{judge.model}")
+    click.echo(
+        f"Projected: {projection['total']} judge call(s) "
+        f"({projection['per_judge']} per judge) — "
+        f"{projection['multiplier']}× a normal run."
+    )
+
+    if dry_run:
+        click.echo("")
+        click.echo("Dry run — nothing called.")
+        return
+
+    click.echo("")
+    try:
+        run_id, data = run_calibration(
+            config=config,
+            config_path=path,
+            set_name=set_name,
+            concurrency=concurrency,
+            progress=lambda label: click.echo(f"  judging with {label}…"),
+        )
+    except Exception as e:
+        _handle_error(e)
+        return
+
+    results_dir = path.resolve().parent / "results"
+    write_calibration(data, results_dir, run_id)
+
+    click.echo("")
+    ranked = data.get("ranked_by_disagreement", [])
+    if ranked:
+        click.echo("Most contested evals:")
+        for eval_id in ranked[:3]:
+            score_ = data["evals"][eval_id]["disagreement"]
+            click.echo(f"  {eval_id} — {round(score_ * 100, 1)}% disagreement")
+    click.echo("")
+    click.echo(f"Calibration written to: {results_dir / f'{run_id}-calibration.md'}")
+
+
+# ---------------------------------------------------------------------------
 # score
 # ---------------------------------------------------------------------------
 

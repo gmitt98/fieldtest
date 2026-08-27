@@ -45,6 +45,7 @@ def score(
     allow_partial: bool = False,
     concurrency: int = 5,
     verbose: bool = False,
+    write_artifacts: bool = True,
 ) -> tuple[str, list[ResultRow]]:
     """
     Core scoring logic. Returns (run_id, rows).
@@ -168,6 +169,12 @@ def score(
     # -------------------------------------------------------------------
     # REPORT
     # -------------------------------------------------------------------
+    if not write_artifacts:
+        # A calibration panel member is one judge's pass over the same outputs,
+        # not a measurement of the system. Writing it as a normal result set
+        # would put it in front of find_baseline().
+        return run_id, all_results
+
     write_results(
         rows=all_results,
         summary=summary,

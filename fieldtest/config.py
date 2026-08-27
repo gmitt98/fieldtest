@@ -165,11 +165,49 @@ class Defaults(BaseModel):
         return v
 
 
+class PanelJudge(BaseModel):
+    """One judge in a calibration panel."""
+    provider: str
+    model:    str
+
+    @field_validator("provider")
+    @classmethod
+    def provider_must_be_supported(cls, v: str) -> str:
+        if v not in VALID_PROVIDERS:
+            supported = ", ".join(sorted(VALID_PROVIDERS))
+            raise ValueError(
+                f"Unknown provider '{v}' in calibration.panel. v2 supports: {supported}."
+            )
+        return v
+
+
+class CalibrationConfig(BaseModel):
+    """
+    The judge panel, declared in config and versioned with everything else
+    rather than passed as ad hoc CLI flags.
+    """
+    panel: list[PanelJudge]
+    # Below this, a judge pair is flagged as agreeing no better than chance.
+    # 0.6 is the conventional "substantial agreement" floor.
+    kappa_threshold: float = 0.6
+
+    @field_validator("panel")
+    @classmethod
+    def panel_needs_two(cls, v: list) -> list:
+        if len(v) < 2:
+            raise ValueError(
+                "calibration.panel needs at least two judges — agreement is a "
+                "property of a pair."
+            )
+        return v
+
+
 class Config(BaseModel):
     schema_version: Literal[1, 2]
     system:         SystemConfig
     use_cases:      list[UseCase]
     defaults:       Defaults = Field(default_factory=Defaults)
+    calibration:    Optional[CalibrationConfig] = None
 
     @model_validator(mode="after")
     def fixture_ids_globally_unique(self) -> "Config":
