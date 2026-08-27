@@ -108,7 +108,7 @@ def _build_html(run_data: dict, config) -> str:
         uc_rows = [r for r in rows if r.get("use_case") == uc.id]
         if not uc_rows:
             continue
-        uc_sections_html += _build_uc_section(uc, uc_rows)
+        uc_sections_html += _build_uc_section(uc, uc_rows, summary.get(uc.id, {}))
 
     # Serialize run_data for JS (convert lists to ensure JSON-safe)
     run_data_json = json.dumps(run_data, default=str)
@@ -229,6 +229,11 @@ def _build_html(run_data: dict, config) -> str:
     border-bottom: 2px solid #e0e0e0;
   }}
   table.matrix th.fixture-col {{ text-align: left; }}
+  table.matrix tfoot td {{
+    font-size: 11px; color: #555; background: #fafafa;
+    border-top: 2px solid #ddd; white-space: nowrap;
+  }}
+  table.matrix tfoot td.fixture-col {{ text-align: left; font-weight: 600; }}
   table.matrix td.fixture-cell {{
     text-align: left;
     font-weight: 500;
@@ -451,7 +456,7 @@ function _esc(str) {{
 </html>"""
 
 
-def _build_uc_section(uc, uc_rows: list[dict]) -> str:
+def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
     """Build HTML for a single use-case section."""
     uc_id = uc.id
 
@@ -539,10 +544,37 @@ def _build_uc_section(uc, uc_rows: list[dict]) -> str:
             )
         body_rows_html += f"<tr>{row_cells}</tr>\n"
 
+    # Per-eval aggregate: a rate is uninterpretable without its interval and n.
+    stats_by_eval: dict = {}
+    for tag_stats in uc_summary.values():
+        stats_by_eval.update(tag_stats)
+
+    foot_cells = '<td class="fixture-col">all</td>'
+    for eid in eval_order:
+        stats = stats_by_eval.get(eid, {})
+        fr    = stats.get("failure_rate")
+        ci    = stats.get("failure_rate_ci")
+        n     = stats.get("total_runs") or 0
+        if fr is None:
+            mean = stats.get("mean")
+            label = f"{mean} (n={n})" if mean is not None else "—"
+        else:
+            pass_pct = round((1 - fr) * 100)
+            if ci:
+                # Pass-rate interval is the failure-rate interval inverted.
+                low, high = round((1 - ci[1]) * 100), round((1 - ci[0]) * 100)
+                label = f"{pass_pct}% [{low}–{high}%] n={n}"
+            else:
+                label = f"{pass_pct}% n={n}"
+        foot_cells += f'<td class="agg-cell">{label}</td>'
+
+    matrix_foot = f"<tfoot><tr>{foot_cells}</tr></tfoot>"
+
     matrix_html = f"""
   <div class="matrix-wrap">
     <table class="matrix">
       <thead><tr>{header_cells}</tr></thead>
+      {matrix_foot}
       <tbody>
         {body_rows_html}
       </tbody>

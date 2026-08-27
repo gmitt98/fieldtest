@@ -24,6 +24,7 @@ from fieldtest.errors import OutputError
 from fieldtest.judges.dispatch import dispatch_judge
 from fieldtest.judges.llm import get_unsupported_params, reset_unsupported_params
 from fieldtest.results.aggregator import build_delta, build_summary, find_baseline
+from fieldtest.results.provenance import build_judge_block
 from fieldtest.results.writer import write_results
 
 
@@ -141,6 +142,7 @@ def score(
         baseline_path = find_baseline(
             results_dir, run_id, set_name,
             dataset_version=resolve_dataset_version(config),
+            judge_fingerprint=build_judge_block(config)["fingerprint"],
         )
 
     delta = build_delta(summary, baseline_path)

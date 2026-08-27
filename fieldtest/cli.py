@@ -224,7 +224,7 @@ def history(config_path: Optional[str]):
     # Header
     header = (
         f"{'RUN ID':<26}  {'TIMESTAMP':<18}  {'SET':<12}  "
-        f"{'FIXTURES':<10}  {'RIGHT':<8}  {'GOOD':<8}  {'SAFE':<8}"
+        f"{'FIXTURES':<10}  {'JUDGE':<28}  {'RIGHT':<8}  {'GOOD':<8}  {'SAFE':<8}"
     )
     click.echo(header)
 
@@ -238,6 +238,11 @@ def history(config_path: Optional[str]):
         set_name      = data.get("set", "—")
         fixture_count = data.get("fixture_count", 0)
         summary       = data.get("summary", {})
+
+        # A rate series is unreadable if the instrument changed mid-series.
+        judge_block = data.get("judge") or {}
+        judge_model = judge_block.get("model", "—")
+        judge_str   = judge_model if len(judge_model) <= 28 else judge_model[:27] + "…"
 
         # Parse timestamp from run_id: 2026-03-22T14-30-00-a3f9
         try:
@@ -267,7 +272,7 @@ def history(config_path: Optional[str]):
 
         click.echo(
             f"{run_id:<26}  {ts_display:<18}  {set_name:<12}  "
-            f"{fixture_count:<10}  {right:<8}  {good:<8}  {safe:<8}"
+            f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
         )
 
 
@@ -343,6 +348,35 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo(
             f"⚠ Dataset version mismatch — current: {cur_ver}, baseline: {base_ver}. "
             f"Deltas may reflect fixture changes, not model behavior."
+        )
+        click.echo("")
+
+    # Same shape, for the instrument rather than the fixtures. A changed judge
+    # produces the identical artifact and is the more frequent event, because
+    # judge model versions deprecate on the provider's schedule, not the team's.
+    from fieldtest.results.provenance import describe_judge_change
+
+    cur_judge  = current_data.get("judge")
+    base_judge = None
+    if base_run_id:
+        bp = results_dir / f"{base_run_id}-data.json"
+        if bp.exists():
+            try:
+                base_judge = json.loads(bp.read_text()).get("judge")
+            except Exception:
+                base_judge = None
+
+    if cur_judge and base_judge:
+        change = describe_judge_change(cur_judge, base_judge)
+        if change:
+            click.echo(
+                f"⚠ Judge mismatch — {change}. "
+                f"Deltas may reflect the instrument changing, not model behavior."
+            )
+            click.echo("")
+    elif cur_judge and base_run_id and base_judge is None:
+        click.echo(
+            "⚠ Baseline predates judge tracking — the judge that produced it is unknown."
         )
         click.echo("")
 

@@ -224,6 +224,14 @@ def format_report(
             + ", ".join(unsupported_params)
         )
 
+    # Deltas against a baseline written before judge tracking are still shown —
+    # blanking them out on upgrade is worse — but the caveat travels with them.
+    if delta.get("baseline_run_id") and delta.get("baseline_pre_judge"):
+        lines.append(
+            "⚠ baseline predates judge tracking — the judge that produced it is "
+            "unknown, so deltas may reflect an instrument change."
+        )
+
     # Judge errors shrink the sample rather than failing the run, so say so where
     # the rates are read rather than leaving it to be inferred from two numbers.
     from fieldtest.results.aggregator import summarize_judge_errors
@@ -281,8 +289,12 @@ def format_report(
                 labels_map[ev.id] = "|".join(ev.labels) if ev.labels else "—"
 
             lines.append(f"### {tag.upper()}")
-            lines.append("| eval | labels | pass rate | mean | floor hits | errors | vs prior |")
-            lines.append("|------|--------|----------|------|-----------|--------|---------|")
+            lines.append(
+                "| eval | labels | pass rate | n | mean | floor hits | errors | vs prior |"
+            )
+            lines.append(
+                "|------|--------|----------|---|------|-----------|--------|---------|"
+            )
 
             for eval_id, stats in tag_stats.items():
                 fr    = stats.get("failure_rate")
@@ -290,8 +302,17 @@ def format_report(
                 fh    = stats.get("floor_hits", 0)
                 errs  = stats.get("error_count", 0)
 
-                # Display pass rate (1 - failure_rate) so higher = better
-                pr_str   = f"{round((1 - fr) * 100)}%" if fr is not None else "—"
+                # Display pass rate (1 - failure_rate) so higher = better. The
+                # interval is the failure-rate interval inverted, and it travels
+                # with the rate: a point estimate at runs: 5 is gating on noise.
+                ci = stats.get("failure_rate_ci")
+                if fr is None:
+                    pr_str = "—"
+                elif ci:
+                    low, high = round((1 - ci[1]) * 100), round((1 - ci[0]) * 100)
+                    pr_str = f"{round((1 - fr) * 100)}% [{low}–{high}%]"
+                else:
+                    pr_str = f"{round((1 - fr) * 100)}%"
                 mean_str = "—"
                 if mean is not None:
                     for ev in uc.evals:
@@ -322,7 +343,8 @@ def format_report(
                 err_str   = f"{errs} ⚠ {scored}/{attempted} scored" if errs else f"{errs}"
 
                 lines.append(
-                    f"| {eval_id} | {lbl_str} | {pr_str} | {mean_str} | {fh} | {err_str} | {vs_str} |"
+                    f"| {eval_id} | {lbl_str} | {pr_str} | {scored} | {mean_str} | "
+                    f"{fh} | {err_str} | {vs_str} |"
                 )
 
                 if errs > 0:

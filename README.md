@@ -864,14 +864,25 @@ The fields most commonly used for CI gating:
 
 ```json
 {
+  "schema_version": 2,
   "run_id": "2026-03-22T14-30-00-a3f9",
   "set": "regression",
   "dataset_version": "v2",
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-haiku-3-5-20251001",
+    "temperature": 0.0,
+    "seed": null,
+    "overrides": {},
+    "fingerprint": "a3f91c2e"
+  },
   "summary": {
     "<use_case_id>": {
       "<tag>": {
         "<eval_id>": {
           "failure_rate": 0.10,
+          "failure_rate_ci": [0.0347, 0.2653],
+          "confidence": 0.95,
           "total_runs": 30,
           "error_count": 0,
           "floor_hits": 0,
@@ -887,8 +898,19 @@ The fields most commonly used for CI gating:
 ```
 
 - `failure_rate` is `null` for scored evals; use `mean` instead.
+- `failure_rate_ci` is a two-sided Wilson score interval at `confidence`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `dataset_version` is optional; absent in older runs.
+- `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3.
+- `schema_version` is `2`. Runs written before v0.3 have no such key; treat a missing key as `1`.
+
+**Gating on a point estimate at `runs: 5` is gating on noise.** One flipped judgment moves `failure_rate` by 0.2 on its own. `failure_rate_ci[0]` is the conservative alternative — the rate the sample can actually support:
+
+```bash
+jq '[.summary[][][].failure_rate_ci[0] | select(. != null)] | max // 0' "$DATA"
+```
+
+fieldtest reports the interval; deciding it is too wide to act on is your call, the same way thresholds live in your CI config rather than in the tool.
 
 A complete GitHub Actions workflow (with artifact upload) is in [`examples/generate-patterns.md`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate-patterns.md#ci-integration-github-actions-example).
 

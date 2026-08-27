@@ -63,10 +63,24 @@ def test_schema_version_missing(tmp_path):
 
 
 def test_schema_version_unsupported(tmp_path):
-    yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 2")
+    yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 3")
     with pytest.raises(ConfigError) as exc:
         parse_and_validate(_write_config(tmp_path, yaml))
     assert "schema_version" in str(exc.value)
+
+
+def test_schema_version_2_accepted(tmp_path):
+    """v2 adds judge provenance and failure rate intervals."""
+    yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 2")
+    cfg = parse_and_validate(_write_config(tmp_path, yaml))
+    assert cfg.schema_version == 2
+
+
+def test_v1_config_still_accepted(tmp_path):
+    """v1 configs load unchanged for one minor release, with v2 defaults filled in."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.schema_version == 1
+    assert cfg.defaults.confidence == 0.95
 
 
 def test_eval_tag_invalid(tmp_path):

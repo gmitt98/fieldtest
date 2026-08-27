@@ -74,3 +74,39 @@ When a run does end up with judge errors, the report header now states how many 
 which evals were scored on a reduced sample — `quality_check (3 of 5 runs scored)` — and those
 evals are marked in the per-eval table. The HTML report carries the same warning.
 
+### A run now records which judge produced it — `schema_version: 2`
+
+`-data.json` had no record of the instrument. Changing `defaults.model` and rescoring an
+unchanged `outputs/` directory produced a `fieldtest diff` that was indistinguishable from a
+system regression, which is the same defect `fixtures.version` already exists to prevent — and
+the more frequent one, since judge models deprecate on the provider's schedule, not yours.
+
+Every run now writes a `judge` block: provider, model, temperature, seed, per-eval overrides, and
+a `fingerprint` over all of it. Runs whose fingerprints differ are no longer auto-compared, and
+`fieldtest diff --baseline` names what changed (`claude-haiku-3-5 → claude-sonnet-4`) instead of
+showing you a delta that means nothing. `fieldtest history` gained a JUDGE column so a rate series
+is readable at a glance.
+
+Baselines from before this release have no judge block. They are still accepted — blanking out
+your delta history on upgrade would be worse — and carry a note saying the judge is unknown.
+
+### Failure rates come with an interval
+
+A binary eval reported `failure_rate: 0.2` with the same visual weight whether that was one
+failure in five runs or twenty in a hundred. At `runs: 5`, one flipped judgment is a 20-point
+swing, and the README told you to gate CI on exactly that number.
+
+Binary summaries now carry `failure_rate_ci`, a two-sided Wilson score interval (Wilson because
+at five runs with zero failures the normal approximation claims a certainty the sample cannot
+support). `defaults.confidence` sets the level, default 0.95. The markdown report shows the
+interval and `n` beside every rate, and the HTML matrix gained a per-eval row that does the same.
+
+Deltas gained an `overlapping` flag: movement between two overlapping intervals is movement your
+sample size cannot distinguish from noise. It is an extra field on the existing entries, not a
+new bucket, so existing `jq` gating keeps working — and `failure_rate_ci[0]` is there when you
+want to gate on what the sample actually supports.
+
+**Config files are now `schema_version: 2`.** Version 1 configs still load for one minor release
+and get every new field at its default, which reproduces v1 behaviour exactly. `fieldtest init`
+scaffolds v2.
+

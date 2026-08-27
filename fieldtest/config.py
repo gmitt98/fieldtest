@@ -136,6 +136,18 @@ class Defaults(BaseModel):
     # CI run want different patience, so this is configurable rather than fixed.
     judge_retry: RetryPolicy = RetryPolicy()
 
+    # Confidence level for the interval on a binary eval's failure_rate.
+    confidence: float = 0.95
+
+    @field_validator("confidence")
+    @classmethod
+    def confidence_in_open_unit_interval(cls, v: float) -> float:
+        if not (0.0 < v < 1.0):
+            raise ValueError(
+                f"defaults.confidence must be between 0 and 1 (exclusive), got {v}."
+            )
+        return v
+
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:
@@ -149,7 +161,7 @@ class Defaults(BaseModel):
 
 
 class Config(BaseModel):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     system:         SystemConfig
     use_cases:      list[UseCase]
     defaults:       Defaults = Field(default_factory=Defaults)

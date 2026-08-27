@@ -88,10 +88,14 @@ def _build_json(
     from fieldtest.config import resolve_dataset_version
     dataset_version = resolve_dataset_version(config)
 
+    from fieldtest.results.provenance import build_judge_block
+
     data = {
+        "schema_version":  2,
         "run_id":          run_id,
         "set":             set_name,
         "dataset_version": dataset_version,
+        "judge":           build_judge_block(config),
         "fixture_count":   len(fixture_ids),
         "runs":            runs,
         "rows":            [r.model_dump() for r in rows],

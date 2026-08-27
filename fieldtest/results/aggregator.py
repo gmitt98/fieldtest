@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+from statistics import NormalDist
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,35 @@ from fieldtest.config import Config, ResultRow
 # ---------------------------------------------------------------------------
 # build_summary
 # ---------------------------------------------------------------------------
+
+def wilson_interval(
+    failures: int, total: int, confidence: float = 0.95
+) -> Optional[tuple[float, float]]:
+    """
+    Two-sided Wilson score interval for a failure rate.
+
+    Wilson rather than the normal approximation because small n is the common
+    case here, not the edge case: at runs: 5 with zero failures the normal
+    interval is degenerate and reports certainty the sample cannot support.
+
+    Returns None when there is nothing to bound (total == 0).
+    """
+    if total <= 0:
+        return None
+
+    z = NormalDist().inv_cdf(1 - (1 - confidence) / 2)
+    p = failures / total
+
+    denominator = 1 + z**2 / total
+    center      = (p + z**2 / (2 * total)) / denominator
+    half_width  = (
+        z / denominator * math.sqrt(p * (1 - p) / total + z**2 / (4 * total**2))
+    )
+
+    low  = max(0.0, center - half_width)
+    high = min(1.0, center + half_width)
+    return (round(low, 4), round(high, 4))
+
 
 def build_summary(rows: list[ResultRow], config: Config) -> dict:
     """
@@ -88,11 +118,18 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                     failure_rate  = (
                         round(failed_count / total_runs, 6) if total_runs > 0 else None
                     )
+                    confidence = config.defaults.confidence
+                    interval   = (
+                        wilson_interval(failed_count, total_runs, confidence)
+                        if failure_rate is not None else None
+                    )
                     summary[uc_id][tag][eval_id] = {
-                        "failure_rate": failure_rate,
-                        "floor_hits":   0,
-                        "total_runs":   total_runs,
-                        "error_count":  error_count,
+                        "failure_rate":    failure_rate,
+                        "failure_rate_ci": list(interval) if interval else None,
+                        "confidence":      confidence,
+                        "floor_hits":      0,
+                        "total_runs":      total_runs,
+                        "error_count":     error_count,
                     }
 
     return summary
@@ -134,6 +171,19 @@ def summarize_judge_errors(summary: dict) -> Optional[dict]:
     return {"failed": failed, "total": total, "affected": affected}
 
 
+def _intervals_overlap(current_ci, baseline_ci) -> bool:
+    """
+    Whether two confidence intervals overlap. Movement between overlapping
+    intervals is movement the sample size cannot distinguish from noise.
+
+    False when either side has no interval — a scored eval, an empty sample, or
+    a baseline written before intervals existed.
+    """
+    if not current_ci or not baseline_ci:
+        return False
+    return current_ci[0] <= baseline_ci[1] and baseline_ci[0] <= current_ci[1]
+
+
 def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     """
     Compare current summary to baseline.
@@ -164,6 +214,9 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
 
     baseline_summary = baseline_data.get("summary", {})
     baseline_run_id  = baseline_data.get("run_id")
+    # Accepted as a baseline, but the comparison carries a caveat: we cannot
+    # tell whether the instrument was the same one.
+    baseline_pre_judge = baseline_data.get("judge") is None
 
     increased: list[dict] = []
     decreased: list[dict] = []
@@ -191,28 +244,32 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                     continue
 
                 delta = cur_val - prev_val
+
+                # An additional flag, not a fourth bucket: existing CI jq
+                # expressions read increased/decreased/unchanged and keep working.
+                entry = {
+                    "eval_id":  eval_id,
+                    "previous": round(prev_val, 6),
+                    "current":  round(cur_val, 6),
+                    "delta":    round(delta, 6),
+                    "overlapping": _intervals_overlap(
+                        stats.get("failure_rate_ci"), prev_stats.get("failure_rate_ci")
+                    ),
+                }
+
                 if abs(delta) < 0.001:
                     unchanged.append(eval_id)
                 elif delta > 0:
-                    increased.append({
-                        "eval_id":  eval_id,
-                        "previous": round(prev_val, 6),
-                        "current":  round(cur_val, 6),
-                        "delta":    round(delta, 6),
-                    })
+                    increased.append(entry)
                 else:
-                    decreased.append({
-                        "eval_id":  eval_id,
-                        "previous": round(prev_val, 6),
-                        "current":  round(cur_val, 6),
-                        "delta":    round(delta, 6),
-                    })
+                    decreased.append(entry)
 
     return {
-        "baseline_run_id": baseline_run_id,
-        "increased":       increased,
-        "decreased":       decreased,
-        "unchanged":       unchanged,
+        "baseline_run_id":   baseline_run_id,
+        "increased":         increased,
+        "decreased":         decreased,
+        "unchanged":         unchanged,
+        "baseline_pre_judge": baseline_pre_judge,
     }
 
 
@@ -221,6 +278,7 @@ def find_baseline(
     current_run_id: str,
     set_name: str,
     dataset_version: Optional[str] = None,
+    judge_fingerprint: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Find the most recent results JSON in results_dir that:
@@ -237,6 +295,13 @@ def find_baseline(
     runs match any baseline (backwards compatible). Versioned current runs
     only match baselines tagged with the same version.
 
+    Filtering by judge_fingerprint prevents the same artifact again when the
+    instrument changes: rescoring an unchanged outputs/ directory with a
+    different judge model otherwise reads as a system regression. Baselines
+    written before judge tracking carry no fingerprint and are accepted as
+    unknown rather than rejected — blanking out every historical delta on
+    upgrade is a worse failure than a caveated comparison.
+
     Returns None if no matching baseline found.
     """
     if not results_dir.exists():
@@ -251,6 +316,10 @@ def find_baseline(
                 continue
             if dataset_version is not None and data.get("dataset_version") != dataset_version:
                 continue
+            if judge_fingerprint is not None:
+                candidate_judge = data.get("judge")
+                if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
+                    continue
             return p
         except Exception:
             continue
