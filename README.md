@@ -134,7 +134,7 @@ completes the run, and names it once in the report header rather than failing.
 |---|---|---|---|
 | anthropic | model-dependent — see below | no | yes |
 | openai | yes | yes | yes |
-| gemini | yes | no | yes |
+| gemini | yes | yes | yes |
 
 The table is a starting point, not a contract — **support is per model, not per provider, and it
 changes on the provider's schedule.** Anthropic removed sampling parameters on `claude-sonnet-5`,

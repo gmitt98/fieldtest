@@ -1202,3 +1202,53 @@ def test_openai_handles_the_value_form_of_the_temperature_rejection():
 
     assert result["answer"] == "Pass"
     assert result["unsupported"] == ["temperature"]
+
+
+def test_gemini_forwards_seed():
+    """
+    Spec 02's matrix claimed Gemini had no seed parameter, so the adapter
+    dropped it and the report named it under "ignored by provider" — a false
+    statement. GenerateContentConfig exposes seed; confirmed against the SDK.
+    """
+    mock_response = MagicMock()
+    mock_response.text = '{"answer": "Pass", "reasoning": "ok"}'
+    client = MagicMock()
+    client.models.generate_content.return_value = mock_response
+    genai = MagicMock()
+    genai.Client.return_value = client
+    google = MagicMock()
+    google.genai = genai
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"google": google, "google.genai": genai}):
+            import importlib
+            import fieldtest.providers.gemini as gem_mod
+            importlib.reload(gem_mod)
+            result = gem_mod.GeminiAdapter().call(
+                "gemini-2.5-flash", "p", JudgeGenerationConfig(seed=42), RETRY
+            )
+
+    kwargs = genai.types.GenerateContentConfig.call_args.kwargs
+    assert kwargs["seed"] == 42
+    assert kwargs["temperature"] == 0.0
+    assert "unsupported" not in result
+
+
+def test_gemini_omits_seed_when_unset():
+    mock_response = MagicMock()
+    mock_response.text = '{"answer": "Pass", "reasoning": "ok"}'
+    client = MagicMock()
+    client.models.generate_content.return_value = mock_response
+    genai = MagicMock()
+    genai.Client.return_value = client
+    google = MagicMock()
+    google.genai = genai
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "k"}):
+        with patch.dict("sys.modules", {"google": google, "google.genai": genai}):
+            import importlib
+            import fieldtest.providers.gemini as gem_mod
+            importlib.reload(gem_mod)
+            gem_mod.GeminiAdapter().call("gemini-2.5-flash", "p", GEN, RETRY)
+
+    assert "seed" not in genai.types.GenerateContentConfig.call_args.kwargs
