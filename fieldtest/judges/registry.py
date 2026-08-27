@@ -42,6 +42,9 @@ def get_rule(eval_id: str) -> Optional[Callable]:
     return _rule_registry.get(eval_id)
 
 
+_loaded_rule_files: set[str] = set()
+
+
 def load_rules(rules_path: Path) -> None:
     """
     Import rules.py via importlib. Populates _rule_registry as a side effect.
@@ -50,6 +53,13 @@ def load_rules(rules_path: Path) -> None:
     """
     if not rules_path.exists():
         return
+
+    # Loading the same file twice re-executes user code for no gain, and the
+    # calibration panel calls score() from several threads at once.
+    resolved = str(rules_path.resolve())
+    if resolved in _loaded_rule_files:
+        return
+    _loaded_rule_files.add(resolved)
 
     spec = importlib.util.spec_from_file_location("_fieldtest_rules", rules_path)
     if spec is None or spec.loader is None:
