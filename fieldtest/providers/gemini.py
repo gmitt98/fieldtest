@@ -60,21 +60,31 @@ class GeminiAdapter(ProviderAdapter):
             # Config fields are nested for Gemini, so the shared dropper works
             # on the outer kwargs and the config is rebuilt from what survives.
             def _invoke(k: dict):
+                # Every parameter goes through k, so the shared dropper can see
+                # and remove any of them. Building one directly here would put it
+                # outside the mechanism, which is how a future rename on
+                # Gemini's side would turn into an error on every judge call —
+                # exactly what Anthropic and OpenAI have each already done to a
+                # parameter fieldtest sends.
                 return client.models.generate_content(
                     model=model,
                     contents=prompt,
-                    config=_genai_types.GenerateContentConfig(
-                        max_output_tokens=gen.max_tokens,
-                        **({"temperature": k["temperature"]} if "temperature" in k else {}),
-                        **({"seed": k["seed"]} if "seed" in k else {}),
-                    ),
+                    config=_genai_types.GenerateContentConfig(**k),
                 )
 
-            params = {"temperature": gen.temperature}
+            params = {
+                "max_output_tokens": gen.max_tokens,
+                "temperature": gen.temperature,
+            }
             if gen.seed is not None:
                 params["seed"] = gen.seed
 
-            response = call_dropping_unsupported(_invoke, params, unsupported)
+            response = call_dropping_unsupported(
+                _invoke, params, unsupported,
+                # Bounding output is required (spec 02 §2.4), so if the key ever
+                # moves it must be renamed rather than dropped.
+                renames={"max_output_tokens": "max_tokens"},
+            )
             content = response.text.strip()
             try:
                 parsed = _parse_last_json_object(content)

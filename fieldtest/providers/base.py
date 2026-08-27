@@ -149,8 +149,11 @@ def call_dropping_unsupported(
     reported as unsupported: dropping it would leave the judge unbounded, which
     spec 02 §2.4 requires every adapter to prevent.
     """
-    renames  = renames or {}
-    attempt  = dict(kwargs)
+    renames = renames or {}
+    # Start from what a previous attempt already learned. call_dropping_unsupported
+    # runs inside the function with_retry retries, so without this a transient 429
+    # discards every rejection the adapter has seen and pays for them again.
+    attempt = {k: v for k, v in kwargs.items() if k not in unsupported}
 
     while True:
         try:

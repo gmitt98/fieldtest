@@ -79,7 +79,7 @@ use_cases:
 # For OpenAI: pip install fieldtest[openai]
 defaults:
   provider: anthropic       # anthropic | openai
-  model: claude-sonnet-5   # anthropic: claude-sonnet-5, claude-haiku-4-5
+  model: claude-haiku-4-5   # a judge you can pin: 5-series models reject temperature
                             # openai: gpt-4o, gpt-4o-mini
   runs: 5
 """

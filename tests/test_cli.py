@@ -1035,3 +1035,68 @@ def test_diff_explicit_baseline_missing_is_an_error(tmp_path):
     )
     assert result.exit_code != 0
     assert "Baseline not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Pre-release review findings
+# ---------------------------------------------------------------------------
+
+def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
+    """
+    init handed every new project claude-sonnet-5, which rejects temperature —
+    so a first run reported "judge parameters ignored by provider" and the judge
+    was not pinned, which is the guarantee spec 02 exists to provide.
+    """
+    from fieldtest.config import parse_and_validate
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(main, ["init"], catch_exceptions=False)
+        assert result.exit_code == 0
+        cfg = parse_and_validate(Path("evals/config.yaml"))
+
+    # 5-series models removed sampling parameters; the scaffold must not pick one.
+    assert "-5" not in cfg.defaults.model.rsplit("-", 1)[-1] or "haiku" in cfg.defaults.model
+    assert cfg.defaults.model == "claude-haiku-4-5"
+
+
+@pytest.mark.parametrize("template", ["chatbot", "email", "rag"])
+def test_templates_use_a_pinnable_judge(tmp_path, template):
+    """
+    Read the YAML rather than validating it: templates ship blank tags on
+    purpose, so a template config is deliberately incomplete until the user
+    decides what is right, good or safe. The judge model still has to be one
+    that can be pinned.
+    """
+    import yaml
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        runner.invoke(main, ["init", "--template", template], catch_exceptions=False)
+        raw = yaml.safe_load(Path("evals/config.yaml").read_text())
+    assert raw["defaults"]["model"] == "claude-haiku-4-5"
+
+
+def test_validate_omits_a_zero_call_projection(tmp_path):
+    """A dict whose only value is 0 is truthy — it printed "≈ 0 judge call(s)"."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        runner.invoke(main, ["init"], catch_exceptions=False)
+        result = runner.invoke(
+            main, ["validate", "--config", "evals/config.yaml"], catch_exceptions=False
+        )
+    assert "judge call(s)" not in result.output
+
+
+def test_diff_refuses_a_baseline_that_is_the_current_run(tmp_path):
+    """A mistyped run id otherwise reports a clean all-unchanged diff."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_scored_run(evals_dir, "run-a", failure_rate=0.2, judge=_JUDGE_HAIKU)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-a", "--baseline", "run-a", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "same run" in result.output
