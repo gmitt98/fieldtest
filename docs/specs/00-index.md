@@ -28,6 +28,7 @@ measure nothing.
 | 09 | [Discovery position](09-discovery-position.md) | 3 | none | sketch |
 | 10 | [Inspect interop](10-inspect-interop.md) | 3 | 01 | sketch |
 | 11 | [Provider surface beyond the big three](11-provider-surface.md) | 2 | 02, 05 | draft |
+| 12 | [Verification tiers](12-verification-tiers.md) | 2 | 11 | draft |
 
 ## Version boundary
 
@@ -45,11 +46,16 @@ compatibility section.
 
 ## Added after the fact
 
-Spec 11 was written after live verification, not before it. Two providers turned out to have
+Specs 11 and 12 were written after live verification, not before it. Two providers turned out to have
 removed generation parameters fieldtest depends on, which made the adapter layer's real shape
 visible: parameter support is per model and changes on the provider's schedule, so an adapter
 that discovers support beats one that declares it. Once that was true, supporting endpoints
 fieldtest does not ship an adapter for became cheap rather than speculative.
+
+Spec 12 follows from the same run. Four defects reached a release through a suite of 308 passing
+tests, and the reason is the one fieldtest exists to point at: a mock agrees with the code that
+built it, the way a judge agrees with itself. The tool asks its users to characterize their
+instrument; its own suite had not.
 
 ## What is deliberately not here
 
