@@ -128,7 +128,11 @@ VALID_PROVIDERS = {"anthropic", "gemini", "openai"}
 
 class Defaults(BaseModel):
     provider: str = "anthropic"
-    model:    str = "claude-sonnet-5"
+    # Haiku 4.5 rather than a 5-series model: sampling parameters were removed
+    # on Sonnet 5 / Opus 5, so defaults.judge_temperature cannot be honoured
+    # there. A judge that can be pinned is worth more than a larger one that
+    # cannot — and it is cheaper per call, which a judge should be.
+    model:    str = "claude-haiku-4-5"
     runs:     int = 5
 
     # Judge generation settings. Temperature defaults to 0.0 rather than the

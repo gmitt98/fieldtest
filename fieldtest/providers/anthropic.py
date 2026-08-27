@@ -14,6 +14,7 @@ from fieldtest.providers.base import (
     ProviderAdapter,
     RetryPolicy,
     _parse_last_json_object,
+    call_dropping_unsupported,
     make_is_retryable,
     with_retry,
 )
@@ -53,12 +54,21 @@ class AnthropicAdapter(ProviderAdapter):
         except Exception as e:
             return {"error": str(e)}
 
+        # Sampling parameters were removed on the newest models (Sonnet 5, Opus 5,
+        # Fable 5, Opus 4.7/4.8): sending temperature returns 400. Spec 02 §2.5
+        # already says the right thing to do — drop what the provider does not
+        # support, complete the run, and name it once — so this joins seed rather
+        # than failing every call.
+        kwargs = {
+            "model": model,
+            "max_tokens": gen.max_tokens,
+            "temperature": gen.temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
         def _once() -> dict:
-            message = client.messages.create(
-                model=model,
-                max_tokens=gen.max_tokens,
-                temperature=gen.temperature,
-                messages=[{"role": "user", "content": prompt}],
+            message = call_dropping_unsupported(
+                lambda k: client.messages.create(**k), kwargs, unsupported
             )
             content = message.content[0].text.strip()
             try:

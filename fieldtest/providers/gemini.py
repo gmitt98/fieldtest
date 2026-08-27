@@ -14,6 +14,7 @@ from fieldtest.providers.base import (
     ProviderAdapter,
     RetryPolicy,
     _parse_last_json_object,
+    call_dropping_unsupported,
     make_is_retryable,
     with_retry,
 )
@@ -57,13 +58,20 @@ class GeminiAdapter(ProviderAdapter):
             return {"error": str(e)}
 
         def _once() -> dict:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=_genai_types.GenerateContentConfig(
-                    temperature=gen.temperature,
-                    max_output_tokens=gen.max_tokens,
-                ),
+            # Config fields are nested for Gemini, so the shared dropper works
+            # on the outer kwargs and the config is rebuilt from what survives.
+            def _invoke(k: dict):
+                return client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=_genai_types.GenerateContentConfig(
+                        max_output_tokens=gen.max_tokens,
+                        **({"temperature": k["temperature"]} if "temperature" in k else {}),
+                    ),
+                )
+
+            response = call_dropping_unsupported(
+                _invoke, {"temperature": gen.temperature}, unsupported
             )
             content = response.text.strip()
             try:
