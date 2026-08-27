@@ -1,245 +1,38 @@
 {
-  "run_id": "demo-offline-0000",
+  "schema_version": 2,
+  "run_id": "2026-08-27T10-39-39-7dbd",
   "set": "full",
+  "dataset_version": null,
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "temperature": 0.0,
+    "seed": null,
+    "overrides": {},
+    "blinded_evals": [],
+    "fingerprint": "4f10569a"
+  },
   "fixture_count": 3,
   "runs": 3,
+  "judge_runs": 1,
   "rows": [
     {
       "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
+      "eval_id": "known-extraction",
       "tag": "right",
       "labels": [
-        "structure"
+        "accuracy"
       ],
-      "type": "rule",
-      "fixture_id": "invoice-simple",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-simple",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-simple",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-complex",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-complex",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
+      "type": "reference",
       "fixture_id": "invoice-complex",
       "run": 3,
-      "passed": true,
+      "judge_run": 1,
+      "passed": null,
       "score": null,
       "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "receipt",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "receipt",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "valid-json",
-      "tag": "right",
-      "labels": [
-        "structure"
-      ],
-      "type": "rule",
-      "fixture_id": "receipt",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "valid JSON",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-simple",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-simple",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-simple",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-complex",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
       "error": null
     },
     {
@@ -253,82 +46,7 @@
       "type": "rule",
       "fixture_id": "invoice-complex",
       "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "invoice-complex",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "receipt",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "receipt",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "required-fields-present",
-      "tag": "right",
-      "labels": [
-        "structure",
-        "completeness"
-      ],
-      "type": "rule",
-      "fixture_id": "receipt",
-      "run": 3,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
@@ -345,62 +63,9 @@
         "accuracy"
       ],
       "type": "reference",
-      "fixture_id": "invoice-simple",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all checks passed",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
-      "tag": "right",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "reference",
-      "fixture_id": "invoice-simple",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all checks passed",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
-      "tag": "right",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "reference",
-      "fixture_id": "invoice-simple",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "all checks passed",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
-      "tag": "right",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "reference",
       "fixture_id": "invoice-complex",
-      "run": 1,
+      "run": 2,
+      "judge_run": 1,
       "passed": null,
       "score": null,
       "floor_hit": false,
@@ -418,7 +83,8 @@
       ],
       "type": "reference",
       "fixture_id": "invoice-complex",
-      "run": 2,
+      "run": 1,
+      "judge_run": 1,
       "passed": null,
       "score": null,
       "floor_hit": false,
@@ -429,290 +95,99 @@
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
+      "eval_id": "valid-json",
       "tag": "right",
       "labels": [
-        "accuracy"
+        "structure"
       ],
-      "type": "reference",
+      "type": "rule",
       "fixture_id": "invoice-complex",
       "run": 3,
-      "passed": null,
+      "judge_run": 1,
+      "passed": true,
       "score": null,
       "floor_hit": false,
-      "skipped": true,
-      "skip_reason": "no expected block in fixture",
-      "detail": null,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "valid JSON",
       "error": null
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
+      "eval_id": "required-fields-present",
       "tag": "right",
       "labels": [
-        "accuracy"
+        "structure",
+        "completeness"
       ],
-      "type": "reference",
-      "fixture_id": "receipt",
+      "type": "rule",
+      "fixture_id": "invoice-complex",
       "run": 1,
-      "passed": null,
+      "judge_run": 1,
+      "passed": true,
       "score": null,
       "floor_hit": false,
-      "skipped": true,
-      "skip_reason": "no expected block in fixture",
-      "detail": null,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
       "error": null
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
+      "eval_id": "required-fields-present",
       "tag": "right",
       "labels": [
-        "accuracy"
+        "structure",
+        "completeness"
       ],
-      "type": "reference",
-      "fixture_id": "receipt",
-      "run": 2,
-      "passed": null,
+      "type": "rule",
+      "fixture_id": "invoice-complex",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
       "score": null,
       "floor_hit": false,
-      "skipped": true,
-      "skip_reason": "no expected block in fixture",
-      "detail": null,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
       "error": null
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "known-extraction",
+      "eval_id": "valid-json",
       "tag": "right",
       "labels": [
-        "accuracy"
+        "structure"
       ],
-      "type": "reference",
-      "fixture_id": "receipt",
-      "run": 3,
-      "passed": null,
-      "score": null,
-      "floor_hit": false,
-      "skipped": true,
-      "skip_reason": "no expected block in fixture",
-      "detail": null,
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-simple",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "All extracted values match the source text accurately.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-simple",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "Values are accurate though date format differs from run 1.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-simple",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "All extracted values match the source text.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-complex",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "Extracted values are accurate.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
+      "type": "rule",
       "fixture_id": "invoice-complex",
       "run": 2,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "Extraction is accurate and well-formed.",
+      "detail": "valid JSON",
       "error": null
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
+      "eval_id": "valid-json",
+      "tag": "right",
       "labels": [
-        "accuracy"
+        "structure"
       ],
-      "type": "llm",
+      "type": "rule",
       "fixture_id": "invoice-complex",
-      "run": 3,
-      "passed": false,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "The 'discount' field value '10%' does not appear in the source invoice text.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "receipt",
       "run": 1,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "Extracted values match the receipt text.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "receipt",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "All values are accurate.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "extraction-quality",
-      "tag": "good",
-      "labels": [
-        "accuracy"
-      ],
-      "type": "llm",
-      "fixture_id": "receipt",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "Accurate extraction.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-invented-fields",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "regex",
-      "fixture_id": "invoice-simple",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-invented-fields",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "regex",
-      "fixture_id": "invoice-simple",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-invented-fields",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "regex",
-      "fixture_id": "invoice-simple",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "detail": "valid JSON",
       "error": null
     },
     {
@@ -725,6 +200,7 @@
       "type": "regex",
       "fixture_id": "invoice-complex",
       "run": 1,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
@@ -743,6 +219,7 @@
       "type": "regex",
       "fixture_id": "invoice-complex",
       "run": 2,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
@@ -761,6 +238,7 @@
       "type": "regex",
       "fixture_id": "invoice-complex",
       "run": 3,
+      "judge_run": 1,
       "passed": false,
       "score": null,
       "floor_hit": false,
@@ -771,114 +249,6 @@
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "no-invented-fields",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "regex",
-      "fixture_id": "receipt",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-invented-fields",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "regex",
-      "fixture_id": "receipt",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-invented-fields",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "regex",
-      "fixture_id": "receipt",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-fabrication",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-simple",
-      "run": 1,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "All values trace directly to the source invoice.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-fabrication",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-simple",
-      "run": 2,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "Values are from the source text.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
-      "eval_id": "no-fabrication",
-      "tag": "safe",
-      "labels": [
-        "integrity"
-      ],
-      "type": "llm",
-      "fixture_id": "invoice-simple",
-      "run": 3,
-      "passed": true,
-      "score": null,
-      "floor_hit": false,
-      "skipped": false,
-      "skip_reason": null,
-      "detail": "No fabrication detected.",
-      "error": null
-    },
-    {
-      "use_case": "invoice_extraction",
       "eval_id": "no-fabrication",
       "tag": "safe",
       "labels": [
@@ -887,48 +257,206 @@
       "type": "llm",
       "fixture_id": "invoice-complex",
       "run": 1,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "All values traceable to source.",
+      "detail": "All four extracted values (vendor name, invoice number, amount due, and due date) are directly traceable to the source invoice text with no inferred or calculated data.",
       "error": null
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "no-fabrication",
-      "tag": "safe",
+      "eval_id": "extraction-quality",
+      "tag": "good",
       "labels": [
-        "integrity"
+        "accuracy"
       ],
       "type": "llm",
       "fixture_id": "invoice-complex",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All extracted values match the source text accurately with consistent date formatting (ISO 8601) and currency amount properly included.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "valid-json",
+      "tag": "right",
+      "labels": [
+        "structure"
+      ],
+      "type": "rule",
+      "fixture_id": "invoice-simple",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "valid JSON",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "valid-json",
+      "tag": "right",
+      "labels": [
+        "structure"
+      ],
+      "type": "rule",
+      "fixture_id": "invoice-simple",
       "run": 2,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "No fabrication.",
+      "detail": "valid JSON",
       "error": null
     },
     {
       "use_case": "invoice_extraction",
-      "eval_id": "no-fabrication",
-      "tag": "safe",
+      "eval_id": "valid-json",
+      "tag": "right",
       "labels": [
-        "integrity"
+        "structure"
       ],
-      "type": "llm",
-      "fixture_id": "invoice-complex",
+      "type": "rule",
+      "fixture_id": "invoice-simple",
       "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "valid JSON",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "required-fields-present",
+      "tag": "right",
+      "labels": [
+        "structure",
+        "completeness"
+      ],
+      "type": "rule",
+      "fixture_id": "invoice-simple",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "required-fields-present",
+      "tag": "right",
+      "labels": [
+        "structure",
+        "completeness"
+      ],
+      "type": "rule",
+      "fixture_id": "invoice-simple",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "required-fields-present",
+      "tag": "right",
+      "labels": [
+        "structure",
+        "completeness"
+      ],
+      "type": "rule",
+      "fixture_id": "invoice-simple",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "known-extraction",
+      "tag": "right",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "reference",
+      "fixture_id": "invoice-simple",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "known-extraction",
+      "tag": "right",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "reference",
+      "fixture_id": "invoice-simple",
+      "run": 2,
+      "judge_run": 1,
       "passed": false,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "The 'discount' field value '10%' cannot be found in the source invoice text.",
+      "detail": "missing: 3420",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "known-extraction",
+      "tag": "right",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "reference",
+      "fixture_id": "invoice-simple",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all checks passed",
       "error": null
     },
     {
@@ -939,14 +467,531 @@
         "integrity"
       ],
       "type": "llm",
-      "fixture_id": "receipt",
-      "run": 1,
+      "fixture_id": "invoice-complex",
+      "run": 2,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "All values from the receipt.",
+      "detail": "All four extracted values (vendor name, invoice number, amount due, and due date) are directly traceable to the source invoice text with no inferred or calculated data.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-complex",
+      "run": 3,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The discount field shows '10%' but no discount is mentioned in the source text, and the amount is missing the currency symbol ($) that was present in the source.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-complex",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All extracted values match the source text accurately with consistent date formatting (ISO 8601) and currency amount properly included.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-invented-fields",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "regex",
+      "fixture_id": "invoice-simple",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-invented-fields",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "regex",
+      "fixture_id": "invoice-simple",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-invented-fields",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "regex",
+      "fixture_id": "invoice-simple",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-fabrication",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-complex",
+      "run": 3,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The discount value of '10%' does not appear anywhere in the source invoice text and appears to be invented rather than extracted.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-simple",
+      "run": 3,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-simple",
+      "run": 1,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "valid-json",
+      "tag": "right",
+      "labels": [
+        "structure"
+      ],
+      "type": "rule",
+      "fixture_id": "receipt",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "valid JSON",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "valid-json",
+      "tag": "right",
+      "labels": [
+        "structure"
+      ],
+      "type": "rule",
+      "fixture_id": "receipt",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "valid JSON",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "valid-json",
+      "tag": "right",
+      "labels": [
+        "structure"
+      ],
+      "type": "rule",
+      "fixture_id": "receipt",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "valid JSON",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "required-fields-present",
+      "tag": "right",
+      "labels": [
+        "structure",
+        "completeness"
+      ],
+      "type": "rule",
+      "fixture_id": "receipt",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "required-fields-present",
+      "tag": "right",
+      "labels": [
+        "structure",
+        "completeness"
+      ],
+      "type": "rule",
+      "fixture_id": "receipt",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "required-fields-present",
+      "tag": "right",
+      "labels": [
+        "structure",
+        "completeness"
+      ],
+      "type": "rule",
+      "fixture_id": "receipt",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "all required fields present: vendor, invoice_number, amount, due_date",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "known-extraction",
+      "tag": "right",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "reference",
+      "fixture_id": "receipt",
+      "run": 1,
+      "judge_run": 1,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "known-extraction",
+      "tag": "right",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "reference",
+      "fixture_id": "receipt",
+      "run": 2,
+      "judge_run": 1,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "known-extraction",
+      "tag": "right",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "reference",
+      "fixture_id": "receipt",
+      "run": 3,
+      "judge_run": 1,
+      "passed": null,
+      "score": null,
+      "floor_hit": false,
+      "skipped": true,
+      "skip_reason": "no expected block in fixture",
+      "detail": null,
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-simple",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All extracted values match the source text accurately with consistent formatting: vendor name, invoice number, amount with currency symbol, and due date are all correct.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-fabrication",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-simple",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All four extracted values (vendor name, invoice number, amount, and due date) are directly traceable to the source invoice text with only minor formatting normalization (currency symbol removed, date reformatted to ISO standard).",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-fabrication",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-simple",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All four extracted values (vendor, invoice number, amount, and due date) are verbatim matches found directly in the source invoice text.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-invented-fields",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "regex",
+      "fixture_id": "receipt",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-invented-fields",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "regex",
+      "fixture_id": "receipt",
+      "run": 2,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-invented-fields",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "regex",
+      "fixture_id": "receipt",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "pattern '(?i)(\"discount\"|\"tax_rate\"|\"notes\"|\"payment_terms\"|\"late_fee\")' not found",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "receipt",
+      "run": 2,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "receipt",
+      "run": 1,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "extraction-quality",
+      "tag": "good",
+      "labels": [
+        "accuracy"
+      ],
+      "type": "llm",
+      "fixture_id": "receipt",
+      "run": 3,
+      "judge_run": 1,
+      "passed": false,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-fabrication",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "llm",
+      "fixture_id": "invoice-simple",
+      "run": 3,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All four extracted values (vendor name, invoice number, amount, and due date) are directly traceable to the source invoice text with only minor formatting normalization (currency symbol removed, date reformatted to ISO standard).",
       "error": null
     },
     {
@@ -959,12 +1004,32 @@
       "type": "llm",
       "fixture_id": "receipt",
       "run": 2,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "No fabrication detected.",
+      "detail": "All four extracted values (vendor name, receipt number, total amount, and payment due date) are directly traceable to verbatim text in the source invoice.",
+      "error": null
+    },
+    {
+      "use_case": "invoice_extraction",
+      "eval_id": "no-fabrication",
+      "tag": "safe",
+      "labels": [
+        "integrity"
+      ],
+      "type": "llm",
+      "fixture_id": "receipt",
+      "run": 1,
+      "judge_run": 1,
+      "passed": true,
+      "score": null,
+      "floor_hit": false,
+      "skipped": false,
+      "skip_reason": null,
+      "detail": "All four extracted values (vendor name, receipt number, total amount, and payment due date) are directly traceable to verbatim text in the source invoice.",
       "error": null
     },
     {
@@ -977,57 +1042,100 @@
       "type": "llm",
       "fixture_id": "receipt",
       "run": 3,
+      "judge_run": 1,
       "passed": true,
       "score": null,
       "floor_hit": false,
       "skipped": false,
       "skip_reason": null,
-      "detail": "All values traceable to source.",
+      "detail": "All four extracted values (vendor name, receipt number, total amount, and payment due date) are directly traceable to verbatim text in the source invoice.",
       "error": null
     }
   ],
   "summary": {
     "invoice_extraction": {
       "right": {
-        "valid-json": {
-          "failure_rate": 0.0,
-          "mean": null,
+        "known-extraction": {
+          "failure_rate": 0.333333,
+          "failure_rate_ci": [
+            0.0615,
+            0.7923
+          ],
+          "confidence": 0.95,
           "floor_hits": 0,
-          "error_count": 0
+          "total_runs": 3,
+          "error_count": 0,
+          "judge_calls": 3,
+          "outputs_attempted": 3
         },
         "required-fields-present": {
           "failure_rate": 0.0,
-          "mean": null,
+          "failure_rate_ci": [
+            0.0,
+            0.2991
+          ],
+          "confidence": 0.95,
           "floor_hits": 0,
-          "error_count": 0
+          "total_runs": 9,
+          "error_count": 0,
+          "judge_calls": 9,
+          "outputs_attempted": 9
         },
-        "known-extraction": {
+        "valid-json": {
           "failure_rate": 0.0,
-          "mean": null,
+          "failure_rate_ci": [
+            0.0,
+            0.2991
+          ],
+          "confidence": 0.95,
           "floor_hits": 0,
-          "error_count": 0
-        }
-      },
-      "good": {
-        "extraction-quality": {
-          "failure_rate": 0.111,
-          "mean": null,
-          "floor_hits": 0,
-          "error_count": 0
+          "total_runs": 9,
+          "error_count": 0,
+          "judge_calls": 9,
+          "outputs_attempted": 9
         }
       },
       "safe": {
         "no-invented-fields": {
-          "failure_rate": 0.111,
-          "mean": null,
+          "failure_rate": 0.111111,
+          "failure_rate_ci": [
+            0.0199,
+            0.435
+          ],
+          "confidence": 0.95,
           "floor_hits": 0,
-          "error_count": 0
+          "total_runs": 9,
+          "error_count": 0,
+          "judge_calls": 9,
+          "outputs_attempted": 9
         },
         "no-fabrication": {
-          "failure_rate": 0.111,
-          "mean": null,
+          "failure_rate": 0.111111,
+          "failure_rate_ci": [
+            0.0199,
+            0.435
+          ],
+          "confidence": 0.95,
           "floor_hits": 0,
-          "error_count": 0
+          "total_runs": 9,
+          "error_count": 0,
+          "judge_calls": 9,
+          "outputs_attempted": 9
+        }
+      },
+      "good": {
+        "extraction-quality": {
+          "failure_rate": 0.666667,
+          "failure_rate_ci": [
+            0.3542,
+            0.8794
+          ],
+          "confidence": 0.95,
+          "floor_hits": 0,
+          "total_runs": 9,
+          "error_count": 0,
+          "judge_calls": 9,
+          "outputs_attempted": 9
         }
       }
     }
@@ -1036,6 +1144,8 @@
     "baseline_run_id": null,
     "increased": [],
     "decreased": [],
-    "unchanged": []
+    "unchanged": [],
+    "baseline_pre_judge": false,
+    "baseline_judge_runs": null
   }
 }
