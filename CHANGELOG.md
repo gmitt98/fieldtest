@@ -252,3 +252,16 @@ way is not pinned, and the header says so.
 
 **The default judge is now `claude-haiku-4-5`.** A judge that can be held still is worth more than
 a larger one that cannot, and it costs less per call.
+
+### Gemini judges work, and tell you what the model refused
+
+The Gemini adapter had never made a real call. It does now, and two things came out of it.
+
+`seed` is sent rather than assumed unsupported. Whether it is accepted is a fact about the model,
+not about the provider: `GenerateContentConfig` exposes the field, and `gemini-3.7-flash` rejects
+it at the API. The run completes and the report names it — `⚠ judge parameters ignored by
+provider: seed (gemini)` — instead of silently pretending you got a pinned seed.
+
+Documented example models moved off `gemini-2.5-flash`, which now returns 404 for new accounts
+even though it still appears in Google's own model list.
+
