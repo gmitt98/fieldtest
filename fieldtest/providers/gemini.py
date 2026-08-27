@@ -9,17 +9,36 @@ from __future__ import annotations
 import json
 import os
 
-from fieldtest.providers.base import ProviderAdapter
+from fieldtest.providers.base import (
+    JudgeGenerationConfig,
+    ProviderAdapter,
+    RetryPolicy,
+    _parse_last_json_object,
+    make_is_retryable,
+    with_retry,
+)
 
 
 class GeminiAdapter(ProviderAdapter):
-    def call(self, model: str, prompt: str) -> dict:
+    def call(
+        self,
+        model: str,
+        prompt: str,
+        gen: JudgeGenerationConfig,
+        retry: RetryPolicy,
+    ) -> dict:
         """
         Call Gemini API with prompt. Returns parsed JSON dict.
         Returns {"error": str} on any failure — never raises.
+        Gemini has no seed parameter in this contract; a requested seed is
+        dropped and reported in "unsupported".
+        Retries rate limits and server errors.
         """
+        unsupported = ["seed"] if gen.seed is not None else []
         try:
             from google import genai as _genai
+            from google.genai import errors as _genai_errors
+            from google.genai import types as _genai_types
         except ImportError as e:
             return {
                 "error": (
@@ -34,18 +53,33 @@ class GeminiAdapter(ProviderAdapter):
 
         try:
             client = _genai.Client(api_key=api_key)
+        except Exception as e:
+            return {"error": str(e)}
+
+        def _once() -> dict:
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
+                config=_genai_types.GenerateContentConfig(
+                    temperature=gen.temperature,
+                    max_output_tokens=gen.max_tokens,
+                ),
             )
             content = response.text.strip()
-            # Strip markdown code fences if present.
-            if content.startswith("```"):
-                lines = content.split("\n")
-                lines = [l for l in lines if not l.startswith("```")]
-                content = "\n".join(lines).strip()
-            return json.loads(content)
-        except json.JSONDecodeError as e:
-            return {"error": f"Judge returned non-JSON response: {e}"}
-        except Exception as e:
-            return {"error": str(e)}
+            try:
+                parsed = _parse_last_json_object(content)
+            except json.JSONDecodeError as e:
+                # A malformed verdict is an answer, not a transient failure.
+                return {"error": f"Judge returned non-JSON response: {e}"}
+            if unsupported:
+                parsed["unsupported"] = unsupported
+            return parsed
+
+        return with_retry(
+            _once,
+            retry,
+            # ServerError only: APIError is also the base of ClientError, so treating it
+            # as transient would retry 401s and bad model names forever. 429 still
+            # retries — it arrives with a status code the shared check recognizes.
+            make_is_retryable((_genai_errors, ("ServerError",))),
+        )

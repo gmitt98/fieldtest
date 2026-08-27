@@ -438,7 +438,7 @@ def test_init_template_creates_config(tmp_path, template):
     config_path = tmp_path / "evals" / "config.yaml"
     assert config_path.exists()
     content = config_path.read_text()
-    assert "schema_version: 1" in content
+    assert "schema_version: 2" in content
     assert f"--template {template}" in content
 
 
@@ -500,7 +500,7 @@ def test_init_template_valid_yaml(tmp_path, template):
         catch_exceptions=False,
     )
     config = yaml.safe_load((tmp_path / "evals" / "config.yaml").read_text())
-    assert config["schema_version"] == 1
+    assert config["schema_version"] == 2
     assert "system" in config
     assert "use_cases" in config
     assert len(config["use_cases"]) >= 1
@@ -563,7 +563,8 @@ def test_history_no_results(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
-               baseline_run_id: str | None = None) -> None:
+               baseline_run_id: str | None = None,
+               judge: dict | None = None) -> None:
     """Plant a fake -data.json that the diff command will read."""
     data: dict = {
         "run_id": run_id,
@@ -578,6 +579,8 @@ def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
     }
     if dataset_version is not None:
         data["dataset_version"] = dataset_version
+    if judge is not None:
+        data["judge"] = judge
     (evals_dir / "results" / f"{run_id}-data.json").write_text(json.dumps(data))
 
 
@@ -659,3 +662,204 @@ def test_score_data_json_has_null_version_when_unset(tmp_path):
     data = json.loads(data_files[0].read_text())
     assert "dataset_version" in data  # field always present
     assert data["dataset_version"] is None
+
+
+# ---------------------------------------------------------------------------
+# diff command — judge provenance warning (spec 01)
+# ---------------------------------------------------------------------------
+
+_JUDGE_HAIKU = {
+    "provider": "anthropic", "model": "claude-haiku-3-5", "temperature": 0.0,
+    "seed": None, "overrides": {}, "fingerprint": "aaaaaaaa",
+}
+_JUDGE_SONNET = {
+    "provider": "anthropic", "model": "claude-sonnet-4", "temperature": 0.0,
+    "seed": None, "overrides": {}, "fingerprint": "bbbbbbbb",
+}
+
+
+def test_diff_warns_on_judge_mismatch_with_explicit_baseline(tmp_path):
+    """Same outputs, different judge — the instrument changed, not the system."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", None, judge=_JUDGE_HAIKU)
+    _plant_run(evals_dir, "run-new", None, baseline_run_id="run-old", judge=_JUDGE_SONNET)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "Judge mismatch" in result.output
+    assert "claude-haiku-3-5 → claude-sonnet-4" in result.output
+
+
+def test_diff_silent_when_judge_matches(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", None, judge=_JUDGE_HAIKU)
+    _plant_run(evals_dir, "run-new", None, baseline_run_id="run-old", judge=_JUDGE_HAIKU)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "Judge mismatch" not in result.output
+
+
+def test_diff_notes_baseline_predating_judge_tracking(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", None)  # no judge key
+    _plant_run(evals_dir, "run-new", None, baseline_run_id="run-old", judge=_JUDGE_HAIKU)
+
+    result = CliRunner().invoke(
+        main,
+        ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "predates judge tracking" in result.output
+
+
+def test_history_shows_judge_model(tmp_path):
+    """A rate series is unreadable if the instrument changed mid-series."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", None, judge=_JUDGE_HAIKU)
+    _plant_run(evals_dir, "run-new", None, judge=_JUDGE_SONNET)
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "JUDGE" in result.output
+    assert "claude-haiku-3-5" in result.output
+    assert "claude-sonnet-4" in result.output
+
+
+def test_validate_prints_projected_call_count(tmp_path):
+    """Cost is multiplicative — a user should meet the 3x bill before paying it."""
+    config = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      judge_runs: 3
+      sets:
+        full: [fix1, fix2]
+"""
+    evals_dir = _setup_project(tmp_path, config=config)
+    for fid in ("fix1", "fix2"):
+        (evals_dir / "fixtures").mkdir(exist_ok=True)
+        (evals_dir / "fixtures" / f"{fid}.yaml").write_text(
+            f"id: {fid}\ninputs:\n  q: x\n"
+        )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    # 2 fixtures × 5 runs × 3 judge_runs × 1 llm eval
+    assert "30 judge call(s)" in result.output
+    assert "judge_runs: 3" in result.output
+
+
+def test_validate_omits_call_count_without_llm_evals(tmp_path):
+    """A regex-only project makes no judge calls; projecting a bill would be wrong."""
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "judge call(s)" not in result.output
+
+
+def test_validate_reports_label_coverage(tmp_path):
+    """A user should be able to see how thin the ground truth is."""
+    config = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+defaults:
+  runs: 3
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "fixtures").mkdir(exist_ok=True)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n  q: x\nlabels:\n  ev1:\n    1: pass\n    2: fail\n"
+    )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "human labels:" in result.output
+    assert "ev1: 2 labeled run(s)" in result.output
+
+
+def test_validate_flags_bad_label(tmp_path):
+    config = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "fixtures").mkdir(exist_ok=True)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n  q: x\nlabels:\n  ghost:\n    1: pass\n"
+    )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "unknown eval 'ghost'" in result.output
+
+
+def test_validate_silent_about_labels_when_none(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "human labels:" not in result.output

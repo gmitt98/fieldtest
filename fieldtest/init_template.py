@@ -12,7 +12,7 @@ STARTER_CONFIG = """\
 # Run: fieldtest validate   (check this file)
 # Run: fieldtest score      (evaluate outputs after running your system)
 
-schema_version: 1
+schema_version: 2
 
 system:
   name: ""        # what is this system? (e.g. "Resume tailoring assistant")

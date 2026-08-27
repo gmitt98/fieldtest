@@ -15,14 +15,18 @@ from typing import Optional
 from fieldtest.config import (
     Config,
     ResultRow,
+    extract_labels,
     load_fixture,
     resolve_dataset_version,
+    resolve_judge_runs,
     resolve_runs,
     resolve_set,
 )
 from fieldtest.errors import OutputError
 from fieldtest.judges.dispatch import dispatch_judge
+from fieldtest.judges.llm import get_unsupported_params, reset_unsupported_params
 from fieldtest.results.aggregator import build_delta, build_summary, find_baseline
+from fieldtest.results.provenance import build_judge_block
 from fieldtest.results.writer import write_results
 
 
@@ -82,12 +86,17 @@ def score(
     # EVALUATE — build flat list of judge tasks
     # -------------------------------------------------------------------
     judge_tasks = []
+    # Human verdicts, keyed (fixture_id, eval_id, run). Used to score the judge,
+    # never to score the system.
+    human_labels: dict = {}
     for uc in config.use_cases:
         fixture_ids = resolve_set(set_name, uc, base_dir)
         runs        = resolve_runs(config, uc)
         for fid in fixture_ids:
             fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
             fixture      = load_fixture(fixture_path)
+            for (eval_id, run_number), value in extract_labels(fixture).items():
+                human_labels[(fid, eval_id, run_number)] = value
             run_outputs  = []
             for n in range(1, runs + 1):
                 p = outputs_dir / fid / f"run-{n}.txt"
@@ -95,18 +104,30 @@ def score(
                     run_outputs.append((n, p.read_text()))
                 elif allow_partial:
                     pass  # skip missing — already warned
+            judge_runs = resolve_judge_runs(config, uc)
             for ev in uc.evals:
                 for run_number, run_output in run_outputs:
-                    judge_tasks.append((uc.id, ev, run_output, fixture, run_number))
+                    # Repetitions only mean something for a sampling judge; a
+                    # regex or rule returns the same answer every time, so
+                    # repeating it would inflate the bill and the row count for
+                    # no information.
+                    reps = judge_runs if ev.type == "llm" else 1
+                    for judge_run in range(1, reps + 1):
+                        judge_tasks.append(
+                            (uc.id, ev, run_output, fixture, run_number, judge_run)
+                        )
 
     # -------------------------------------------------------------------
     # EXECUTE with ThreadPoolExecutor
     # -------------------------------------------------------------------
     all_results: list[ResultRow] = []
+    reset_unsupported_params()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         future_map = {
-            pool.submit(dispatch_judge, uc_id, ev, output, fixture, run, config): None
-            for (uc_id, ev, output, fixture, run) in judge_tasks
+            pool.submit(
+                dispatch_judge, uc_id, ev, output, fixture, run, config, judge_run
+            ): None
+            for (uc_id, ev, output, fixture, run, judge_run) in judge_tasks
         }
         for future in as_completed(future_map):
             result = future.result()
@@ -130,7 +151,7 @@ def score(
     # -------------------------------------------------------------------
     # AGGREGATE
     # -------------------------------------------------------------------
-    summary = build_summary(all_results, config)
+    summary = build_summary(all_results, config, labels=human_labels)
 
     # Auto-detect baseline — same set + dataset_version only, to avoid misleading
     # cross-set or cross-snapshot deltas.
@@ -139,6 +160,7 @@ def score(
         baseline_path = find_baseline(
             results_dir, run_id, set_name,
             dataset_version=resolve_dataset_version(config),
+            judge_fingerprint=build_judge_block(config)["fingerprint"],
         )
 
     delta = build_delta(summary, baseline_path)
@@ -156,6 +178,7 @@ def score(
         set_name=set_name,
         partial=allow_partial and bool(partial_missing),
         partial_details=partial_missing if allow_partial else None,
+        unsupported_params=get_unsupported_params(),
     )
 
     return run_id, all_results

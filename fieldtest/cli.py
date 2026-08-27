@@ -121,6 +121,43 @@ def validate(config_path: Optional[str]):
     )
     click.echo(f"  {fixture_count} explicitly listed fixture(s)")
 
+    # Cost is multiplicative: runs × judge_runs × llm evals × fixtures. Say it
+    # before the bill, not after — judge_runs: 3 is a 3x charge.
+    from fieldtest.config import resolve_judge_runs, resolve_runs
+    from fieldtest.config import resolve_set as _resolve_set
+
+    projected  = 0
+    judge_runs_used = 1
+    for uc in config.use_cases:
+        llm_evals = sum(1 for ev in uc.evals if ev.type == "llm")
+        if not llm_evals:
+            continue
+        try:
+            uc_fixtures = len(_resolve_set("full", uc, base_dir))
+        except Exception:
+            uc_fixtures = 0
+        judge_runs = resolve_judge_runs(config, uc)
+        judge_runs_used = max(judge_runs_used, judge_runs)
+        projected += uc_fixtures * resolve_runs(config, uc) * judge_runs * llm_evals
+
+    if projected:
+        detail = f"  ≈ {projected} judge call(s) for the full set"
+        if judge_runs_used > 1:
+            detail += f" (judge_runs: {judge_runs_used})"
+        click.echo(detail)
+
+    # Ground truth: how thin is it, and does it line up with the config?
+    from fieldtest.config import validate_fixture_labels
+
+    label_errors, label_coverage = validate_fixture_labels(config, base_dir)
+    warnings.extend(label_errors)
+
+    if label_coverage:
+        click.echo("")
+        click.echo("  human labels:")
+        for eval_id in sorted(label_coverage):
+            click.echo(f"    {eval_id}: {label_coverage[eval_id]} labeled run(s)")
+
     if warnings:
         click.echo("")
         for w in warnings:
@@ -224,7 +261,7 @@ def history(config_path: Optional[str]):
     # Header
     header = (
         f"{'RUN ID':<26}  {'TIMESTAMP':<18}  {'SET':<12}  "
-        f"{'FIXTURES':<10}  {'RIGHT':<8}  {'GOOD':<8}  {'SAFE':<8}"
+        f"{'FIXTURES':<10}  {'JUDGE':<28}  {'RIGHT':<8}  {'GOOD':<8}  {'SAFE':<8}"
     )
     click.echo(header)
 
@@ -238,6 +275,11 @@ def history(config_path: Optional[str]):
         set_name      = data.get("set", "—")
         fixture_count = data.get("fixture_count", 0)
         summary       = data.get("summary", {})
+
+        # A rate series is unreadable if the instrument changed mid-series.
+        judge_block = data.get("judge") or {}
+        judge_model = judge_block.get("model", "—")
+        judge_str   = judge_model if len(judge_model) <= 28 else judge_model[:27] + "…"
 
         # Parse timestamp from run_id: 2026-03-22T14-30-00-a3f9
         try:
@@ -267,7 +309,7 @@ def history(config_path: Optional[str]):
 
         click.echo(
             f"{run_id:<26}  {ts_display:<18}  {set_name:<12}  "
-            f"{fixture_count:<10}  {right:<8}  {good:<8}  {safe:<8}"
+            f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
         )
 
 
@@ -343,6 +385,35 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo(
             f"⚠ Dataset version mismatch — current: {cur_ver}, baseline: {base_ver}. "
             f"Deltas may reflect fixture changes, not model behavior."
+        )
+        click.echo("")
+
+    # Same shape, for the instrument rather than the fixtures. A changed judge
+    # produces the identical artifact and is the more frequent event, because
+    # judge model versions deprecate on the provider's schedule, not the team's.
+    from fieldtest.results.provenance import describe_judge_change
+
+    cur_judge  = current_data.get("judge")
+    base_judge = None
+    if base_run_id:
+        bp = results_dir / f"{base_run_id}-data.json"
+        if bp.exists():
+            try:
+                base_judge = json.loads(bp.read_text()).get("judge")
+            except Exception:
+                base_judge = None
+
+    if cur_judge and base_judge:
+        change = describe_judge_change(cur_judge, base_judge)
+        if change:
+            click.echo(
+                f"⚠ Judge mismatch — {change}. "
+                f"Deltas may reflect the instrument changing, not model behavior."
+            )
+            click.echo("")
+    elif cur_judge and base_run_id and base_judge is None:
+        click.echo(
+            "⚠ Baseline predates judge tracking — the judge that produced it is unknown."
         )
         click.echo("")
 

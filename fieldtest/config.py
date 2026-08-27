@@ -13,6 +13,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
+from fieldtest.providers.base import RetryPolicy
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +99,11 @@ class FixturesConfig(BaseModel):
     directory: str           = "fixtures/"
     sets:      dict[str, Union[list[str], str]]  # set_name → [ids] | "dir/*" | "all"
     runs:      Optional[int] = None
+    # Judge repetitions per output — how many times the same output is judged,
+    # independently of how many outputs the generator produced. Default 1, so an
+    # existing config produces identical rows, summaries and deltas, and nobody
+    # pays the multiplied bill unless they ask for it.
+    judge_runs: int = 1
     # Optional dataset snapshot tag — surfaces in result metadata so that
     # find_baseline() skips runs from a different snapshot, and `fieldtest diff`
     # warns when an explicit baseline crosses versions. Existing configs that
@@ -125,6 +131,28 @@ class Defaults(BaseModel):
     model:    str = "claude-sonnet-4-20250514"
     runs:     int = 5
 
+    # Judge generation settings. Temperature defaults to 0.0 rather than the
+    # provider default (typically 1.0) so the instrument is held still: run-to-run
+    # movement in a rate should come from the system under test, not the judge.
+    judge_temperature: float = 0.0
+    judge_seed:        Optional[int] = None
+
+    # Transient-failure policy for judge calls. A fast local demo and a nightly
+    # CI run want different patience, so this is configurable rather than fixed.
+    judge_retry: RetryPolicy = RetryPolicy()
+
+    # Confidence level for the interval on a binary eval's failure_rate.
+    confidence: float = 0.95
+
+    @field_validator("confidence")
+    @classmethod
+    def confidence_in_open_unit_interval(cls, v: float) -> float:
+        if not (0.0 < v < 1.0):
+            raise ValueError(
+                f"defaults.confidence must be between 0 and 1 (exclusive), got {v}."
+            )
+        return v
+
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:
@@ -138,7 +166,7 @@ class Defaults(BaseModel):
 
 
 class Config(BaseModel):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     system:         SystemConfig
     use_cases:      list[UseCase]
     defaults:       Defaults = Field(default_factory=Defaults)
@@ -183,6 +211,7 @@ class ResultRow(BaseModel):
     type:        str
     fixture_id:  str
     run:         int
+    judge_run:   int = 1              # which judge repetition produced this row
     passed:      Optional[bool] = None
     score:       Optional[int]  = None
     floor_hit:   bool           = False
@@ -250,11 +279,134 @@ def load_fixture(fixture_path: Path) -> dict:
     return data
 
 
+def extract_labels(fixture: dict) -> dict:
+    """
+    Human verdicts from a fixture, keyed (eval_id, run) → value.
+
+    Labels are per (eval_id, generator run) because different outputs for the
+    same fixture warrant different verdicts. Keying by eval_id alone would assume
+    the system is deterministic, which is the assumption fieldtest exists to
+    reject.
+
+    Malformed entries are skipped rather than raised: label shape is a config
+    error reported by `fieldtest validate`, not a scoring-time failure.
+    """
+    labels: dict = {}
+    raw = fixture.get("labels")
+    if not isinstance(raw, dict):
+        return labels
+
+    for eval_id, per_run in raw.items():
+        if not isinstance(per_run, dict):
+            continue
+        for run, value in per_run.items():
+            if isinstance(run, int):
+                labels[(eval_id, run)] = value
+    return labels
+
+
+def validate_fixture_labels(config: Config, base_dir: Path) -> tuple[list[str], dict]:
+    """
+    Check every fixture's labels against the config. Returns (errors, coverage),
+    where coverage maps eval_id → number of labeled runs.
+
+    Reported by `fieldtest validate` rather than raised, so a labeling mistake
+    surfaces before a run rather than during one.
+    """
+    errors: list[str] = []
+    coverage: dict = {}
+
+    for uc in use_cases_with_fixtures(config):
+        eval_by_id = {ev.id: ev for ev in uc.evals}
+        max_runs   = resolve_runs(config, uc)
+        fixture_dir = base_dir / uc.fixtures.directory
+
+        if not fixture_dir.exists():
+            continue
+
+        for fixture_path in sorted(fixture_dir.glob("*.yaml")):
+            try:
+                fixture = load_fixture(fixture_path)
+            except ConfigError:
+                continue
+
+            raw = fixture.get("labels")
+            if raw is None:
+                continue
+            if not isinstance(raw, dict):
+                errors.append(f"  ⚠ {fixture_path.name}: 'labels' must be a mapping of eval id → run → verdict")
+                continue
+
+            for eval_id, per_run in raw.items():
+                ev = eval_by_id.get(eval_id)
+                if ev is None:
+                    errors.append(
+                        f"  ⚠ {fixture_path.name}: label references unknown eval '{eval_id}'"
+                    )
+                    continue
+                if not isinstance(per_run, dict):
+                    errors.append(
+                        f"  ⚠ {fixture_path.name}: labels for '{eval_id}' must map run number → verdict"
+                    )
+                    continue
+
+                is_scored = ev.type == "llm" and not ev.binary
+
+                for run, value in per_run.items():
+                    if not isinstance(run, int) or run < 1:
+                        errors.append(
+                            f"  ⚠ {fixture_path.name}: label run key '{run}' for '{eval_id}' "
+                            f"must be a run number"
+                        )
+                        continue
+                    if run > max_runs:
+                        errors.append(
+                            f"  ⚠ {fixture_path.name}: label for '{eval_id}' run {run} "
+                            f"exceeds runs: {max_runs}"
+                        )
+                        continue
+
+                    if is_scored:
+                        if not isinstance(value, int) or isinstance(value, bool):
+                            errors.append(
+                                f"  ⚠ {fixture_path.name}: label for scored eval '{eval_id}' "
+                                f"run {run} must be an integer score, got {value!r}"
+                            )
+                            continue
+                        if ev.scale and not (ev.scale[0] <= value <= ev.scale[1]):
+                            errors.append(
+                                f"  ⚠ {fixture_path.name}: label {value} for '{eval_id}' run {run} "
+                                f"is outside scale {ev.scale[0]}–{ev.scale[1]}"
+                            )
+                            continue
+                    else:
+                        if value not in ("pass", "fail"):
+                            errors.append(
+                                f"  ⚠ {fixture_path.name}: label for binary eval '{eval_id}' "
+                                f"run {run} must be 'pass' or 'fail', got {value!r}"
+                            )
+                            continue
+
+                    coverage[eval_id] = coverage.get(eval_id, 0) + 1
+
+    return errors, coverage
+
+
+def use_cases_with_fixtures(config: Config):
+    """Use cases that declare a fixtures directory."""
+    return [uc for uc in config.use_cases if uc.fixtures is not None]
+
+
 def resolve_runs(config: Config, use_case: UseCase) -> int:
     """Return effective run count. use_case wins, then defaults, then hardcoded 5."""
     if use_case.fixtures.runs is not None:
         return use_case.fixtures.runs
     return config.defaults.runs  # Defaults model defaults to 5
+
+
+def resolve_judge_runs(config: Config, use_case: UseCase) -> int:
+    """Judge repetitions per output for a use case. Defaults to 1."""
+    return use_case.fixtures.judge_runs
 
 
 def resolve_dataset_version(config: Config) -> Optional[str]:

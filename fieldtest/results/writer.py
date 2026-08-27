@@ -33,6 +33,7 @@ def write_results(
     set_name: str = "full",
     partial: bool = False,
     partial_details: Optional[list[str]] = None,
+    unsupported_params: Optional[list[str]] = None,
 ) -> None:
     """
     Write {run_id}-data.json, {run_id}-data.csv, {run_id}-report.md,
@@ -50,15 +51,22 @@ def write_results(
 
     # Build all content before writing — fail fast before any file is created
     json_content        = _build_json(rows, summary, delta, config, run_id, set_name)
+
+    # Raw rows are what -data.json and -data.csv carry; the human-facing views
+    # read one row per judged output so their counts match the headline rates.
+    from fieldtest.results.aggregator import collapse_rows
+    view_rows = collapse_rows(rows, config)
     data_csv_content    = _build_data_csv(rows)
     md_content          = format_report(
-        rows, summary, delta, config, run_id, set_name, partial, partial_details
+        view_rows, summary, delta, config, run_id, set_name, partial, partial_details,
+        unsupported_params,
     )
-    report_csv_content  = format_report_csv(rows, config)
+    report_csv_content  = format_report_csv(view_rows, config)
 
     # Parse json back to dict for HTML generator (avoids re-building)
     import json as _json
     run_data = _json.loads(json_content)
+    run_data["rows"] = [r.model_dump() for r in view_rows]
 
     # Write all five
     json_path.write_text(json_content)
@@ -83,15 +91,24 @@ def _build_json(
         from fieldtest.config import resolve_runs
         runs = resolve_runs(config, config.use_cases[0])
 
-    from fieldtest.config import resolve_dataset_version
+    from fieldtest.config import resolve_dataset_version, resolve_judge_runs
     dataset_version = resolve_dataset_version(config)
 
+    judge_runs = 1
+    if config.use_cases:
+        judge_runs = resolve_judge_runs(config, config.use_cases[0])
+
+    from fieldtest.results.provenance import build_judge_block
+
     data = {
+        "schema_version":  2,
         "run_id":          run_id,
         "set":             set_name,
         "dataset_version": dataset_version,
+        "judge":           build_judge_block(config),
         "fixture_count":   len(fixture_ids),
         "runs":            runs,
+        "judge_runs":      judge_runs,
         "rows":            [r.model_dump() for r in rows],
         "summary":         summary,
         "delta":           delta,
@@ -104,7 +121,7 @@ def _build_data_csv(rows: list[ResultRow]) -> str:
     output = io.StringIO()
     fieldnames = [
         "use_case", "eval_id", "tag", "labels", "type", "fixture_id", "run",
-        "passed", "score", "floor_hit", "skipped", "detail", "error"
+        "judge_run", "passed", "score", "floor_hit", "skipped", "detail", "error"
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
     writer.writeheader()
@@ -118,6 +135,7 @@ def _build_data_csv(rows: list[ResultRow]) -> str:
             "type":       row.type,
             "fixture_id": row.fixture_id,
             "run":        row.run,
+            "judge_run":  row.judge_run,
             "passed":     "" if row.passed is None else str(row.passed).lower(),
             "score":      "" if row.score is None else row.score,
             "floor_hit":  str(row.floor_hit).lower(),

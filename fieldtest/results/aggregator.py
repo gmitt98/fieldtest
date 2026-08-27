@@ -7,17 +7,189 @@ from __future__ import annotations
 
 import json
 import math
+from statistics import NormalDist
 from pathlib import Path
 from typing import Optional
 
-from fieldtest.config import Config, ResultRow
+from fieldtest.config import Config, ResultRow, resolve_judge_runs
 
 
 # ---------------------------------------------------------------------------
 # build_summary
 # ---------------------------------------------------------------------------
 
-def build_summary(rows: list[ResultRow], config: Config) -> dict:
+def wilson_interval(
+    failures: int, total: int, confidence: float = 0.95
+) -> Optional[tuple[float, float]]:
+    """
+    Two-sided Wilson score interval for a failure rate.
+
+    Wilson rather than the normal approximation because small n is the common
+    case here, not the edge case: at runs: 5 with zero failures the normal
+    interval is degenerate and reports certainty the sample cannot support.
+
+    Returns None when there is nothing to bound (total == 0).
+    """
+    if total <= 0:
+        return None
+
+    z = NormalDist().inv_cdf(1 - (1 - confidence) / 2)
+    p = failures / total
+
+    denominator = 1 + z**2 / total
+    center      = (p + z**2 / (2 * total)) / denominator
+    half_width  = (
+        z / denominator * math.sqrt(p * (1 - p) / total + z**2 / (4 * total**2))
+    )
+
+    low  = max(0.0, center - half_width)
+    high = min(1.0, center + half_width)
+    return (round(low, 4), round(high, 4))
+
+
+def _group_by_output(rows: list[ResultRow]) -> dict:
+    """Rows keyed by the output they judged: (fixture_id, run) → repetitions."""
+    by_output: dict = {}
+    for r in rows:
+        by_output.setdefault((r.fixture_id, r.run), []).append(r)
+    return by_output
+
+
+def collapse_verdicts(reps: list[ResultRow]) -> bool:
+    """
+    One verdict per output from its repetitions: majority, ties resolved to fail.
+
+    A tie means the judge could not decide. For a `safe` eval the conservative
+    reading is the right default, and a rule that varies by tag would make the
+    collapsed value depend on which column you read it from.
+    """
+    fails  = sum(1 for r in reps if r.passed is False)
+    passes = sum(1 for r in reps if r.passed is True)
+    return not (fails >= passes)
+
+
+def _population_stddev(values: list[float]) -> float:
+    """Population standard deviation; 0.0 for fewer than two values."""
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
+
+
+def collapse_rows(rows: list[ResultRow], config: Config) -> list[ResultRow]:
+    """
+    One row per judged output, for the views that count rows rather than read the
+    summary — the tag health table, the fixture x eval matrix, the report CSV.
+
+    Without this, judge_runs: 3 makes those views report 5/6 while the headline
+    rate, computed from collapsed verdicts, reports 1 of 2. Raw rows are what
+    -data.csv and -data.json carry; this is only the reading view.
+
+    Identity when every use case judges once, so existing output is unchanged.
+    Scored rows pass through untouched: their cell shows an average, which the
+    repetitions do not distort.
+    """
+    if all(resolve_judge_runs(config, uc) <= 1 for uc in config.use_cases):
+        return rows
+
+    binary_groups: dict = {}
+    collapsed: list[ResultRow] = []
+
+    for r in rows:
+        is_binary_verdict = (
+            r.passed is not None and r.score is None and not r.skipped and r.error is None
+        )
+        if not is_binary_verdict:
+            collapsed.append(r)
+            continue
+        binary_groups.setdefault((r.use_case, r.eval_id, r.fixture_id, r.run), []).append(r)
+
+    for reps in binary_groups.values():
+        first = reps[0]
+        if len(reps) == 1:
+            collapsed.append(first)
+            continue
+        collapsed.append(first.model_copy(update={
+            "passed":    collapse_verdicts(reps),
+            "judge_run": 1,
+            "detail":    first.detail,
+        }))
+
+    return collapsed
+
+
+def _judge_agreement(
+    eval_id: str,
+    valid_rows: list[ResultRow],
+    labels: dict,
+    is_scored: bool,
+) -> dict:
+    """
+    How well the judge agreed with the human, where a human said anything.
+
+    Labels do not score the system — they score the judge. failure_rate is
+    untouched by their presence. Partial coverage is the normal state: only
+    labeled (fixture, run) pairs contribute.
+
+    False passes are reported separately from false fails because on a `safe`
+    eval they are the asymmetric error that matters, and a single agreement
+    number hides them.
+    """
+    by_output = _group_by_output(valid_rows)
+
+    compared    = 0
+    agreed      = 0
+    false_pass  = 0
+    false_fail  = 0
+    deviations: list[float] = []
+
+    for (fixture_id, run), reps in by_output.items():
+        label = labels.get((fixture_id, eval_id, run))
+        if label is None:
+            continue
+
+        if is_scored:
+            scores = [r.score for r in reps if r.score is not None]
+            if not scores or not isinstance(label, int) or isinstance(label, bool):
+                continue
+            judged = sum(scores) / len(scores)
+            compared += 1
+            deviations.append(abs(judged - label))
+            if judged == label:
+                agreed += 1
+        else:
+            if label not in ("pass", "fail"):
+                continue
+            verdict = collapse_verdicts(reps)
+            human_passed = label == "pass"
+            compared += 1
+            if verdict == human_passed:
+                agreed += 1
+            elif verdict and not human_passed:
+                false_pass += 1
+            else:
+                false_fail += 1
+
+    if not compared:
+        return {}
+
+    fields = {
+        "labeled_runs":    compared,
+        "judge_agreement": round(agreed / compared, 6),
+    }
+    if is_scored:
+        fields["mean_absolute_deviation"] = round(sum(deviations) / len(deviations), 4)
+    else:
+        fields["judge_false_pass"] = false_pass
+        fields["judge_false_fail"] = false_fail
+    return fields
+
+
+def build_summary(
+    rows: list[ResultRow],
+    config: Config,
+    labels: Optional[dict] = None,
+) -> dict:
     """
     Group rows by use_case → tag → eval_id and compute stats.
 
@@ -39,6 +211,9 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                 "scale_min": ev.scale[0] if ev.scale else None,
             }
 
+    uc_by_id = {uc.id: uc for uc in config.use_cases}
+    labels = labels or {}
+
     # Group: use_case → tag → eval_id → rows
     groups: dict[str, dict[str, dict[str, list[ResultRow]]]] = {}
     for row in rows:
@@ -48,6 +223,8 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
 
     summary: dict = {}
     for uc_id, tags in groups.items():
+        uc_model   = uc_by_id.get(uc_id)
+        judge_runs = resolve_judge_runs(config, uc_model) if uc_model else 1
         summary[uc_id] = {}
         for tag, evals in tags.items():
             summary[uc_id][tag] = {}
@@ -73,6 +250,26 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                     ) if mean is not None else None
                     s_min  = min(scores) if scores else None
                     s_max  = max(scores) if scores else None
+                    judge_fields = _judge_agreement(eval_id, valid_rows, labels, True)
+                    if judge_runs > 1 and scores:
+                        # Two sources of variance were summed and reported as one
+                        # number attributed to the system. Separate them.
+                        by_output    = _group_by_output(valid_rows)
+                        output_means = []
+                        within       = []
+                        for reps in by_output.values():
+                            rep_scores = [r.score for r in reps if r.score is not None]
+                            if not rep_scores:
+                                continue
+                            output_means.append(sum(rep_scores) / len(rep_scores))
+                            within.append(_population_stddev(rep_scores))
+                        judge_fields = {
+                            **judge_fields,
+                            "system_stddev": round(_population_stddev(output_means), 4),
+                            "judge_stddev":  round(sum(within) / len(within), 4) if within else 0.0,
+                            "judge_runs":    judge_runs,
+                        }
+
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate": None,
                         "mean":         round(mean, 4) if mean is not None else None,
@@ -82,17 +279,52 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
                         "floor_hits":   floor_hits,
                         "total_runs":   total_runs,
                         "error_count":  error_count,
+                        **judge_fields,
                     }
                 else:
-                    failed_count  = sum(1 for r in valid_rows if r.passed is False)
+                    judge_fields: dict = _judge_agreement(
+                        eval_id, valid_rows, labels, False
+                    )
+                    if judge_runs > 1:
+                        # Rates come from collapsed verdicts, not raw repetition
+                        # rows: otherwise judge_runs: 3 triples the denominator
+                        # and rates stop being comparable across configurations.
+                        by_output = _group_by_output(valid_rows)
+                        collapsed = {
+                            key: collapse_verdicts(reps) for key, reps in by_output.items()
+                        }
+                        disagreeing = sum(
+                            1 for reps in by_output.values()
+                            if len({r.passed for r in reps}) > 1
+                        )
+                        total_runs   = len(collapsed)
+                        failed_count = sum(1 for v in collapsed.values() if v is False)
+                        judge_fields = {
+                            **judge_fields,
+                            "judge_disagreement_rate": (
+                                round(disagreeing / len(by_output), 6) if by_output else None
+                            ),
+                            "judge_runs": judge_runs,
+                        }
+                    else:
+                        failed_count = sum(1 for r in valid_rows if r.passed is False)
+
                     failure_rate  = (
                         round(failed_count / total_runs, 6) if total_runs > 0 else None
                     )
+                    confidence = config.defaults.confidence
+                    interval   = (
+                        wilson_interval(failed_count, total_runs, confidence)
+                        if failure_rate is not None else None
+                    )
                     summary[uc_id][tag][eval_id] = {
-                        "failure_rate": failure_rate,
-                        "floor_hits":   0,
-                        "total_runs":   total_runs,
-                        "error_count":  error_count,
+                        "failure_rate":    failure_rate,
+                        "failure_rate_ci": list(interval) if interval else None,
+                        "confidence":      confidence,
+                        "floor_hits":      0,
+                        "total_runs":      total_runs,
+                        "error_count":     error_count,
+                        **judge_fields,
                     }
 
     return summary
@@ -101,6 +333,51 @@ def build_summary(rows: list[ResultRow], config: Config) -> dict:
 # ---------------------------------------------------------------------------
 # build_delta
 # ---------------------------------------------------------------------------
+
+def summarize_judge_errors(summary: dict) -> Optional[dict]:
+    """
+    Judge errors across the run, or None if there were none.
+
+    Errored rows are excluded from failure_rate and counted in error_count,
+    which is correct in isolation but means an overloaded provider silently
+    shrinks the sample rather than failing loudly. This is what the report
+    needs to say so out loud.
+
+    Returns {"failed", "total", "affected": [(eval_id, scored, attempted)]}.
+    """
+    failed = 0
+    total  = 0
+    affected: list[tuple[str, int, int]] = []
+
+    for uc_stats in summary.values():
+        for tag_stats in uc_stats.values():
+            for eval_id, stats in tag_stats.items():
+                errors    = stats.get("error_count") or 0
+                scored    = stats.get("total_runs") or 0
+                attempted = scored + errors
+                failed   += errors
+                total    += attempted
+                if errors:
+                    affected.append((eval_id, scored, attempted))
+
+    if not failed:
+        return None
+
+    return {"failed": failed, "total": total, "affected": affected}
+
+
+def _intervals_overlap(current_ci, baseline_ci) -> bool:
+    """
+    Whether two confidence intervals overlap. Movement between overlapping
+    intervals is movement the sample size cannot distinguish from noise.
+
+    False when either side has no interval — a scored eval, an empty sample, or
+    a baseline written before intervals existed.
+    """
+    if not current_ci or not baseline_ci:
+        return False
+    return current_ci[0] <= baseline_ci[1] and baseline_ci[0] <= current_ci[1]
+
 
 def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     """
@@ -132,6 +409,12 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
 
     baseline_summary = baseline_data.get("summary", {})
     baseline_run_id  = baseline_data.get("run_id")
+    # Accepted as a baseline, but the comparison carries a caveat: we cannot
+    # tell whether the instrument was the same one.
+    baseline_pre_judge = baseline_data.get("judge") is None
+    # Collapsed failure_rate values stay comparable across repetition counts;
+    # the judge spread fields do not. Keep the comparison, carry the caveat.
+    baseline_judge_runs = baseline_data.get("judge_runs", 1)
 
     increased: list[dict] = []
     decreased: list[dict] = []
@@ -159,28 +442,33 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                     continue
 
                 delta = cur_val - prev_val
+
+                # An additional flag, not a fourth bucket: existing CI jq
+                # expressions read increased/decreased/unchanged and keep working.
+                entry = {
+                    "eval_id":  eval_id,
+                    "previous": round(prev_val, 6),
+                    "current":  round(cur_val, 6),
+                    "delta":    round(delta, 6),
+                    "overlapping": _intervals_overlap(
+                        stats.get("failure_rate_ci"), prev_stats.get("failure_rate_ci")
+                    ),
+                }
+
                 if abs(delta) < 0.001:
                     unchanged.append(eval_id)
                 elif delta > 0:
-                    increased.append({
-                        "eval_id":  eval_id,
-                        "previous": round(prev_val, 6),
-                        "current":  round(cur_val, 6),
-                        "delta":    round(delta, 6),
-                    })
+                    increased.append(entry)
                 else:
-                    decreased.append({
-                        "eval_id":  eval_id,
-                        "previous": round(prev_val, 6),
-                        "current":  round(cur_val, 6),
-                        "delta":    round(delta, 6),
-                    })
+                    decreased.append(entry)
 
     return {
-        "baseline_run_id": baseline_run_id,
-        "increased":       increased,
-        "decreased":       decreased,
-        "unchanged":       unchanged,
+        "baseline_run_id":   baseline_run_id,
+        "increased":         increased,
+        "decreased":         decreased,
+        "unchanged":         unchanged,
+        "baseline_pre_judge": baseline_pre_judge,
+        "baseline_judge_runs": baseline_judge_runs,
     }
 
 
@@ -189,6 +477,7 @@ def find_baseline(
     current_run_id: str,
     set_name: str,
     dataset_version: Optional[str] = None,
+    judge_fingerprint: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Find the most recent results JSON in results_dir that:
@@ -205,6 +494,13 @@ def find_baseline(
     runs match any baseline (backwards compatible). Versioned current runs
     only match baselines tagged with the same version.
 
+    Filtering by judge_fingerprint prevents the same artifact again when the
+    instrument changes: rescoring an unchanged outputs/ directory with a
+    different judge model otherwise reads as a system regression. Baselines
+    written before judge tracking carry no fingerprint and are accepted as
+    unknown rather than rejected — blanking out every historical delta on
+    upgrade is a worse failure than a caveated comparison.
+
     Returns None if no matching baseline found.
     """
     if not results_dir.exists():
@@ -219,6 +515,10 @@ def find_baseline(
                 continue
             if dataset_version is not None and data.get("dataset_version") != dataset_version:
                 continue
+            if judge_fingerprint is not None:
+                candidate_judge = data.get("judge")
+                if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
+                    continue
             return p
         except Exception:
             continue

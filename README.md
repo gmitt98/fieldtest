@@ -115,6 +115,110 @@ export OPENAI_API_KEY=sk-...          # for openai provider
 export GEMINI_API_KEY=...             # for gemini provider
 ```
 
+### Judge generation settings
+
+The judge runs at temperature 0.0 by default, not at the provider default. A judge left
+sampling puts its own noise into every rate fieldtest reports, and you cannot tell that noise
+apart from movement in the system you are measuring.
+
+```yaml
+defaults:
+  judge_temperature: 0.0              # default; set 1.0 for the old sampling behaviour
+  judge_seed: null                    # optional, where the provider supports it
+```
+
+Not every provider supports every parameter. Where one does not, fieldtest drops the parameter,
+completes the run, and names it once in the report header rather than failing.
+
+| provider | temperature | seed | max_tokens |
+|---|---|---|---|
+| anthropic | yes | no | yes |
+| openai | yes | yes | yes |
+| gemini | yes | no | yes |
+
+Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
+guarantees determinism. What is left is a property of the provider, not of your system.
+
+### Telling the judge it was wrong
+
+An eval reports a rate against nothing. `failure_rate: 0.2` says the judge disagreed with the
+system on one output in five, and gives you no way to ask whether the judge was right to
+disagree. Two judges that agree with each other and are both wrong look identical to two judges
+that agree and are both right.
+
+Fixtures can carry human verdicts, per eval and per generator run:
+
+```yaml
+id: billing-dispute
+inputs:
+  customer_email: "..."
+labels:
+  addresses-the-ask:
+    1: pass
+    2: pass
+  no-unauthorized-commitments:
+    1: fail      # commits to a refund amount and a timeline
+```
+
+Run numbers match `outputs/{fixture_id}/run-N.txt`. Everything is optional — no block, some evals,
+some runs. Partial coverage is the normal state.
+
+The report gains a Judge vs Human Labels table with agreement, and false passes counted separately
+from false fails, because on a `safe` eval a false pass is the error that matters and one
+agreement number hides it. Scored evals report mean absolute deviation from the human score.
+
+**Labels never score your system.** They score the judge — `failure_rate` is identical whether the
+labels are there or not. `fieldtest validate` checks them against your config and prints how many
+runs are labeled per eval, so you can see how thin the ground truth is.
+
+### Judging each output more than once
+
+Temperature 0.0 reduces judge disagreement but does not eliminate it, and `stddev` on a scored
+eval is the spread across different outputs *scored by a judge that was itself varying*. Two
+sources of variance, summed and reported as one number attributed to your system.
+
+Set `judge_runs` to judge each output more than once and see them separated:
+
+```yaml
+fixtures:
+  directory: fixtures/
+  runs: 5          # generator outputs per fixture
+  judge_runs: 3    # judge repetitions per output (default 1)
+```
+
+The report gains a Judge Repeatability table: `system spread` is the variation between your
+outputs, `judge spread` is the variation the judge introduced judging the same output twice, and
+for binary evals `judge disagreement` is the share of outputs the judge could not decide the same
+way every time.
+
+A judge spread near zero is a well-specified eval. A judge spread comparable to the system spread
+means the eval's criteria are ambiguous — that diagnostic is the point of the feature.
+
+**This multiplies your bill.** `runs × judge_runs × llm evals × fixtures` judge calls;
+`fieldtest validate` prints the projection for the full set so you meet the number before paying
+it. `failure_rate` is computed from collapsed verdicts (majority, ties resolved to fail), so rates
+stay comparable no matter how many repetitions you run.
+
+### Judge retries
+
+Judge errors do not fail a run. They are excluded from the failure rate and counted separately,
+which means an overloaded provider quietly shrinks your sample instead of telling you. Every
+provider therefore shares one retry policy, and any run with errors says so in the report header
+and marks the affected evals in the per-eval table.
+
+```yaml
+defaults:
+  judge_retry:
+    max_attempts: 6                   # retries after the first call
+    initial_delay: 5.0                # seconds
+    max_delay: 60.0
+    multiplier: 2.0                   # default schedule: 5, 10, 20, 40, 60, 60
+```
+
+Retried: HTTP 429, 500, 502, 503, 504, 529, and the SDK connection and timeout errors.
+Not retried: a missing package or API key, an authentication failure, an unknown model, and a
+judge response that is not valid JSON — none of which a second attempt can fix.
+
 ---
 
 ## How it works
@@ -820,14 +924,25 @@ The fields most commonly used for CI gating:
 
 ```json
 {
+  "schema_version": 2,
   "run_id": "2026-03-22T14-30-00-a3f9",
   "set": "regression",
   "dataset_version": "v2",
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-haiku-3-5-20251001",
+    "temperature": 0.0,
+    "seed": null,
+    "overrides": {},
+    "fingerprint": "a3f91c2e"
+  },
   "summary": {
     "<use_case_id>": {
       "<tag>": {
         "<eval_id>": {
           "failure_rate": 0.10,
+          "failure_rate_ci": [0.0347, 0.2653],
+          "confidence": 0.95,
           "total_runs": 30,
           "error_count": 0,
           "floor_hits": 0,
@@ -843,8 +958,19 @@ The fields most commonly used for CI gating:
 ```
 
 - `failure_rate` is `null` for scored evals; use `mean` instead.
+- `failure_rate_ci` is a two-sided Wilson score interval at `confidence`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `dataset_version` is optional; absent in older runs.
+- `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3.
+- `schema_version` is `2`. Runs written before v0.3 have no such key; treat a missing key as `1`.
+
+**Gating on a point estimate at `runs: 5` is gating on noise.** One flipped judgment moves `failure_rate` by 0.2 on its own. `failure_rate_ci[0]` is the conservative alternative — the rate the sample can actually support:
+
+```bash
+jq '[.summary[][][].failure_rate_ci[0] | select(. != null)] | max // 0' "$DATA"
+```
+
+fieldtest reports the interval; deciding it is too wide to act on is your call, the same way thresholds live in your CI config rather than in the tool.
 
 A complete GitHub Actions workflow (with artifact upload) is in [`examples/generate-patterns.md`](https://github.com/gmitt98/fieldtest/blob/master/examples/generate-patterns.md#ci-integration-github-actions-example).
 

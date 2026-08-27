@@ -63,10 +63,24 @@ def test_schema_version_missing(tmp_path):
 
 
 def test_schema_version_unsupported(tmp_path):
-    yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 2")
+    yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 3")
     with pytest.raises(ConfigError) as exc:
         parse_and_validate(_write_config(tmp_path, yaml))
     assert "schema_version" in str(exc.value)
+
+
+def test_schema_version_2_accepted(tmp_path):
+    """v2 adds judge provenance and failure rate intervals."""
+    yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 2")
+    cfg = parse_and_validate(_write_config(tmp_path, yaml))
+    assert cfg.schema_version == 2
+
+
+def test_v1_config_still_accepted(tmp_path):
+    """v1 configs load unchanged for one minor release, with v2 defaults filled in."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.schema_version == 1
+    assert cfg.defaults.confidence == 0.95
 
 
 def test_eval_tag_invalid(tmp_path):
@@ -345,3 +359,191 @@ def test_raw_pydantic_error_not_propagated(tmp_path):
         pass
     except Exception as e:
         pytest.fail(f"Expected ConfigError, got {type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Judge generation config (spec 02)
+# ---------------------------------------------------------------------------
+
+def test_judge_temperature_defaults_to_zero():
+    """
+    The instrument ships locked. A judge left at the provider default samples at
+    roughly 1.0, which puts noise into every rate the tool reports.
+    """
+    d = Defaults()
+    assert d.judge_temperature == 0.0
+    assert d.judge_seed is None
+
+
+def test_v1_config_gets_zero_temperature_default(tmp_path):
+    """A config written before this spec loads unchanged and gets a pinned judge."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.defaults.judge_temperature == 0.0
+    assert cfg.defaults.judge_seed is None
+
+
+def test_judge_temperature_configurable(tmp_path):
+    """Anyone who wants the old sampling behavior asks for it explicitly."""
+    content = MINIMAL_VALID.replace(
+        "    schema_version: 1\n",
+        "    schema_version: 1\n"
+        "    defaults:\n"
+        "      judge_temperature: 1.0\n"
+        "      judge_seed: 7\n",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.defaults.judge_temperature == 1.0
+    assert cfg.defaults.judge_seed == 7
+
+
+def test_judge_retry_defaults_to_shared_policy(tmp_path):
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.defaults.judge_retry.max_attempts == 6
+    assert cfg.defaults.judge_retry.initial_delay == 5.0
+    assert cfg.defaults.judge_retry.max_delay == 60.0
+    assert cfg.defaults.judge_retry.multiplier == 2.0
+
+
+def test_judge_retry_configurable(tmp_path):
+    """A fast local demo and a nightly CI run want different patience."""
+    content = MINIMAL_VALID.replace(
+        "    schema_version: 1\n",
+        "    schema_version: 1\n"
+        "    defaults:\n"
+        "      judge_retry:\n"
+        "        max_attempts: 2\n"
+        "        initial_delay: 0.5\n",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.defaults.judge_retry.max_attempts == 2
+    assert cfg.defaults.judge_retry.initial_delay == 0.5
+    # Unset fields keep their defaults.
+    assert cfg.defaults.judge_retry.max_delay == 60.0
+
+
+def test_judge_runs_defaults_to_one(tmp_path):
+    """Nobody pays the multiplied bill unless they ask for it."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.use_cases[0].fixtures.judge_runs == 1
+
+
+def test_judge_runs_parses_when_set(tmp_path):
+    content = MINIMAL_VALID.replace(
+        "          directory: fixtures/\n",
+        "          directory: fixtures/\n          judge_runs: 3\n",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, content))
+    assert cfg.use_cases[0].fixtures.judge_runs == 3
+
+
+# ---------------------------------------------------------------------------
+# Human labels (spec 07)
+# ---------------------------------------------------------------------------
+
+def _label_project(tmp_path, labels_yaml: str, eval_yaml: str | None = None):
+    """Build a project with one fixture carrying a labels block."""
+    from fieldtest.config import validate_fixture_labels
+
+    evals = eval_yaml or """\
+          - id: ev1
+            tag: right
+            type: llm
+            description: checks something
+            pass_criteria: it is fine
+            fail_criteria: it is not
+"""
+    config = f"""\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+defaults:
+  runs: 3
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+{evals}
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [fix1]
+"""
+    (tmp_path / "config.yaml").write_text(config)
+    (tmp_path / "fixtures").mkdir(exist_ok=True)
+    (tmp_path / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n  q: x\n" + labels_yaml
+    )
+    cfg = parse_and_validate(tmp_path / "config.yaml")
+    return validate_fixture_labels(cfg, tmp_path)
+
+
+def test_labels_parsed_per_eval_per_run():
+    from fieldtest.config import extract_labels
+
+    fixture = {"id": "f1", "labels": {"ev1": {1: "pass", 3: "fail"}}}
+    assert extract_labels(fixture) == {("ev1", 1): "pass", ("ev1", 3): "fail"}
+
+
+def test_fixture_without_labels_extracts_nothing():
+    from fieldtest.config import extract_labels
+
+    assert extract_labels({"id": "f1", "inputs": {}}) == {}
+
+
+def test_valid_labels_report_coverage(tmp_path):
+    errors, coverage = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: pass\n    2: fail\n"
+    )
+    assert errors == []
+    assert coverage == {"ev1": 2}
+
+
+def test_label_type_mismatch_is_config_error(tmp_path):
+    errors, _ = _label_project(tmp_path, "labels:\n  ev1:\n    1: 4\n")
+    assert any("must be 'pass' or 'fail'" in e for e in errors)
+
+
+def test_label_references_unknown_eval_is_config_error(tmp_path):
+    errors, _ = _label_project(tmp_path, "labels:\n  nope:\n    1: pass\n")
+    assert any("unknown eval 'nope'" in e for e in errors)
+
+
+def test_label_run_number_exceeding_runs_is_config_error(tmp_path):
+    errors, _ = _label_project(tmp_path, "labels:\n  ev1:\n    9: pass\n")
+    assert any("exceeds runs: 3" in e for e in errors)
+
+
+SCORED_EVAL = """\
+          - id: ev1
+            tag: good
+            type: llm
+            binary: false
+            description: rate it
+            scale: [1, 5]
+            anchors:
+              1: bad
+              5: great
+"""
+
+
+def test_label_score_outside_scale_is_config_error(tmp_path):
+    errors, _ = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: 9\n", eval_yaml=SCORED_EVAL
+    )
+    assert any("outside scale 1–5" in e for e in errors)
+
+
+def test_scored_label_must_be_integer(tmp_path):
+    errors, _ = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: pass\n", eval_yaml=SCORED_EVAL
+    )
+    assert any("must be an integer score" in e for e in errors)
+
+
+def test_valid_scored_label_accepted(tmp_path):
+    errors, coverage = _label_project(
+        tmp_path, "labels:\n  ev1:\n    1: 4\n", eval_yaml=SCORED_EVAL
+    )
+    assert errors == []
+    assert coverage == {"ev1": 1}

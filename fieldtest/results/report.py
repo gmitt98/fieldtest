@@ -165,6 +165,7 @@ def format_report(
     set_name: str,
     partial: bool = False,
     partial_details: Optional[list[str]] = None,
+    unsupported_params: Optional[list[str]] = None,
 ) -> str:
     """
     Build the full markdown report as a string.
@@ -209,6 +210,58 @@ def format_report(
             f"{fixture_count * runs} evaluations per eval"
         )
 
+    # Only when an LLM judge is actually configured — a rules-only project has
+    # no judge, and naming one would describe an instrument that never ran.
+    if any(ev.type == "llm" for uc in config.use_cases for ev in uc.evals):
+        lines.append(
+            f"judge: {config.defaults.provider} {config.defaults.model} | "
+            f"temperature: {config.defaults.judge_temperature}"
+            + (f" | seed: {config.defaults.judge_seed}" if config.defaults.judge_seed is not None else "")
+        )
+    if unsupported_params:
+        lines.append(
+            "⚠ judge parameters ignored by provider: "
+            + ", ".join(unsupported_params)
+        )
+
+    # Deltas against a baseline written before judge tracking are still shown —
+    # blanking them out on upgrade is worse — but the caveat travels with them.
+    if delta.get("baseline_run_id") and delta.get("baseline_pre_judge"):
+        lines.append(
+            "⚠ baseline predates judge tracking — the judge that produced it is "
+            "unknown, so deltas may reflect an instrument change."
+        )
+
+    current_judge_runs = 1
+    if config.use_cases:
+        from fieldtest.config import resolve_judge_runs
+        current_judge_runs = resolve_judge_runs(config, config.use_cases[0])
+
+    baseline_judge_runs = delta.get("baseline_judge_runs", current_judge_runs)
+    if delta.get("baseline_run_id") and baseline_judge_runs != current_judge_runs:
+        lines.append(
+            f"⚠ baseline judged each output {baseline_judge_runs}× and this run "
+            f"{current_judge_runs}× — failure rates remain comparable, judge spread "
+            f"figures do not."
+        )
+
+    # Judge errors shrink the sample rather than failing the run, so say so where
+    # the rates are read rather than leaving it to be inferred from two numbers.
+    from fieldtest.results.aggregator import summarize_judge_errors
+    judge_errors = summarize_judge_errors(summary)
+    if judge_errors:
+        lines.append(
+            f"⚠ judge errors: {judge_errors['failed']} of {judge_errors['total']} "
+            f"calls failed after retry."
+        )
+        lines.append(
+            "  affected evals: "
+            + ", ".join(
+                f"{eval_id} ({scored} of {attempted} runs scored)"
+                for eval_id, scored, attempted in judge_errors["affected"]
+            )
+        )
+
     # Per use_case sections
     for uc in config.use_cases:
         uc_stats = summary.get(uc.id, {})
@@ -249,8 +302,12 @@ def format_report(
                 labels_map[ev.id] = "|".join(ev.labels) if ev.labels else "—"
 
             lines.append(f"### {tag.upper()}")
-            lines.append("| eval | labels | pass rate | mean | floor hits | errors | vs prior |")
-            lines.append("|------|--------|----------|------|-----------|--------|---------|")
+            lines.append(
+                "| eval | labels | pass rate | n | mean | floor hits | errors | vs prior |"
+            )
+            lines.append(
+                "|------|--------|----------|---|------|-----------|--------|---------|"
+            )
 
             for eval_id, stats in tag_stats.items():
                 fr    = stats.get("failure_rate")
@@ -258,8 +315,17 @@ def format_report(
                 fh    = stats.get("floor_hits", 0)
                 errs  = stats.get("error_count", 0)
 
-                # Display pass rate (1 - failure_rate) so higher = better
-                pr_str   = f"{round((1 - fr) * 100)}%" if fr is not None else "—"
+                # Display pass rate (1 - failure_rate) so higher = better. The
+                # interval is the failure-rate interval inverted, and it travels
+                # with the rate: a point estimate at runs: 5 is gating on noise.
+                ci = stats.get("failure_rate_ci")
+                if fr is None:
+                    pr_str = "—"
+                elif ci:
+                    low, high = round((1 - ci[1]) * 100), round((1 - ci[0]) * 100)
+                    pr_str = f"{round((1 - fr) * 100)}% [{low}–{high}%]"
+                else:
+                    pr_str = f"{round((1 - fr) * 100)}%"
                 mean_str = "—"
                 if mean is not None:
                     for ev in uc.evals:
@@ -282,8 +348,16 @@ def format_report(
                     vs_str = "—"
 
                 lbl_str = labels_map.get(eval_id, "—")
+
+                # An eval scored on fewer runs than it attempted is reporting a
+                # rate from a shrunken sample. Mark it where the rate is read.
+                scored    = stats.get("total_runs") or 0
+                attempted = scored + errs
+                err_str   = f"{errs} ⚠ {scored}/{attempted} scored" if errs else f"{errs}"
+
                 lines.append(
-                    f"| {eval_id} | {lbl_str} | {pr_str} | {mean_str} | {fh} | {errs} | {vs_str} |"
+                    f"| {eval_id} | {lbl_str} | {pr_str} | {scored} | {mean_str} | "
+                    f"{fh} | {err_str} | {vs_str} |"
                 )
 
                 if errs > 0:
@@ -295,6 +369,75 @@ def format_report(
                                 f"outputs/{row.fixture_id}/run-{row.run}.txt"
                             )
 
+            lines.append("")
+
+        # --- Judge vs human ----------------------------------------------
+        # Labels score the judge, not the system. Two judges that agree with each
+        # other and are both wrong look identical until a human is in the picture.
+        label_rows: list[str] = []
+        for tag in ["right", "good", "safe"]:
+            for eval_id, stats in uc_stats.get(tag, {}).items():
+                if "labeled_runs" not in stats:
+                    continue
+                agreement = f"{round(stats['judge_agreement'] * 100, 1)}%"
+                if "mean_absolute_deviation" in stats:
+                    detail = f"mean abs deviation {stats['mean_absolute_deviation']}"
+                else:
+                    detail = (
+                        f"{stats['judge_false_pass']} false pass, "
+                        f"{stats['judge_false_fail']} false fail"
+                    )
+                label_rows.append(
+                    f"| {eval_id} | {stats['labeled_runs']} | {agreement} | {detail} |"
+                )
+
+        if label_rows:
+            lines.append("### Judge vs Human Labels")
+            lines.append("| eval | labeled runs | agreement | errors |")
+            lines.append("|------|--------------|-----------|--------|")
+            lines.extend(label_rows)
+            lines.append("")
+            lines.append(
+                "  a false pass is an output a human failed and the judge passed — "
+                "on a safe eval that is the error that matters."
+            )
+            lines.append("")
+
+        # --- Judge repeatability -----------------------------------------
+        # How much of the reported spread belongs to the instrument rather than
+        # the system. Near zero is a well-specified eval; anything else is an
+        # eval whose criteria are ambiguous. That diagnostic is the point.
+        repeat_rows: list[str] = []
+        for tag in ["right", "good", "safe"]:
+            for eval_id, stats in uc_stats.get(tag, {}).items():
+                if "judge_runs" not in stats:
+                    continue
+                disagreement = stats.get("judge_disagreement_rate")
+                dis_str = f"{round(disagreement * 100, 1)}%" if disagreement is not None else "—"
+                sys_str = (
+                    f"{stats['system_stddev']}" if stats.get("system_stddev") is not None else "—"
+                )
+                jdg_str = (
+                    f"{stats['judge_stddev']}" if stats.get("judge_stddev") is not None else "—"
+                )
+                repeat_rows.append(f"| {eval_id} | {dis_str} | {sys_str} | {jdg_str} |")
+
+        if repeat_rows:
+            reps = next(
+                stats["judge_runs"]
+                for tag in ["right", "good", "safe"]
+                for stats in uc_stats.get(tag, {}).values()
+                if "judge_runs" in stats
+            )
+            lines.append(f"### Judge Repeatability (judge_runs: {reps})")
+            lines.append("| eval | judge disagreement | system spread | judge spread |")
+            lines.append("|------|--------------------|---------------|--------------|")
+            lines.extend(repeat_rows)
+            lines.append("")
+            lines.append(
+                "  spread near zero means the judge is repeatable; a judge spread "
+                "comparable to the system spread means the eval's criteria are ambiguous."
+            )
             lines.append("")
 
         # Floor hits
