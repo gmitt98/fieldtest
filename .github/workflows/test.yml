@@ -1,0 +1,55 @@
+name: tests
+
+# Spec 12's tiers, wired up. The default tier runs on every push and needs no
+# credentials, so a provider outage can never look like a contributor error.
+# The live tier runs on a schedule instead, where a failure means a provider
+# changed something rather than that someone's branch did.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    # Daily. Provider drift is the thing this catches, and it is slow.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  default:
+    # unit + integration. No network, no keys.
+    name: unit + integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[openai,gemini,dev]"
+      - run: pytest -q
+      - name: verify the tiers still catch what they were built for
+        # Reintroduces four defects that actually shipped and checks each is
+        # caught. A green suite that cannot catch its own bugs is decoration.
+        run: python scripts/verify_tiers.py
+
+  live:
+    # Real providers. Scheduled and manual only — never on a push, so a
+    # contributor never waits on someone else's rate limit.
+    name: live providers
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[openai,gemini,dev]"
+      - name: live tier
+        env:
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY:     ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        # Exits non-zero if no credentials were present, so a misconfigured
+        # secret shows up as a failure rather than as a green run that asked
+        # nothing. The coverage report names any provider that went untested.
+        run: pytest -m live -v

@@ -503,6 +503,21 @@ defaults:
 
 **Sets** are just named lists of fixture IDs you define. Use whatever names make sense. `all` is a special keyword meaning every fixture in the directory.
 
+**`providers`** is optional and only needed for a provider that names an endpoint rather than reading a well-known key from the environment. The three built-in providers need no entry:
+
+```yaml
+defaults:
+  provider: openai_compatible
+  model: meta-llama/llama-3.3-70b-instruct
+
+providers:
+  openai_compatible:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY   # variable name, never the key itself
+```
+
+See [Any OpenAI-compatible endpoint](#any-openai-compatible-endpoint) for the full picture, including registering your own provider.
+
 ### 3. Add fixtures
 
 A fixture is a YAML file in `evals/fixtures/` describing one test case. The filename is the fixture ID.
@@ -1079,6 +1094,8 @@ The fields most commonly used for CI gating:
     "temperature": 0.0,
     "seed": null,
     "overrides": {},
+    "blinded_evals": [],
+    "endpoints": {},
     "fingerprint": "a3f91c2e"
   },
   "summary": {

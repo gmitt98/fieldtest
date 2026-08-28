@@ -18,7 +18,7 @@ from fieldtest.providers.settings import (
     BUILTIN_PROVIDERS,
     VALID_PROVIDERS,
     ProviderSettings,
-    _validate_provider_name,
+    validate_provider_name,
 )
 
 
@@ -169,7 +169,7 @@ class Defaults(BaseModel):
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:
-        return _validate_provider_name(v, "defaults.provider in config.yaml")
+        return validate_provider_name(v, "defaults.provider in config.yaml")
 
 
 class PanelJudge(BaseModel):
@@ -180,7 +180,7 @@ class PanelJudge(BaseModel):
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:
-        return _validate_provider_name(v, "calibration.panel in config.yaml")
+        return validate_provider_name(v, "calibration.panel in config.yaml")
 
 
 class CalibrationConfig(BaseModel):

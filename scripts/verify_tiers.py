@@ -135,6 +135,36 @@ def find_real_lint_errors() -> list[str]:
     return [ln for ln in r.stdout.splitlines() if ": F" in ln or ": E9" in ln]
 
 
+def check_documented_test_count() -> list[str]:
+    """
+    The CHANGELOG states a test count. It went stale within a day of being
+    written, because nothing recomputed it.
+
+    Checked here rather than in a test: a test asserting the size of its own
+    suite fails every time a test is added, which trains people to edit the
+    number rather than read it.
+    """
+    import re
+
+    changelog = (REPO / "CHANGELOG.md").read_text()
+    m = re.search(r"Test suite: \d+ → (\d+)", changelog)
+    if not m:
+        return ["CHANGELOG no longer states a test count"]
+    claimed = int(m.group(1))
+
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m", ""],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    found = re.search(r"(\d+) tests collected", r.stdout)
+    if not found:
+        return []
+    actual = int(found.group(1))
+    if claimed != actual:
+        return [f"CHANGELOG claims {claimed} tests; the suite has {actual}"]
+    return []
+
+
 def main() -> int:
     ok, failures = run_suite()
     if not ok:
@@ -176,6 +206,14 @@ def main() -> int:
         undetected.append(f"{len(vacuous)} vacuous test(s)")
     else:
         print("no vacuous tests")
+
+    stale = check_documented_test_count()
+    if stale:
+        for msg in stale:
+            print(f"  - {msg}")
+        undetected.extend(stale)
+    else:
+        print("documented test count is current")
 
     lint = find_real_lint_errors()
     if lint:

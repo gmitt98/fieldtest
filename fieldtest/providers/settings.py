@@ -49,7 +49,7 @@ class ProviderSettings(BaseModel):
     api_key_env: Optional[str] = None
 
 
-def _validate_provider_name(v: str, where: str) -> str:
+def validate_provider_name(v: str, where: str) -> str:
     """
     Accept a built-in name or one registered with @provider.
 

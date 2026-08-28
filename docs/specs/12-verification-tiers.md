@@ -80,9 +80,13 @@ markers = [
 addopts = "-m 'not live'"
 ```
 
-`pytest` runs unit + integration. `pytest -m live` runs the live tier. CI runs the default on
-every push and the live tier on a schedule, where a failure means a provider changed something,
-not that a contributor did.
+`pytest` runs unit + integration. `pytest -m live` runs the live tier.
+
+`.github/workflows/test.yml` runs the default tier plus `scripts/verify_tiers.py` on every push
+and pull request, and the live tier on a daily schedule or on demand, where a failure means a
+provider changed something rather than that a contributor did. The live job needs four repository
+secrets — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` — and
+fails rather than passing quietly if none are present.
 
 Live tests skip on a missing key, per provider:
 

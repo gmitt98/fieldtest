@@ -66,13 +66,16 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if not configured:
         tr.write_line("")
         tr.write_line("  No provider credentials were set — this run verified nothing.")
-        # Exit non-zero: a live run that asked no provider anything must not
-        # report success, or `pytest -m live` becomes a no-op that passes.
-        terminalreporter._session.exitstatus = pytest.ExitCode.USAGE_ERROR
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Enforce the exit code set above; terminal_summary runs too late for it."""
+    """
+    A live run that asked no provider anything must not report success, or
+    `pytest -m live` is a no-op that passes.
+
+    Here rather than in the summary hook, which runs too late to affect the
+    exit code and would need a private attribute to try.
+    """
     if not _live_selected(session.config):
         return
     if not any(os.environ.get(v) for v in LIVE_CREDENTIALS.values()):
