@@ -17,8 +17,6 @@ import json
 import pathlib
 import subprocess
 import sys
-import tempfile
-import shutil
 import yaml
 
 

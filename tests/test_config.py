@@ -349,7 +349,6 @@ def test_dataset_version_parses_when_set(tmp_path):
 
 def test_raw_pydantic_error_not_propagated(tmp_path):
     yaml = MINIMAL_VALID.replace("schema_version: 1", "schema_version: 99")
-    from pydantic import ValidationError as PydanticValidationError
     with pytest.raises(ConfigError):
         parse_and_validate(_write_config(tmp_path, yaml))
     # Ensure raw ValidationError is NOT raised

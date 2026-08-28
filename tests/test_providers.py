@@ -49,8 +49,6 @@ def test_factory_unknown_provider():
 # ---------------------------------------------------------------------------
 
 def test_openai_missing_api_key():
-    adapter = OpenAIAdapter()
-
     mock_openai_module = MagicMock()
 
     with patch.dict("os.environ", {}, clear=True):
@@ -73,8 +71,6 @@ def test_openai_missing_package():
 
 
 def test_openai_successful_call():
-    adapter = OpenAIAdapter()
-
     mock_message = MagicMock()
     mock_message.content = '{"answer": "Pass", "reasoning": "Looks good"}'
     mock_choice = MagicMock()
@@ -100,8 +96,6 @@ def test_openai_successful_call():
 
 
 def test_openai_strips_markdown_fences():
-    adapter = OpenAIAdapter()
-
     mock_message = MagicMock()
     mock_message.content = '```json\n{"answer": "Fail", "reasoning": "Bad"}\n```'
     mock_choice = MagicMock()
@@ -126,8 +120,6 @@ def test_openai_strips_markdown_fences():
 
 
 def test_openai_non_json_response():
-    adapter = OpenAIAdapter()
-
     mock_message = MagicMock()
     mock_message.content = "This is not JSON"
     mock_choice = MagicMock()

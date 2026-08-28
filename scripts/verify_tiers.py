@@ -81,6 +81,60 @@ def run_suite() -> tuple[bool, list[str]]:
     return r.returncode == 0, failures
 
 
+def find_vacuous_tests() -> list[str]:
+    """
+    Tests whose every assertion sits inside an `if`, so they pass when the
+    condition is False and assert nothing at all.
+
+    test_provider_error_message_format was one: it checked an errored row
+    inside `if results:`, and a config error writes no -data.json, so none of
+    its assertions had ever run.
+    """
+    import ast
+
+    vacuous = []
+    for f in sorted((REPO / "tests").glob("test_*.py")):
+        tree = ast.parse(f.read_text())
+        for fn in ast.walk(tree):
+            if not (isinstance(fn, ast.FunctionDef) and fn.name.startswith("test_")):
+                continue
+            unguarded = [n for n in fn.body if isinstance(n, ast.Assert)]
+            guarded = [
+                n
+                for stmt in fn.body
+                if isinstance(stmt, ast.If)
+                for n in ast.walk(stmt)
+                if isinstance(n, ast.Assert)
+            ]
+            if guarded and not unguarded:
+                vacuous.append(f"{f.name}:{fn.lineno} {fn.name}")
+    return vacuous
+
+
+def find_real_lint_errors() -> list[str]:
+    """
+    Pyflakes-class findings only — undefined names, unused imports and
+    variables. Not style: the repo has never had a linter and imposing one
+    would churn every file. An unused local is worth catching because it is
+    often the visible half of a test that stopped testing anything.
+
+    Skipped silently when ruff is unavailable, so this script never fails for
+    reasons unrelated to the suite.
+    """
+    import shutil
+
+    runner = shutil.which("uvx") or shutil.which("ruff")
+    if runner is None:
+        return []
+    cmd = [runner, "ruff"] if runner.endswith("uvx") else [runner]
+    r = subprocess.run(
+        cmd + ["check", "fieldtest/", "tests/", "scripts/",
+               "--select", "F,E9", "--no-cache", "--output-format=concise"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    return [ln for ln in r.stdout.splitlines() if ": F" in ln or ": E9" in ln]
+
+
 def main() -> int:
     ok, failures = run_suite()
     if not ok:
@@ -113,12 +167,32 @@ def main() -> int:
             undetected.append(m.name)
 
     print()
+
+    vacuous = find_vacuous_tests()
+    if vacuous:
+        print("tests whose assertions are all conditional (they pass on the else path):")
+        for v in vacuous:
+            print(f"  - {v}")
+        undetected.append(f"{len(vacuous)} vacuous test(s)")
+    else:
+        print("no vacuous tests")
+
+    lint = find_real_lint_errors()
+    if lint:
+        print("\nunused or undefined names:")
+        for ln in lint:
+            print(f"  - {ln}")
+        undetected.append(f"{len(lint)} lint error(s)")
+    else:
+        print("no unused or undefined names")
+
+    print()
     if undetected:
         print("undetected defects:")
         for name in undetected:
             print(f"  - {name}")
         return 1
-    print(f"all {len(MUTATIONS)} defects caught")
+    print(f"all {len(MUTATIONS)} defects caught, suite is clean")
     return 0
 
 

@@ -112,7 +112,6 @@ def validate(config_path: Optional[str]):
     config = _load_config(path)
 
     base_dir    = path.resolve().parent
-    fixture_dir = base_dir / "fixtures"
 
     # Coverage summary
     total_evals   = sum(len(uc.evals) for uc in config.use_cases)
@@ -734,10 +733,10 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         click.echo("")
         click.echo("Next steps:")
         click.echo(f"  1. Fill in system name and domain in {evals_dir}/config.yaml")
-        click.echo(f"  2. Tag each eval: right, good, or safe")
+        click.echo("  2. Tag each eval: right, good, or safe")
         click.echo(f"  3. Add fixtures to {evals_dir}/fixtures/")
         click.echo(f"  4. Run your system → write outputs to {evals_dir}/outputs/")
-        click.echo(f"  5. fieldtest score")
+        click.echo("  5. fieldtest score")
     else:
         config_path = evals_dir / "config.yaml"
         if not config_path.exists() or force:
@@ -753,7 +752,7 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         click.echo(f"  1. Edit {evals_dir}/config.yaml")
         click.echo(f"  2. Add fixtures to {evals_dir}/fixtures/")
         click.echo(f"  3. Run your system → write outputs to {evals_dir}/outputs/")
-        click.echo(f"  4. fieldtest score")
+        click.echo("  4. fieldtest score")
         click.echo("")
         click.echo("Or start from a template: fieldtest init --template chatbot")
 
@@ -878,7 +877,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
             click.echo("Offline results loaded. No markdown report found.")
 
         click.echo(f"\nFiles saved to {dest}/ — edit evals/outputs/ to experiment, then run fieldtest score")
-        click.echo(f"Run 'fieldtest view' to open the HTML report in your browser.")
+        click.echo("Run 'fieldtest view' to open the HTML report in your browser.")
         return
 
     # Live mode — check API key (not required for extraction which uses rules only)

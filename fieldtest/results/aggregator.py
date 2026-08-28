@@ -251,7 +251,6 @@ def build_summary(
                 scale_min = meta["scale_min"]
 
                 error_rows   = [r for r in eval_rows if r.error is not None]
-                skipped_rows = [r for r in eval_rows if r.skipped and r.error is None]
                 valid_rows   = [r for r in eval_rows if not r.skipped and r.error is None]
 
                 error_count = len(error_rows)

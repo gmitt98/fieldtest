@@ -10,11 +10,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fieldtest.config import Config, Defaults, Eval, FixturesConfig, ResultRow, SystemConfig, UseCase
+from fieldtest.config import Config, Defaults, Eval, FixturesConfig, SystemConfig, UseCase
 from fieldtest.errors import ConfigError
 from fieldtest.judges.dispatch import dispatch_judge
 from fieldtest.judges.llm import build_binary_judge_prompt, build_scored_judge_prompt
-from fieldtest.judges.registry import _rule_registry, get_rule, rule
+from fieldtest.judges.registry import _rule_registry, rule
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +241,6 @@ def test_llm_scored_no_passed_field():
 
 def test_unknown_type_raises():
     # Can't create invalid Eval via Pydantic, so test dispatch directly
-    from fieldtest.config import Eval as RealEval
     ev = _make_eval(type="regex", pattern="x", match=True)
     # Monkey-patch type on the eval object to bypass Pydantic
     object.__setattr__(ev, "type", "custom_unknown")
@@ -555,7 +554,7 @@ def test_scored_judge_sees_inputs_too():
 
 def test_opt_out_changes_the_judge_fingerprint():
     """A judge that cannot see the context is not the same instrument."""
-    from fieldtest.config import Config, Defaults, FixturesConfig, SystemConfig, UseCase
+    from fieldtest.config import Config, Defaults, SystemConfig
     from fieldtest.results.provenance import build_judge_block
 
     def cfg(sees: bool):

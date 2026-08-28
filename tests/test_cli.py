@@ -307,20 +307,22 @@ defaults:
 """
     evals_dir2 = _setup_project(tmp_path / "p2" / "x", config=llm_config)
     _write_outputs(evals_dir2, "fix1", runs=1)
-    runner = CliRunner()
-    result = runner.invoke(
+    result = CliRunner().invoke(
         main,
         ["score", "--config", str(evals_dir2 / "config.yaml")],
         catch_exceptions=False,
     )
-    # Provider error surfaces in result row (not run-aborting), so exit 0
-    # but the error should appear in the JSON
-    results = list((evals_dir2 / "results").glob("*-data.json"))
-    if results:
-        data = json.loads(results[0].read_text())
-        errors = [r for r in data["rows"] if r.get("error")]
-        assert len(errors) > 0
-        assert "bad_provider" in errors[0]["error"] or "Unknown provider" in errors[0]["error"]
+
+    # An unknown provider is a config error, caught before any judge call —
+    # better than the errored rows this test previously expected. It asserted
+    # those rows inside `if results:`, and no -data.json is written on a config
+    # error, so every assertion in it was unreachable.
+    assert result.exit_code == 1
+    assert "Unknown provider 'bad_provider'" in result.output
+    # The error is where a user learns the limit, so it names both ways out.
+    assert "openai_compatible" in result.output
+    assert "@provider" in result.output
+    assert not list((evals_dir2 / "results").glob("*-data.json"))
 
 
 def test_output_error_message_format(tmp_path):
