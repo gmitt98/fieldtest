@@ -142,9 +142,11 @@ def test_live_unsupported_parameter_is_dropped_and_named():
         "temperature was accepted where the provider documents a 400 — either "
         "the model changed or rejects_parameter() stopped matching"
     )
-    # max_tokens is renamed rather than dropped, so it is absent from
-    # `unsupported` by design: the call succeeding on a model that rejects it is
-    # what proves the rename fired.
+    # A rename is not a capability loss, so it stays out of `unsupported`. It is
+    # reported separately rather than inferred from the call not failing.
+    assert ("max_tokens", "max_completion_tokens") in r.get("renamed", []), (
+        f"max_tokens was not renamed; the adapter reported {r.get('renamed')}"
+    )
 
 
 @needs_gemini

@@ -137,7 +137,7 @@ fixtures:
 ```
 
 A judge spread near zero means the eval is well specified. A judge spread that rivals the system
-spread means the criteria are ambiguous. That diagnostic is the point.
+spread means the criteria are ambiguous, which is the diagnostic worth having.
 
 Rates stay comparable: `failure_rate` comes from one collapsed verdict per output — majority, ties
 resolved to fail, because a tie means the judge could not decide and on a `safe` eval that is not
@@ -186,7 +186,7 @@ Each judge scores the same `outputs/` — cheap, because your generator already 
 get pairwise agreement, Cohen's kappa, and Fleiss' kappa across the panel. Scored evals get mean
 absolute deviation and Spearman correlation.
 
-Kappa rather than raw agreement is the point. On a `safe` eval whose true failure rate is 5%, two
+Kappa matters here more than raw agreement. On a `safe` eval whose true failure rate is 5%, two
 judges that both always answer pass agree 95% of the time and have demonstrated nothing.
 
 The output that matters is the ranking: your evals ordered by how much the panel disagreed. Those

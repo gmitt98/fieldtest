@@ -175,8 +175,8 @@ error strings, under the fixture test without any network at all.
 ## §6 Out of scope
 
 Recording and replaying real responses (VCR-style). It would make contract drift *less* visible by
-freezing yesterday's contract into a fixture that keeps passing — which is the failure this spec
-exists to correct, wearing a costume.
+freezing yesterday's contract into a fixture that keeps passing. That is the failure this spec
+exists to correct, not a way to avoid it.
 
 Also out of scope: gating merges on the live tier. Provider outages are not contributor errors,
 and a required check that fails for reasons outside the repository teaches people to ignore it.

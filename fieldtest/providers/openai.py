@@ -54,6 +54,7 @@ class OpenAIAdapter(ProviderAdapter):
             return {"error": str(e)}
 
         unsupported: list[str] = []
+        renamed: list = []
         kwargs = {
             "model":       model,
             "max_tokens":  gen.max_tokens,
@@ -74,6 +75,7 @@ class OpenAIAdapter(ProviderAdapter):
                 # require max_completion_tokens. Renaming keeps the output bound
                 # that spec 02 §2.4 requires; dropping it would remove it.
                 renames={"max_tokens": "max_completion_tokens"},
+                renamed=renamed,
             )
             content = response.choices[0].message.content.strip()
             try:
@@ -83,6 +85,11 @@ class OpenAIAdapter(ProviderAdapter):
                 return {"error": f"Judge returned non-JSON response: {e}"}
             if unsupported:
                 parsed["unsupported"] = unsupported
+            if renamed:
+                # Not a capability loss, so it stays out of `unsupported` and out
+                # of the report. Exposed so a live test can see the rename fire
+                # rather than infer it from the call not failing.
+                parsed["renamed"] = renamed
             return parsed
 
         return with_retry(

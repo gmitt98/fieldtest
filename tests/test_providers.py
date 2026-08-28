@@ -1300,3 +1300,26 @@ def test_rejects_parameter_ignores_unrelated_bad_requests(message):
         assert not rejects_parameter(_Rejected(message), param), (
             f"matched {param!r} in an unrelated failure: {message!r}"
         )
+
+
+def test_rename_is_reported_separately_from_unsupported():
+    """
+    A renamed parameter is not a capability loss, so it must not appear in
+    `unsupported` — that field drives the report line telling a user their judge
+    ran without something. It is reported on its own so a rename can be observed
+    rather than inferred from the call having succeeded.
+    """
+    class _Rejected(Exception):
+        status_code = 400
+
+    err = _Rejected(
+        "Unsupported parameter: 'max_tokens' is not supported with this model. "
+        "Use 'max_completion_tokens' instead."
+    )
+    result, _, _ = _drive_adapter(
+        "openai", side_effect=[err, DEFAULT],
+        returns_text='{"answer": "Pass", "reasoning": "ok"}',
+    )
+
+    assert result["renamed"] == [("max_tokens", "max_completion_tokens")]
+    assert "unsupported" not in result
