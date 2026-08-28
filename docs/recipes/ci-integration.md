@@ -64,3 +64,23 @@ print('All RIGHT evals within threshold.')
 ## What the report shows
 
 CI runs produce the same four output files as local runs. Upload the `results/` directory as a build artifact for review. The HTML report is self-contained — reviewers can open it directly from the artifact.
+
+## Gate on the interval, not the point estimate
+
+At `runs: 5`, one flipped judgment moves `failure_rate` by 0.2. A gate on that number is a gate on
+noise, and it will fail builds for nothing and pass builds it should not.
+
+Every binary eval now carries `failure_rate_ci` — a Wilson score interval — alongside the rate. The
+lower bound is the failure rate your sample actually supports:
+
+```bash
+DATA=$(ls -t evals/results/*-data.json | head -1)
+jq '[.summary[][][].failure_rate_ci[0] | select(. != null)] | max // 0' "$DATA"
+```
+
+Widen the interval by raising `runs`, not by loosening the threshold. `total_runs` sits beside the
+rate in the report for exactly this reason: an interval means nothing without its n.
+
+If your gate compares against a prior run, note that fieldtest will not auto-select a baseline
+scored by a different judge — a swapped judge model used to look exactly like a regression. Check
+`.delta.baseline_run_id` is not null before trusting a comparison.
