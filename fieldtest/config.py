@@ -10,10 +10,15 @@ from pathlib import Path
 from typing import Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
 from fieldtest.providers.base import RetryPolicy
+from fieldtest.providers.settings import (
+    VALID_PROVIDERS,
+    ProviderSettings,
+    _validate_provider_name,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -127,51 +132,6 @@ class UseCase(BaseModel):
 class SystemConfig(BaseModel):
     name:   str
     domain: str
-
-
-VALID_PROVIDERS = {"anthropic", "gemini", "openai", "openai_compatible"}
-
-
-class ProviderSettings(BaseModel):
-    """
-    Connection settings for one provider, from the config's `providers` block.
-
-    Authentication is by environment variable *name*. The name is config; the
-    value never is, so a config file can be committed without leaking a key.
-
-    extra="forbid" here and nowhere else in this module: a config that writes
-    `api_key: sk-...` would otherwise have it silently ignored, leaving the
-    user with a committed secret and a run that still fails on a missing
-    credential. This block is the one place a key would plausibly be typed.
-    """
-    model_config = ConfigDict(extra="forbid")
-
-    # Required, with no default: guessing a base_url would silently send a
-    # user's outputs to an endpoint they did not name.
-    base_url:    str
-    # Optional: a self-hosted endpoint may need no key at all, and absence of
-    # one is a valid configuration rather than an error.
-    api_key_env: Optional[str] = None
-
-
-def _validate_provider_name(v: str, where: str) -> str:
-    """
-    Accept a built-in name or one registered with @provider.
-
-    The registry is consulted at validation time rather than baked into
-    VALID_PROVIDERS, because evals/providers.py is imported just before the
-    config is parsed and a registered name must satisfy this check.
-    """
-    from fieldtest.providers.registry import registered_provider_names
-
-    known = VALID_PROVIDERS | registered_provider_names()
-    if v in known:
-        return v
-    supported = ", ".join(sorted(known))
-    raise ValueError(
-        f"Unknown provider '{v}'. Supported: {supported}. "
-        f"Check {where}. Register your own with @provider in evals/providers.py."
-    )
 
 
 class Defaults(BaseModel):
@@ -408,191 +368,31 @@ def parse_and_validate(config_path: Path) -> Config:
         raise ConfigError(f"Config error at {config_path}: {exc}") from exc
 
 
-def load_fixture(fixture_path: Path) -> dict:
-    """Load a YAML fixture file. Raises ConfigError if id field missing."""
-    try:
-        data = yaml.safe_load(fixture_path.read_text())
-    except Exception as e:
-        raise ConfigError(f"Config error at {fixture_path}: {e}") from e
-    if not isinstance(data, dict) or "id" not in data:
-        raise ConfigError(f"Config error at {fixture_path}: fixture missing required 'id' field")
-    return data
+# ---------------------------------------------------------------------------
+# Re-exported from the modules these were split into. Imported at the bottom so
+# the models above are defined first, and kept here so that every existing
+# `from fieldtest.config import ...` keeps working.
+# ---------------------------------------------------------------------------
 
+from fieldtest.fixtures import (  # noqa: E402
+    extract_labels,
+    load_fixture,
+    validate_fixture_labels,
+)
+from fieldtest.resolve import (  # noqa: E402
+    resolve_dataset_version,
+    resolve_judge_runs,
+    resolve_runs,
+    resolve_set,
+    use_cases_with_fixtures,
+)
 
-def extract_labels(fixture: dict) -> dict:
-    """
-    Human verdicts from a fixture, keyed (eval_id, run) → value.
-
-    Labels are per (eval_id, generator run) because different outputs for the
-    same fixture warrant different verdicts. Keying by eval_id alone would assume
-    the system is deterministic, which is the assumption fieldtest exists to
-    reject.
-
-    Malformed entries are skipped rather than raised: label shape is a config
-    error reported by `fieldtest validate`, not a scoring-time failure.
-    """
-    labels: dict = {}
-    raw = fixture.get("labels")
-    if not isinstance(raw, dict):
-        return labels
-
-    for eval_id, per_run in raw.items():
-        if not isinstance(per_run, dict):
-            continue
-        for run, value in per_run.items():
-            if isinstance(run, int):
-                labels[(eval_id, run)] = value
-    return labels
-
-
-def validate_fixture_labels(config: Config, base_dir: Path) -> tuple[list[str], dict]:
-    """
-    Check every fixture's labels against the config. Returns (errors, coverage),
-    where coverage maps eval_id → number of labeled runs.
-
-    Reported by `fieldtest validate` rather than raised, so a labeling mistake
-    surfaces before a run rather than during one.
-    """
-    errors: list[str] = []
-    coverage: dict = {}
-
-    for uc in use_cases_with_fixtures(config):
-        eval_by_id = {ev.id: ev for ev in uc.evals}
-        max_runs   = resolve_runs(config, uc)
-        fixture_dir = base_dir / uc.fixtures.directory
-
-        if not fixture_dir.exists():
-            continue
-
-        for fixture_path in sorted(fixture_dir.glob("*.yaml")):
-            try:
-                fixture = load_fixture(fixture_path)
-            except ConfigError:
-                continue
-
-            raw = fixture.get("labels")
-            if raw is None:
-                continue
-            if not isinstance(raw, dict):
-                errors.append(f"  ⚠ {fixture_path.name}: 'labels' must be a mapping of eval id → run → verdict")
-                continue
-
-            for eval_id, per_run in raw.items():
-                ev = eval_by_id.get(eval_id)
-                if ev is None:
-                    errors.append(
-                        f"  ⚠ {fixture_path.name}: label references unknown eval '{eval_id}'"
-                    )
-                    continue
-                if not isinstance(per_run, dict):
-                    errors.append(
-                        f"  ⚠ {fixture_path.name}: labels for '{eval_id}' must map run number → verdict"
-                    )
-                    continue
-
-                is_scored = ev.type == "llm" and not ev.binary
-
-                for run, value in per_run.items():
-                    if not isinstance(run, int) or run < 1:
-                        errors.append(
-                            f"  ⚠ {fixture_path.name}: label run key '{run}' for '{eval_id}' "
-                            f"must be a run number"
-                        )
-                        continue
-                    if run > max_runs:
-                        errors.append(
-                            f"  ⚠ {fixture_path.name}: label for '{eval_id}' run {run} "
-                            f"exceeds runs: {max_runs}"
-                        )
-                        continue
-
-                    if is_scored:
-                        if not isinstance(value, int) or isinstance(value, bool):
-                            errors.append(
-                                f"  ⚠ {fixture_path.name}: label for scored eval '{eval_id}' "
-                                f"run {run} must be an integer score, got {value!r}"
-                            )
-                            continue
-                        if ev.scale and not (ev.scale[0] <= value <= ev.scale[1]):
-                            errors.append(
-                                f"  ⚠ {fixture_path.name}: label {value} for '{eval_id}' run {run} "
-                                f"is outside scale {ev.scale[0]}–{ev.scale[1]}"
-                            )
-                            continue
-                    else:
-                        if value not in ("pass", "fail"):
-                            errors.append(
-                                f"  ⚠ {fixture_path.name}: label for binary eval '{eval_id}' "
-                                f"run {run} must be 'pass' or 'fail', got {value!r}"
-                            )
-                            continue
-
-                    coverage[eval_id] = coverage.get(eval_id, 0) + 1
-
-    return errors, coverage
-
-
-def use_cases_with_fixtures(config: Config):
-    """Use cases that declare a fixtures directory."""
-    return [uc for uc in config.use_cases if uc.fixtures is not None]
-
-
-def resolve_runs(config: Config, use_case: UseCase) -> int:
-    """Return effective run count. use_case wins, then defaults, then hardcoded 5."""
-    if use_case.fixtures.runs is not None:
-        return use_case.fixtures.runs
-    return config.defaults.runs  # Defaults model defaults to 5
-
-
-def resolve_judge_runs(config: Config, use_case: UseCase) -> int:
-    """Judge repetitions per output for a use case. Defaults to 1."""
-    return use_case.fixtures.judge_runs
-
-
-def resolve_dataset_version(config: Config) -> Optional[str]:
-    """
-    Return the dataset version from the first use_case's fixtures.version, or None.
-    Mirrors the run-resolution pattern: a single value per run, taken from the
-    first use_case (consistent with how `runs` is reported in `data.json`).
-    """
-    if not config.use_cases:
-        return None
-    return config.use_cases[0].fixtures.version
-
-
-def resolve_set(set_name: str, use_case: UseCase, base_dir: Path) -> list[str]:
-    """
-    Resolve a named fixture set to a flat list of fixture IDs.
-
-    Values:
-      list[str]  → those exact IDs
-      "dir/*"    → all fixture files in fixtures/<dir>/ subdirectory
-      "all"      → all fixture files in fixtures/ (recursive)
-
-    Raises ConfigError if set_name not found in use_case.
-    """
-    sets = use_case.fixtures.sets
-    if set_name not in sets:
-        raise ConfigError(
-            f"Set '{set_name}' not found in use_case '{use_case.id}'. "
-            f"Available sets: {list(sets.keys())}"
-        )
-    value = sets[set_name]
-    fixture_dir = base_dir / use_case.fixtures.directory
-
-    if isinstance(value, list):
-        return value
-
-    if value == "all":
-        return [p.stem for p in sorted(fixture_dir.rglob("*.yaml"))]
-
-    # "dir/*" glob pattern
-    if value.endswith("/*"):
-        sub = value[:-2]  # strip /*
-        subdir = fixture_dir / sub
-        return [p.stem for p in sorted(subdir.glob("*.yaml"))]
-
-    raise ConfigError(
-        f"Config error at use_cases.{use_case.id}.fixtures.sets.{set_name}: "
-        f"unrecognised set value '{value}'. Expected list, 'all', or 'dir/*'."
-    )
+__all__ = [
+    "BinaryJudgeOutput", "CalibrationConfig", "Config", "Defaults", "Eval",
+    "EvalTag", "EvalType", "FixturesConfig", "LLMExample", "PanelJudge",
+    "ProviderSettings", "ResultRow", "ScoredJudgeOutput", "SystemConfig",
+    "UseCase", "VALID_PROVIDERS",
+    "extract_labels", "load_fixture", "parse_and_validate", "validate_fixture_labels",
+    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
+    "use_cases_with_fixtures",
+]
