@@ -1323,3 +1323,142 @@ def test_rename_is_reported_separately_from_unsupported():
 
     assert result["renamed"] == [("max_tokens", "max_completion_tokens")]
     assert "unsupported" not in result
+
+
+# ---------------------------------------------------------------------------
+# openai_compatible adapter (spec 11)
+#
+# Adds no reach the environment did not already have — the openai SDK honours
+# OPENAI_BASE_URL — but it puts the endpoint in config, and therefore in the
+# fingerprint. These tests are about that plumbing, not about network access.
+# ---------------------------------------------------------------------------
+
+from fieldtest.config import ProviderSettings
+from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
+
+
+def test_openai_compatible_requires_base_url():
+    adapter = OpenAICompatibleAdapter(base_url="", api_key_env=None)
+    result = adapter.call("m", "p", GEN, RETRY)
+    assert "base_url" in result["error"]
+
+
+def test_factory_openai_compatible_without_settings_names_the_fix():
+    with pytest.raises(ProviderError, match="base_url"):
+        get_provider_adapter("openai_compatible")
+
+
+def test_openai_compatible_works_without_an_api_key(monkeypatch):
+    """A self-hosted endpoint may need no key. Absence is configuration."""
+    adapter = OpenAICompatibleAdapter(base_url="http://localhost:8000/v1")
+    args = adapter._client_args()
+    assert args["base_url"] == "http://localhost:8000/v1"
+    assert args["api_key"] == "not-required"
+
+
+def test_api_key_read_from_named_env_var(monkeypatch):
+    monkeypatch.setenv("MY_ENDPOINT_KEY", "sk-from-env")
+    adapter = OpenAICompatibleAdapter(
+        base_url="https://openrouter.ai/api/v1", api_key_env="MY_ENDPOINT_KEY"
+    )
+    assert adapter._client_args()["api_key"] == "sk-from-env"
+
+
+def test_missing_named_env_var_is_an_error_naming_the_variable(monkeypatch):
+    monkeypatch.delenv("MY_ENDPOINT_KEY", raising=False)
+    adapter = OpenAICompatibleAdapter(
+        base_url="https://openrouter.ai/api/v1", api_key_env="MY_ENDPOINT_KEY"
+    )
+    result = adapter.call("m", "p", GEN, RETRY)
+    assert "MY_ENDPOINT_KEY" in result["error"]
+
+
+def test_api_key_never_read_from_config_literal():
+    """
+    ProviderSettings has no field a literal key could land in. A config that
+    tries is rejected rather than quietly honoured.
+    """
+    assert "api_key" not in ProviderSettings.model_fields
+    with pytest.raises(Exception):
+        ProviderSettings(base_url="http://x/v1", api_key="sk-literal-in-config")
+
+
+def test_unknown_provider_error_mentions_openai_compatible():
+    with pytest.raises(ProviderError, match="openai_compatible"):
+        get_provider_adapter("cohere")
+
+
+def test_unknown_provider_error_mentions_the_decorator():
+    with pytest.raises(ProviderError, match="@provider"):
+        get_provider_adapter("cohere")
+
+
+def test_rejected_parameter_dropped_on_a_compatible_endpoint(monkeypatch):
+    """
+    The drop path is inherited, not reimplemented, so a compatible endpoint
+    refusing temperature behaves exactly as OpenAI does.
+    """
+    monkeypatch.setenv("EP_KEY", "k")
+    calls = []
+
+    class _Rejects:
+        def __init__(self, **kw):
+            self.chat = MagicMock()
+            self.chat.completions.create = self._create
+
+        def _create(self, **kwargs):
+            calls.append(dict(kwargs))
+            if "temperature" in kwargs:
+                raise ValueError("400: Unsupported parameter: 'temperature'")
+            msg = MagicMock()
+            msg.message.content = '{"answer": "pass", "reasoning": "ok"}'
+            return MagicMock(choices=[msg])
+
+    fake_openai = MagicMock()
+    fake_openai.OpenAI = _Rejects
+    with patch.dict("sys.modules", {"openai": fake_openai}):
+        adapter = OpenAICompatibleAdapter(base_url="http://ep/v1", api_key_env="EP_KEY")
+        result = adapter.call("llama", "prompt", GEN, RETRY)
+
+    assert result["answer"] == "pass"
+    assert result["unsupported"] == ["temperature"]
+    assert "temperature" not in calls[-1]
+
+
+def test_retry_policy_applies_to_a_compatible_endpoint(monkeypatch):
+    """
+    A self-hosted endpoint is more likely to be briefly unavailable than a
+    hosted one, not less.
+    """
+    monkeypatch.setenv("EP_KEY", "k")
+    attempts = []
+
+    class _Flaky:
+        def __init__(self, **kw):
+            self.chat = MagicMock()
+            self.chat.completions.create = self._create
+
+        def _create(self, **kwargs):
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise fake_openai.APIConnectionError("endpoint down")
+            msg = MagicMock()
+            msg.message.content = '{"answer": "pass", "reasoning": "ok"}'
+            return MagicMock(choices=[msg])
+
+    class _APIConnectionError(Exception):
+        pass
+
+    fake_openai = MagicMock()
+    fake_openai.OpenAI = _Flaky
+    fake_openai.APIConnectionError = _APIConnectionError
+    fake_openai.APITimeoutError = type("APITimeoutError", (Exception,), {})
+    fake_openai.InternalServerError = type("InternalServerError", (Exception,), {})
+    fake_openai.RateLimitError = type("RateLimitError", (Exception,), {})
+
+    with patch.dict("sys.modules", {"openai": fake_openai}):
+        adapter = OpenAICompatibleAdapter(base_url="http://ep/v1", api_key_env="EP_KEY")
+        result = adapter.call("llama", "p", GEN, RetryPolicy(max_retries=2, backoff=[0]))
+
+    assert len(attempts) == 2
+    assert result["answer"] == "pass"

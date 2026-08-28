@@ -233,7 +233,10 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
     model         = eval.model    or config.defaults.model
 
     try:
-        adapter = get_provider_adapter(provider_name)
+        adapter = get_provider_adapter(
+            provider_name,
+            config.providers.get(provider_name),
+        )
     except Exception as e:
         return {"error": str(e)}
 
@@ -242,12 +245,25 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
         seed=config.defaults.judge_seed,
     )
 
-    response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
-
     # Adapters promise a dict and never raising. A third-party adapter that
     # breaks that contract must produce one errored row, not abort the run:
     # this call is inside a ThreadPoolExecutor, and an exception here reaches
     # future.result() and takes every other eval down with it.
+    #
+    # The isinstance guard below was written for that risk but only covered half
+    # of it. Every built-in adapter catches its own exceptions, so nothing
+    # exercised the raising half until @provider made third-party adapters a
+    # supported thing.
+    try:
+        response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
+    except Exception as e:
+        return {
+            "error": (
+                f"Judge adapter for '{provider_name}' raised "
+                f"{type(e).__name__}: {e}"
+            )
+        }
+
     if not isinstance(response, dict):
         return {
             "error": (

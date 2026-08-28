@@ -547,3 +547,137 @@ def test_valid_scored_label_accepted(tmp_path):
     )
     assert errors == []
     assert coverage == {"ev1": 1}
+
+
+def _plus(block: str) -> str:
+    """
+    MINIMAL_VALID ends mid-indent, so a raw concatenation shifts the appended
+    block. Join on a clean line boundary and re-indent to match.
+    """
+    body = textwrap.indent(textwrap.dedent(block).strip("\n"), "    ")
+    return MINIMAL_VALID.rstrip() + "\n" + body + "\n"
+
+# ---------------------------------------------------------------------------
+# Provider surface (spec 11)
+# ---------------------------------------------------------------------------
+
+PROVIDERS_BLOCK = """
+defaults:
+  provider: openai_compatible
+  model: llama-3.3-70b-instruct
+providers:
+  openai_compatible:
+    base_url: http://localhost:8000/v1
+    api_key_env: VLLM_API_KEY
+"""
+
+
+def test_openai_compatible_config_parses(tmp_path):
+    cfg = parse_and_validate(_write_config(tmp_path, _plus(PROVIDERS_BLOCK)))
+    assert cfg.defaults.provider == "openai_compatible"
+    assert cfg.providers["openai_compatible"].base_url == "http://localhost:8000/v1"
+    assert cfg.providers["openai_compatible"].api_key_env == "VLLM_API_KEY"
+
+
+def test_openai_compatible_without_settings_is_a_config_error(tmp_path):
+    yaml = _plus("""
+        defaults:
+          provider: openai_compatible
+          model: llama-3.3-70b-instruct
+    """)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "base_url" in str(exc.value)
+
+
+def test_provider_settings_requires_base_url(tmp_path):
+    yaml = _plus("""
+        defaults:
+          provider: openai_compatible
+        providers:
+          openai_compatible:
+            api_key_env: VLLM_API_KEY
+    """)
+    with pytest.raises(ConfigError):
+        parse_and_validate(_write_config(tmp_path, yaml))
+
+
+def test_api_key_literal_in_config_is_rejected(tmp_path):
+    """A committed secret that is also silently ignored is the worst outcome."""
+    yaml = _plus("""
+        defaults:
+          provider: openai_compatible
+        providers:
+          openai_compatible:
+            base_url: http://localhost:8000/v1
+            api_key: sk-literal-secret
+    """)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "api_key" in str(exc.value)
+
+
+def test_config_without_providers_block_is_unaffected(tmp_path):
+    """Every existing config predates this feature."""
+    cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert cfg.providers == {}
+    assert cfg.defaults.provider == "anthropic"
+
+
+def _write_providers_py(tmp_path: Path, body: str) -> None:
+    (tmp_path / "providers.py").write_text(textwrap.dedent(body))
+
+
+def test_user_registered_provider_is_valid_in_config(tmp_path):
+    _write_providers_py(tmp_path, '''
+        from fieldtest import provider
+
+        @provider("my-inference-service")
+        def call(model, prompt, gen, retry):
+            return {"answer": "pass", "reasoning": "registered"}
+    ''')
+    yaml = _plus("""
+        defaults:
+          provider: my-inference-service
+          model: whatever
+    """)
+    cfg = parse_and_validate(_write_config(tmp_path, yaml))
+    assert cfg.defaults.provider == "my-inference-service"
+
+
+def test_user_registered_provider_may_appear_in_a_calibration_panel(tmp_path):
+    _write_providers_py(tmp_path, '''
+        from fieldtest import provider
+
+        @provider("panel-service")
+        def call(model, prompt, gen, retry):
+            return {"answer": "pass", "reasoning": "ok"}
+    ''')
+    yaml = _plus("""
+        calibration:
+          panel:
+            - { provider: anthropic, model: claude-haiku-4-5 }
+            - { provider: panel-service, model: local-7b }
+    """)
+    cfg = parse_and_validate(_write_config(tmp_path, yaml))
+    assert [j.provider for j in cfg.calibration.panel] == ["anthropic", "panel-service"]
+
+
+def test_provider_registration_failure_is_a_config_error(tmp_path):
+    _write_providers_py(tmp_path, '''
+        from fieldtest import provider
+        raise RuntimeError("boom in user code")
+    ''')
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
+    assert "boom in user code" in str(exc.value)
+
+
+def test_unregistered_provider_name_still_rejected(tmp_path):
+    yaml = _plus("""
+        defaults:
+          provider: nope-not-registered
+    """)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "Unknown provider" in str(exc.value)

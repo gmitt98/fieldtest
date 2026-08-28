@@ -189,3 +189,53 @@ def test_live_pinned_temperature_is_accepted_or_reported():
         "claude-haiku-4-5 stopped accepting temperature — the default judge is "
         "no longer pinnable and defaults.model needs to move"
     )
+
+
+# ---------------------------------------------------------------------------
+# openai_compatible against a real endpoint (spec 11)
+#
+# What only a live call can establish: that pointing the OpenAI request path at
+# another base_url still returns a parseable verdict. The claim that it does is
+# what shrank spec 11's problem statement, so it should not rest on a mock.
+# ---------------------------------------------------------------------------
+
+needs_openrouter = pytest.mark.skipif(
+    not os.environ.get("OPENROUTER_API_KEY"), reason="live: set OPENROUTER_API_KEY"
+)
+
+
+@needs_openrouter
+def test_openai_compatible_reaches_a_third_party_endpoint():
+    from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
+
+    adapter = OpenAICompatibleAdapter(
+        base_url="https://openrouter.ai/api/v1",
+        api_key_env="OPENROUTER_API_KEY",
+    )
+    result = adapter.call("meta-llama/llama-3.3-70b-instruct", PROMPT, GEN, RETRY)
+
+    assert "error" not in result, result
+    assert result.get("answer") == "Pass"
+    # Whatever the endpoint refused is reported rather than silently dropped.
+    print(f"\nopenrouter/llama-3.3-70b dropped: {result.get('unsupported') or 'nothing'}")
+
+
+@needs_openrouter
+def test_openai_compatible_config_path_end_to_end(tmp_path):
+    """
+    The adapter reached through config rather than constructed directly, since
+    naming the endpoint in config.yaml is the entire point of the provider.
+    """
+    from fieldtest.config import ProviderSettings
+    from fieldtest.providers import get_provider_adapter
+
+    adapter = get_provider_adapter(
+        "openai_compatible",
+        ProviderSettings(
+            base_url="https://openrouter.ai/api/v1",
+            api_key_env="OPENROUTER_API_KEY",
+        ),
+    )
+    result = adapter.call("meta-llama/llama-3.3-70b-instruct", PROMPT, GEN, RETRY)
+    assert "error" not in result, result
+    assert result.get("answer") == "Pass"

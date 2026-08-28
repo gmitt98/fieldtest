@@ -6,13 +6,10 @@ Rules are registered by eval ID. Imported once at startup via importlib.
 """
 from __future__ import annotations
 
-import importlib.util
-import sys
-import traceback
 from pathlib import Path
 from typing import Callable, Optional
 
-from fieldtest.errors import ConfigError
+from fieldtest.loader import import_user_file
 
 # Module-level registry: {eval_id: callable}
 _rule_registry: dict[str, Callable] = {}
@@ -47,39 +44,7 @@ _loaded_rule_files: set[str] = set()
 
 def load_rules(rules_path: Path) -> None:
     """
-    Import rules.py via importlib. Populates _rule_registry as a side effect.
-    No-op if file doesn't exist.
+    Import rules.py so @rule decorators register. No-op if the file is absent.
     Raises ConfigError on syntax or import error.
     """
-    if not rules_path.exists():
-        return
-
-    # Loading the same file twice re-executes user code for no gain, and the
-    # calibration panel calls score() from several threads at once.
-    resolved = str(rules_path.resolve())
-    if resolved in _loaded_rule_files:
-        return
-    _loaded_rule_files.add(resolved)
-
-    spec = importlib.util.spec_from_file_location("_fieldtest_rules", rules_path)
-    if spec is None or spec.loader is None:
-        raise ConfigError(
-            f"Config error at {rules_path}: could not load module spec"
-        )
-
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)  # type: ignore[union-attr]
-    except SyntaxError as e:
-        raise ConfigError(
-            f"Failed to import {rules_path}: SyntaxError: {e.msg}\n"
-            f"  at {e.filename}:{e.lineno}"
-        ) from e
-    except Exception as e:
-        tb = traceback.extract_tb(e.__traceback__)
-        last = tb[-1] if tb else None
-        loc = f"{last.filename}:{last.lineno}" if last else "unknown"
-        raise ConfigError(
-            f"Failed to import {rules_path}: {type(e).__name__}: {e}\n"
-            f"  at {loc}"
-        ) from e
+    import_user_file(rules_path, "_fieldtest_rules", _loaded_rule_files)

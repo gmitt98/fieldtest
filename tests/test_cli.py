@@ -1100,3 +1100,65 @@ def test_diff_refuses_a_baseline_that_is_the_current_run(tmp_path):
     )
     assert result.exit_code != 0
     assert "same run" in result.output
+
+
+# ---------------------------------------------------------------------------
+# validate reports the provider surface (spec 11)
+#
+# Before the run, not twenty errored rows into it.
+# ---------------------------------------------------------------------------
+
+def _run_validate(evals_dir: Path):
+    return CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+
+def test_validate_reports_unset_provider_env_vars(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    evals_dir = _setup_project(tmp_path)
+    result = _run_validate(evals_dir)
+    assert result.exit_code == 0
+    assert "⚠ provider 'anthropic' — ANTHROPIC_API_KEY NOT set" in result.output
+
+
+def test_validate_reports_a_set_provider_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-present")
+    evals_dir = _setup_project(tmp_path)
+    result = _run_validate(evals_dir)
+    assert "provider 'anthropic' — ANTHROPIC_API_KEY set" in result.output
+    assert "NOT set" not in result.output
+
+
+def test_validate_reports_the_endpoint_for_a_compatible_provider(tmp_path, monkeypatch):
+    monkeypatch.delenv("VLLM_KEY", raising=False)
+    evals_dir = _setup_project(tmp_path)
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(
+        cfg.read_text()
+        + "providers:\n"
+          "  openai_compatible:\n"
+          "    base_url: http://localhost:8000/v1\n"
+          "    api_key_env: VLLM_KEY\n"
+    )
+    cfg.write_text(cfg.read_text().replace("provider: anthropic", "provider: openai_compatible"))
+    result = _run_validate(evals_dir)
+    assert "http://localhost:8000/v1" in result.output
+    assert "VLLM_KEY NOT set" in result.output
+
+
+def test_validate_reports_a_registered_provider(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "providers.py").write_text(
+        "from fieldtest import provider\n\n"
+        '@provider("cli-registered-service")\n'
+        "def call(model, prompt, gen, retry):\n"
+        "    return {'answer': 'Pass', 'reasoning': 'ok'}\n"
+    )
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(
+        cfg.read_text().replace("provider: anthropic", "provider: cli-registered-service")
+    )
+    result = _run_validate(evals_dir)
+    assert "registered in evals/providers.py" in result.output

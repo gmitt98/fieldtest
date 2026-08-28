@@ -54,7 +54,8 @@ class RecordingAdapter(ProviderAdapter):
 
 def _project(tmp_path: Path, *, evals_yaml: str, runs: int = 2,
              judge_runs: int = 1, fixtures=("fix1",), with_rules: bool = False,
-             labels: str = "") -> Path:
+             labels: str = "", defaults_extra: str = "",
+             providers_py: str = "") -> Path:
     """A real fieldtest project on disk."""
     evals_dir = tmp_path / "evals"
     (evals_dir / "fixtures").mkdir(parents=True)
@@ -64,6 +65,7 @@ def _project(tmp_path: Path, *, evals_yaml: str, runs: int = 2,
         "schema_version: 2\n"
         "system:\n  name: t\n  domain: t\n"
         f"defaults:\n  runs: {runs}\n"
+        f"{defaults_extra}"
         "use_cases:\n"
         "  - id: uc1\n"
         "    description: d\n"
@@ -84,6 +86,9 @@ def _project(tmp_path: Path, *, evals_yaml: str, runs: int = 2,
         out.mkdir(parents=True)
         for n in range(1, runs + 1):
             (out / f"run-{n}.txt").write_text(f"hello from {fid} run {n}")
+
+    if providers_py:
+        (evals_dir / "providers.py").write_text(providers_py)
 
     if with_rules:
         (evals_dir / "rules.py").write_text(
@@ -329,3 +334,91 @@ def test_rag_grounding_eval_can_reach_its_context(tmp_path):
     )
     assert "question: what is the limit?" in prompt
     assert prompt.index("System input:") < prompt.index("Output to evaluate:")
+
+
+# ---------------------------------------------------------------------------
+# User-registered providers (spec 11)
+#
+# No adapter is patched here. The provider comes from a providers.py on disk,
+# reached through parse_and_validate and score() the way a user's would be.
+# ---------------------------------------------------------------------------
+
+REGISTERED_PROVIDER = """\
+from fieldtest import provider
+
+@provider("my-inference-service")
+def call(model, prompt, gen, retry):
+    return {"answer": "Pass", "reasoning": f"judged by {model} at temp {gen.temperature}"}
+"""
+
+
+def test_user_registered_provider_used_by_score(tmp_path):
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project(
+        tmp_path,
+        evals_yaml=LLM_EVAL,
+        runs=2,
+        defaults_extra="  provider: my-inference-service\n  model: local-7b\n",
+        providers_py=REGISTERED_PROVIDER,
+    )
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, write_artifacts=False)
+
+    rows = [r for r in rows if r.eval_id == "is_helpful"]
+    assert len(rows) == 2
+    assert all(r.passed for r in rows)
+    # Proves the user's function ran, not a fallback: only it writes this text,
+    # and it echoes the generation config it was handed.
+    assert all("judged by local-7b at temp 0.0" in r.detail for r in rows)
+
+
+def test_registered_provider_appears_in_the_run_provenance(tmp_path):
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project(
+        tmp_path,
+        evals_yaml=LLM_EVAL,
+        runs=1,
+        defaults_extra="  provider: my-inference-service\n  model: local-7b\n",
+        providers_py=REGISTERED_PROVIDER,
+    )
+    config = parse_and_validate(config_path)
+    score(config=config, config_path=config_path, write_artifacts=False)
+
+    from fieldtest.results.provenance import build_judge_block
+    judge = build_judge_block(config)
+    assert judge["provider"] == "my-inference-service"
+    assert judge["model"] == "local-7b"
+
+
+def test_registered_provider_that_raises_produces_an_error_row_not_a_crash(tmp_path):
+    """
+    A user's adapter that raises instead of returning {"error": ...} costs one
+    errored row. This call is inside a ThreadPoolExecutor, so an exception
+    reaching future.result() would take every other eval down with it.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project(
+        tmp_path,
+        evals_yaml=LLM_EVAL,
+        runs=2,
+        defaults_extra="  provider: exploding-service\n  model: boom\n",
+        providers_py=(
+            "from fieldtest import provider\n\n"
+            '@provider("exploding-service")\n'
+            "def call(model, prompt, gen, retry):\n"
+            "    raise RuntimeError('user adapter blew up')\n"
+        ),
+    )
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, write_artifacts=False)
+
+    rows = [r for r in rows if r.eval_id == "is_helpful"]
+    assert len(rows) == 2
+    assert all(r.error for r in rows)
+    assert all("user adapter blew up" in r.error for r in rows)

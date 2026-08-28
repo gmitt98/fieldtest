@@ -61,6 +61,17 @@ def build_judge_block(config: Config) -> dict:
         "overrides":   overrides,
         "blinded_evals": blinded,
     }
+
+    # Same model on two endpoints is two instruments. Without this, a run
+    # against llama-3.3-70b on a local vLLM and one against the same name on a
+    # hosted endpoint fingerprint identically and find_baseline() compares them.
+    endpoints = {
+        name: s.base_url
+        for name, s in config.providers.items()
+        if name == provider or name in {e.get("provider") for e in overrides.values()}
+    }
+    if endpoints:
+        judge["endpoints"] = endpoints
     judge["fingerprint"] = judge_fingerprint(judge)
     return judge
 
@@ -80,6 +91,12 @@ def judge_fingerprint(judge: dict) -> str:
         "overrides":   judge.get("overrides", {}),
         "blinded_evals": judge.get("blinded_evals", []),
     }
+    # Added to the payload only when present. Including an empty dict
+    # unconditionally would change the hash of every config that does not name
+    # an endpoint, orphaning every baseline recorded before this field existed.
+    endpoints = judge.get("endpoints")
+    if endpoints:
+        payload["endpoints"] = endpoints
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()[:FINGERPRINT_LENGTH]
 
@@ -99,6 +116,14 @@ def describe_judge_change(current: Optional[dict], baseline: Optional[dict]) -> 
         cur, base = current.get(field), baseline.get(field)
         if cur != base:
             changes.append(f"{field}: {base} → {cur}")
+
+    cur_ep, base_ep = current.get("endpoints", {}), baseline.get("endpoints", {})
+    if cur_ep != base_ep:
+        for name in sorted(set(cur_ep) | set(base_ep)):
+            if cur_ep.get(name) != base_ep.get(name):
+                changes.append(
+                    f"{name} endpoint: {base_ep.get(name, 'unset')} → {cur_ep.get(name, 'unset')}"
+                )
 
     cur_ov, base_ov = current.get("overrides", {}), baseline.get("overrides", {})
     if cur_ov != base_ov:

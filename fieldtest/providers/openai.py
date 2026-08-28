@@ -21,6 +21,19 @@ from fieldtest.providers.base import (
 
 
 class OpenAIAdapter(ProviderAdapter):
+    def _client_args(self) -> dict | str:
+        """
+        Connection settings for the SDK client, or an error string.
+
+        A seam rather than an inline lookup: OpenAICompatibleAdapter points the
+        same request path at another base_url by overriding this and nothing
+        else, so the drop-and-rename behaviour cannot drift between them.
+        """
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return "OPENAI_API_KEY not set in environment"
+        return {"api_key": api_key}
+
     def call(
         self,
         model: str,
@@ -44,12 +57,12 @@ class OpenAIAdapter(ProviderAdapter):
                 )
             }
 
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            return {"error": "OPENAI_API_KEY not set in environment"}
+        args = self._client_args()
+        if isinstance(args, str):
+            return {"error": args}
 
         try:
-            client = _openai.OpenAI(api_key=api_key)
+            client = _openai.OpenAI(**args)
         except Exception as e:
             return {"error": str(e)}
 

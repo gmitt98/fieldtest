@@ -66,6 +66,11 @@ def score(
     from fieldtest.judges.registry import load_rules
     load_rules(base_dir / "rules.py")
 
+    # Same reasoning for registered providers: a caller that constructs a Config
+    # without going through parse_and_validate still needs the registry.
+    from fieldtest.providers.registry import load_providers
+    load_providers(base_dir / "providers.py")
+
     # -------------------------------------------------------------------
     # VALIDATE OUTPUTS
     # -------------------------------------------------------------------

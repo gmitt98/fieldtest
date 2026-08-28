@@ -1037,3 +1037,72 @@ def test_collapsed_row_detail_unannotated_when_judges_agree():
 
     row = collapse_rows(reps, config)[0]
     assert row.detail == "clear violation"
+
+
+# ---------------------------------------------------------------------------
+# Endpoint in the judge fingerprint (spec 11)
+#
+# Same model name on two endpoints is two instruments. Without base_url in the
+# fingerprint, find_baseline() would compare a local 70B against a hosted one.
+# ---------------------------------------------------------------------------
+
+def _config_with_endpoint(base_url: str) -> Config:
+    from fieldtest.config import ProviderSettings
+
+    cfg = _make_config()
+    cfg.defaults.provider = "openai_compatible"
+    cfg.defaults.model    = "llama-3.3-70b-instruct"
+    cfg.providers = {"openai_compatible": ProviderSettings(base_url=base_url)}
+    return cfg
+
+
+def test_fingerprint_includes_base_url():
+    from fieldtest.results.provenance import build_judge_block
+
+    judge = build_judge_block(_config_with_endpoint("http://localhost:8000/v1"))
+    assert judge["endpoints"] == {"openai_compatible": "http://localhost:8000/v1"}
+
+
+def test_fingerprint_differs_across_endpoints_for_the_same_model():
+    from fieldtest.results.provenance import build_judge_block
+
+    local  = build_judge_block(_config_with_endpoint("http://localhost:8000/v1"))
+    hosted = build_judge_block(_config_with_endpoint("https://openrouter.ai/api/v1"))
+    assert local["model"] == hosted["model"]
+    assert local["fingerprint"] != hosted["fingerprint"]
+
+
+def test_endpoint_change_is_named_in_the_judge_diff():
+    from fieldtest.results.provenance import build_judge_block, describe_judge_change
+
+    local  = build_judge_block(_config_with_endpoint("http://localhost:8000/v1"))
+    hosted = build_judge_block(_config_with_endpoint("https://openrouter.ai/api/v1"))
+    described = describe_judge_change(hosted, local)
+    assert "openai_compatible endpoint" in described
+    assert "openrouter.ai" in described
+
+
+def test_fingerprint_unchanged_for_configs_without_endpoints():
+    """
+    A config naming no endpoint must fingerprint exactly as it did before this
+    field existed, or every baseline recorded by 0.3.0 is orphaned. The
+    pre-change payload is rebuilt here rather than trusted.
+    """
+    import hashlib
+    import json
+
+    from fieldtest.results.provenance import build_judge_block, judge_fingerprint
+
+    judge = build_judge_block(_make_config())
+    assert "endpoints" not in judge
+
+    before = {
+        "provider":    judge["provider"],
+        "model":       judge["model"],
+        "temperature": judge["temperature"],
+        "seed":        judge["seed"],
+        "overrides":   judge["overrides"],
+        "blinded_evals": judge["blinded_evals"],
+    }
+    canonical = json.dumps(before, sort_keys=True, separators=(",", ":"))
+    assert judge_fingerprint(judge) == hashlib.sha256(canonical.encode()).hexdigest()[:8]

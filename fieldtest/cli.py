@@ -50,6 +50,55 @@ def main():
     pass
 
 
+# Environment variable each built-in provider reads. openai_compatible names
+# its own in config; a @provider adapter is the user's, so nothing is claimed
+# about it beyond that it is registered.
+_PROVIDER_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+    "gemini":    "GOOGLE_API_KEY",
+}
+
+
+def _provider_report(config) -> list[str]:
+    """One line per provider the config references, with credential status."""
+    import os
+
+    from fieldtest.providers import BUILTIN_PROVIDERS
+    from fieldtest.providers.registry import registered_provider_names
+
+    used = {config.defaults.provider}
+    used.update(
+        ev.provider for uc in config.use_cases for ev in uc.evals if ev.provider
+    )
+    if config.calibration:
+        used.update(j.provider for j in config.calibration.panel)
+
+    registered = registered_provider_names()
+    lines = []
+    for name in sorted(used):
+        settings = config.providers.get(name)
+        if name == "openai_compatible" and settings:
+            where = f" → {settings.base_url}"
+            env   = settings.api_key_env
+        elif name in registered and name not in BUILTIN_PROVIDERS:
+            lines.append(f"  provider '{name}' — registered in evals/providers.py")
+            continue
+        else:
+            where = ""
+            env   = _PROVIDER_ENV.get(name)
+
+        if env is None:
+            # A self-hosted endpoint may need no key. Absence is a valid
+            # configuration, so this is stated rather than warned about.
+            lines.append(f"  provider '{name}'{where} — no API key configured")
+        elif os.environ.get(env):
+            lines.append(f"  provider '{name}'{where} — {env} set")
+        else:
+            lines.append(f"  ⚠ provider '{name}'{where} — {env} NOT set")
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
@@ -120,6 +169,11 @@ def validate(config_path: Optional[str]):
         f"good: {tag_counts['good']}, safe: {tag_counts['safe']}"
     )
     click.echo(f"  {fixture_count} explicitly listed fixture(s)")
+
+    # Which providers this config reaches, and whether the credential each one
+    # names is present. Before the run, not twenty errored rows into it.
+    for line in _provider_report(config):
+        click.echo(line)
 
     # Cost is multiplicative: runs × judge_runs × llm evals × fixtures. Say it
     # before the bill, not after — judge_runs: 3 is a 3x charge.

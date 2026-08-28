@@ -1,0 +1,97 @@
+"""
+fieldtest/providers/registry.py
+
+@provider decorator + _provider_registry + load_providers().
+
+Mirrors the @rule registry: user code lives in a conventional file next to
+config.yaml, is imported once, and registers by name. A registered provider is
+a valid value for defaults.provider, for a per-eval override, and for a
+calibration panel entry, with no further plumbing.
+
+fieldtest does not have to predict which provider a user needs.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable, Optional
+
+from fieldtest.loader import import_user_file
+from fieldtest.providers.base import (
+    JudgeGenerationConfig,
+    ProviderAdapter,
+    RetryPolicy,
+)
+
+# Module-level registry: {provider_name: callable or ProviderAdapter}
+_provider_registry: dict[str, object] = {}
+
+_loaded_provider_files: set[str] = set()
+
+
+def provider(name: str) -> Callable:
+    """
+    Register a judge provider by name.
+
+    Usage in the user's evals/providers.py:
+
+        from fieldtest import provider
+
+        @provider("my-inference-service")
+        def call(model, prompt, gen, retry) -> dict:
+            '''Return the judge's parsed JSON dict, or {"error": str}.'''
+            ...
+
+    The signature is the same shape as ProviderAdapter.call() rather than a new
+    one. A user who outgrows the decorator registers a ProviderAdapter instance
+    instead; a user who never does is not asked to learn a class hierarchy to
+    make one HTTP call.
+    """
+    def decorator(fn):
+        _provider_registry[name] = fn
+        return fn
+    return decorator
+
+
+def register_provider(name: str, adapter: ProviderAdapter) -> None:
+    """Register a ProviderAdapter instance under `name`."""
+    _provider_registry[name] = adapter
+
+
+class _FunctionAdapter(ProviderAdapter):
+    """Wraps a @provider-decorated function in the adapter interface."""
+
+    def __init__(self, fn: Callable, name: str):
+        self._fn = fn
+        self._name = name
+
+    def call(
+        self,
+        model: str,
+        prompt: str,
+        gen: JudgeGenerationConfig,
+        retry: RetryPolicy,
+    ) -> dict:
+        return self._fn(model, prompt, gen, retry)
+
+
+def get_registered_provider(name: str) -> Optional[ProviderAdapter]:
+    """Return a registered adapter for `name`, or None."""
+    entry = _provider_registry.get(name)
+    if entry is None:
+        return None
+    if isinstance(entry, ProviderAdapter):
+        return entry
+    return _FunctionAdapter(entry, name)
+
+
+def registered_provider_names() -> set[str]:
+    """Names registered so far. Empty until load_providers() has run."""
+    return set(_provider_registry)
+
+
+def load_providers(providers_path: Path) -> None:
+    """
+    Import providers.py so @provider decorators register. No-op if absent.
+    Raises ConfigError on syntax or import error.
+    """
+    import_user_file(providers_path, "_fieldtest_providers", _loaded_provider_files)

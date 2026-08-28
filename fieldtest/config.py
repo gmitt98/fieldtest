@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
 from fieldtest.providers.base import RetryPolicy
@@ -129,7 +129,49 @@ class SystemConfig(BaseModel):
     domain: str
 
 
-VALID_PROVIDERS = {"anthropic", "gemini", "openai"}
+VALID_PROVIDERS = {"anthropic", "gemini", "openai", "openai_compatible"}
+
+
+class ProviderSettings(BaseModel):
+    """
+    Connection settings for one provider, from the config's `providers` block.
+
+    Authentication is by environment variable *name*. The name is config; the
+    value never is, so a config file can be committed without leaking a key.
+
+    extra="forbid" here and nowhere else in this module: a config that writes
+    `api_key: sk-...` would otherwise have it silently ignored, leaving the
+    user with a committed secret and a run that still fails on a missing
+    credential. This block is the one place a key would plausibly be typed.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    # Required, with no default: guessing a base_url would silently send a
+    # user's outputs to an endpoint they did not name.
+    base_url:    str
+    # Optional: a self-hosted endpoint may need no key at all, and absence of
+    # one is a valid configuration rather than an error.
+    api_key_env: Optional[str] = None
+
+
+def _validate_provider_name(v: str, where: str) -> str:
+    """
+    Accept a built-in name or one registered with @provider.
+
+    The registry is consulted at validation time rather than baked into
+    VALID_PROVIDERS, because evals/providers.py is imported just before the
+    config is parsed and a registered name must satisfy this check.
+    """
+    from fieldtest.providers.registry import registered_provider_names
+
+    known = VALID_PROVIDERS | registered_provider_names()
+    if v in known:
+        return v
+    supported = ", ".join(sorted(known))
+    raise ValueError(
+        f"Unknown provider '{v}'. Supported: {supported}. "
+        f"Check {where}. Register your own with @provider in evals/providers.py."
+    )
 
 
 class Defaults(BaseModel):
@@ -166,13 +208,7 @@ class Defaults(BaseModel):
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:
-        if v not in VALID_PROVIDERS:
-            supported = ", ".join(sorted(VALID_PROVIDERS))
-            raise ValueError(
-                f"Unknown provider '{v}'. v1 supports: {supported}. "
-                f"Check defaults.provider in config.yaml."
-            )
-        return v
+        return _validate_provider_name(v, "defaults.provider in config.yaml")
 
 
 class PanelJudge(BaseModel):
@@ -183,12 +219,7 @@ class PanelJudge(BaseModel):
     @field_validator("provider")
     @classmethod
     def provider_must_be_supported(cls, v: str) -> str:
-        if v not in VALID_PROVIDERS:
-            supported = ", ".join(sorted(VALID_PROVIDERS))
-            raise ValueError(
-                f"Unknown provider '{v}' in calibration.panel. v2 supports: {supported}."
-            )
-        return v
+        return _validate_provider_name(v, "calibration.panel in config.yaml")
 
 
 class CalibrationConfig(BaseModel):
@@ -243,6 +274,36 @@ class Config(BaseModel):
     use_cases:      list[UseCase]
     defaults:       Defaults = Field(default_factory=Defaults)
     calibration:    Optional[CalibrationConfig] = None
+    # Connection settings per provider name. Absent in every v1 config and in
+    # any config using only the three key-from-env providers.
+    providers:      dict[str, ProviderSettings] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def configured_providers_have_settings(self) -> "Config":
+        """
+        openai_compatible names an endpoint, so it cannot be used without one.
+        Caught here rather than at the first judge call, which would be twenty
+        errored rows into a run.
+        """
+        used = {self.defaults.provider}
+        used.update(
+            ev.provider
+            for uc in self.use_cases
+            for ev in uc.evals
+            if ev.provider
+        )
+        if self.calibration:
+            used.update(j.provider for j in self.calibration.panel)
+
+        if "openai_compatible" in used and "openai_compatible" not in self.providers:
+            raise ValueError(
+                "provider 'openai_compatible' is used but has no settings. Add:\n"
+                "  providers:\n"
+                "    openai_compatible:\n"
+                "      base_url: https://openrouter.ai/api/v1\n"
+                "      api_key_env: OPENROUTER_API_KEY"
+            )
+        return self
 
     @model_validator(mode="after")
     def fixture_ids_globally_unique(self) -> "Config":
@@ -327,6 +388,12 @@ def parse_and_validate(config_path: Path) -> Config:
 
     if not isinstance(raw, dict):
         raise ConfigError(f"Config error at {config_path}: expected a YAML mapping, got {type(raw).__name__}")
+
+    # Before validation, not after: a name registered by @provider has to be
+    # accepted by the provider field validator, and providers.py sits next to
+    # the config by the same convention rules.py does.
+    from fieldtest.providers.registry import load_providers
+    load_providers(config_path.parent / "providers.py")
 
     try:
         return Config.model_validate(raw)
