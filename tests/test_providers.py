@@ -1506,3 +1506,54 @@ def test_every_builtin_provider_can_actually_be_constructed():
             if name == "openai_compatible" else None
         )
         assert get_provider_adapter(name, settings) is not None
+
+
+# ---------------------------------------------------------------------------
+# Facts the documentation states, pinned to the code that produces them
+#
+# Prose restating a constant is the same defect as a second table: the gemini
+# credential name was wrong in exactly this way, and nothing noticed because
+# nothing tied the claim to the behaviour.
+# ---------------------------------------------------------------------------
+
+def test_documented_retry_schedule_is_the_one_the_policy_produces():
+    """README, CHANGELOG and spec 05 all state 5/10/20/40/60/60 seconds."""
+    from fieldtest.providers.base import RetryPolicy
+
+    policy = RetryPolicy()
+    schedule = [policy.delay_for(i) for i in range(policy.max_attempts)]
+    assert schedule == [5.0, 10.0, 20.0, 40.0, 60.0, 60.0]
+
+
+def test_documented_defaults_are_the_ones_the_config_uses():
+    """
+    Each of these appears as a literal in README, CHANGELOG or docs/index.html.
+    Changing one without updating the prose should fail here rather than
+    quietly leaving the docs wrong.
+    """
+    from fieldtest.config import Defaults
+
+    d = Defaults()
+    assert d.model == "claude-haiku-4-5"      # README Install, CHANGELOG judge block
+    assert d.provider == "anthropic"
+    assert d.runs == 5
+    assert d.judge_temperature == 0.0          # "pinned to 0.0 unless you say otherwise"
+    assert d.judge_seed is None
+    assert d.confidence == 0.95                # "defaults.confidence sets the level"
+
+
+def test_documented_judge_fingerprint_matches_the_bundled_demos():
+    """
+    The CHANGELOG prints fingerprint 4f10569a in its judge block, and the
+    bundled demo results were generated under it. If a change to the judge
+    fields moves the hash, both the notes and those artifacts go stale.
+    """
+    from pathlib import Path
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.provenance import build_judge_block
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest" / "demo"
+    for demo in ("rag", "email", "extraction"):
+        judge = build_judge_block(parse_and_validate(root / demo / "config.yaml"))
+        assert judge["fingerprint"] == "4f10569a", demo
