@@ -19,15 +19,21 @@ import os
 
 import pytest
 
-# Provider → the environment variable its live tests require. Kept here rather
-# than in test_live.py so the report can name a provider that has no test
-# currently collected.
-LIVE_CREDENTIALS = {
-    "anthropic":         "ANTHROPIC_API_KEY",
-    "openai":            "OPENAI_API_KEY",
-    "gemini":            "GEMINI_API_KEY",
-    "openai_compatible": "OPENROUTER_API_KEY",
-}
+# Provider → the environment variable its live tests require.
+#
+# Derived from the table `fieldtest validate` reports rather than restated. A
+# second copy is how the gemini entry came to say GOOGLE_API_KEY while the
+# adapter read GEMINI_API_KEY, and this file would have inherited the same lie.
+#
+# openai_compatible is the one addition: it names its credential in config, not
+# in a built-in table, so the live tier picks one for its default endpoint.
+def _live_credentials() -> dict[str, str]:
+    from fieldtest.cli_common import _PROVIDER_ENV
+
+    return {**_PROVIDER_ENV, "openai_compatible": "OPENROUTER_API_KEY"}
+
+
+LIVE_CREDENTIALS = _live_credentials()
 
 
 def _live_selected(config) -> bool:

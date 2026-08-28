@@ -16,7 +16,15 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
 
-VALID_PROVIDERS = {"anthropic", "gemini", "openai", "openai_compatible"}
+# The single definition of which providers fieldtest ships. providers/__init__.py
+# constructs exactly these and config validates against them, so a second copy
+# would let the factory and the validator disagree about what exists.
+BUILTIN_PROVIDERS = {"anthropic", "gemini", "openai", "openai_compatible"}
+
+# Kept as an alias: it is in fieldtest.config's __all__ and may be imported by
+# users. "Valid" is the weaker claim of the two — at runtime a config may also
+# name a provider registered with @provider.
+VALID_PROVIDERS = BUILTIN_PROVIDERS
 
 
 class ProviderSettings(BaseModel):

@@ -1478,3 +1478,31 @@ def test_provider_env_names_match_what_the_adapters_read():
             f"validate says {provider} reads {declared}, but its adapter's error "
             f"names something else: {result['error']!r}"
         )
+
+
+def test_one_definition_of_the_builtin_provider_names():
+    """
+    The factory constructs these and config validates against them. Two copies
+    would let a new provider be accepted by config and then fail to construct,
+    or be constructible and rejected by config.
+    """
+    from fieldtest.config import VALID_PROVIDERS
+    from fieldtest.providers import BUILTIN_PROVIDERS
+    from fieldtest.providers.settings import BUILTIN_PROVIDERS as source
+
+    assert BUILTIN_PROVIDERS is source
+    assert VALID_PROVIDERS is source
+
+
+def test_every_builtin_provider_can_actually_be_constructed():
+    """A name in the table that the factory cannot build is a config error
+    waiting to happen at the first judge call instead of at validation."""
+    from fieldtest.config import ProviderSettings
+    from fieldtest.providers import BUILTIN_PROVIDERS, get_provider_adapter
+
+    for name in BUILTIN_PROVIDERS:
+        settings = (
+            ProviderSettings(base_url="http://x/v1")
+            if name == "openai_compatible" else None
+        )
+        assert get_provider_adapter(name, settings) is not None

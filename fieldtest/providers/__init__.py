@@ -14,7 +14,7 @@ from typing import Optional
 from fieldtest.errors import ProviderError
 from fieldtest.providers.base import ProviderAdapter
 
-BUILTIN_PROVIDERS = {"anthropic", "gemini", "openai", "openai_compatible"}
+from fieldtest.providers.settings import BUILTIN_PROVIDERS  # noqa: F401
 
 
 def get_provider_adapter(

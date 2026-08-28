@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from fieldtest.errors import ConfigError
 from fieldtest.providers.base import RetryPolicy
 from fieldtest.providers.settings import (
+    BUILTIN_PROVIDERS,
     VALID_PROVIDERS,
     ProviderSettings,
     _validate_provider_name,
@@ -391,7 +392,7 @@ __all__ = [
     "BinaryJudgeOutput", "CalibrationConfig", "Config", "Defaults", "Eval",
     "EvalTag", "EvalType", "FixturesConfig", "LLMExample", "PanelJudge",
     "ProviderSettings", "ResultRow", "ScoredJudgeOutput", "SystemConfig",
-    "UseCase", "VALID_PROVIDERS",
+    "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
     "extract_labels", "load_fixture", "parse_and_validate", "validate_fixture_labels",
     "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
     "use_cases_with_fixtures",
