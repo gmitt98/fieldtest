@@ -1033,42 +1033,42 @@ hr.divider {
         <div class="of-icon">📌</div>
         <div class="of-body">
           <div class="of-name">Pinned by default</div>
-          <div class="of-desc">Judges run at temperature 0.0, not the provider default. Score the same outputs twice, get the same answer twice. Where a model refuses the parameter, the run completes and the header says the judge is not pinned.</div>
+          <div class="of-desc">Judges run at temperature 0.0, not the provider default. Score the same outputs twice, get the same answer twice. If a model refuses the parameter, the run completes and the report header names it.</div>
         </div>
       </div>
       <div class="of-card">
         <div class="of-icon">🔖</div>
         <div class="of-body">
           <div class="of-name">Recorded on every run</div>
-          <div class="of-desc">Provider, model, temperature, seed, per-eval overrides, and a fingerprint over all of it. Swap the judge and rescore the same outputs, and the diff used to look exactly like a regression. Runs with different fingerprints are no longer compared.</div>
+          <div class="of-desc">Provider, model, temperature, seed, per-eval overrides, and a fingerprint over all of it. Swapping the judge and rescoring used to produce a diff indistinguishable from a regression. Runs with different fingerprints are no longer compared.</div>
         </div>
       </div>
       <div class="of-card">
         <div class="of-icon">📈</div>
         <div class="of-body">
           <div class="of-name">Rates carry an interval</div>
-          <div class="of-desc">One failure in five runs is 20%. So is twenty in a hundred. Binary evals now report a Wilson score interval and <code>n</code>, so you can tell those apart — and gate CI on the rate your sample supports rather than the one it happened to produce.</div>
+          <div class="of-desc">One failure in five runs is 20%, and so is twenty in a hundred. Binary evals report a Wilson score interval and <code>n</code>, so you can tell them apart and gate CI on the lower bound.</div>
         </div>
       </div>
       <div class="of-card">
         <div class="of-icon">🔁</div>
         <div class="of-body">
           <div class="of-name">Repeatability, measured</div>
-          <div class="of-desc">Set <code>judge_runs: 3</code> and the report separates system spread from judge spread. Near zero means the eval is well specified. Judge spread rivalling system spread means the criteria are ambiguous — which is a finding, not a bug.</div>
+          <div class="of-desc">Set <code>judge_runs: 3</code> and the report separates system spread from judge spread. Judge spread near zero means the eval is well specified. Judge spread close to system spread means the criteria are ambiguous.</div>
         </div>
       </div>
       <div class="of-card">
         <div class="of-icon">🧑‍⚖️</div>
         <div class="of-body">
           <div class="of-name">Agreement with you</div>
-          <div class="of-desc">Record what you think the right verdict is, per eval and per run, in the fixture. The report shows how often the judge agreed, counting false passes apart from false fails. Labels never move <code>failure_rate</code> — they score the judge.</div>
+          <div class="of-desc">Record what you think the correct verdict is, per eval and per run, in the fixture. The report shows how often the judge agreed, counting false passes separately from false fails. Labels do not affect <code>failure_rate</code>.</div>
         </div>
       </div>
       <div class="of-card">
         <div class="of-icon">⚖️</div>
         <div class="of-body">
           <div class="of-name">fieldtest calibrate</div>
-          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Two judges that both always answer pass agree 95% of the time on a 5% failure rate and have demonstrated nothing — kappa says so. Evals rank by disagreement, most contested first.</div>
+          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first.</div>
         </div>
       </div>
     </div>
@@ -1201,7 +1201,7 @@ hr.divider {
       </div>
       <div class="principle">
         <div class="p-key">The judge is an instrument too.</div>
-        <div class="p-val">Spread across runs has two sources: your system, and the model scoring it. fieldtest pins the judge at temperature 0, records which judge produced every run, and refuses to compare runs scored by different ones. <strong>Set <code>judge_runs</code></strong> to see how much of the spread is the judge.</div>
+        <div class="p-val">Spread across runs has two sources: your system, and the model scoring it. fieldtest pins the judge at temperature 0, records which judge produced every run, and will not compare runs scored by different ones. <strong>Set <code>judge_runs</code></strong> to measure how much of the spread is the judge.</div>
       </div>
       <div class="principle">
         <div class="p-key">Runner decoupled from scoring.</div>

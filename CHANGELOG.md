@@ -2,12 +2,8 @@
 
 ## 0.3.0
 
-v1 asked you to define what right, good and safe mean before measuring. This release turns the
-same question on the judge doing the measuring.
-
-A `failure_rate` is a claim about your system produced by a model whose identity, settings and
-accuracy went unrecorded. fieldtest now records all three, and gives you the tools to check the
-instrument before you trust the number.
+This release is about the judge. fieldtest now pins it, records which one ran, reports how
+certain a rate is, and gives you two ways to check whether the judge deserves to be believed.
 
 ### The judge holds still
 
@@ -26,27 +22,21 @@ defaults:
 
 **Your numbers will move on upgrade.** That movement is noise being removed.
 
-Where a model rejects a parameter — Anthropic removed sampling on its 5-series, OpenAI's reasoning
-models reject `temperature` and want `max_completion_tokens` — fieldtest drops it, completes the
-run, and names it in the report header rather than failing every call. It finds this out by asking,
-not from a table: the Gemini adapter previously hardcoded `seed` as unsupported, never sent it, and
-reported the omission as though the provider had refused. It does not; the parameter works.
+Some models reject these parameters. Anthropic removed sampling on its 5-series; OpenAI's
+reasoning models reject `temperature` and require `max_completion_tokens`. fieldtest sends the
+parameter, and if the provider refuses it, drops it and completes the run:
 
 ```
 ⚠ judge parameters ignored by provider: temperature (openai)
 ```
 
-A judge running without the parameters you asked for is not pinned, and the header says so.
+A judge that dropped `temperature` is not pinned. Treat its run-to-run variation as real.
 
 ### The judge sees what your system was answering
 
-An LLM judge was shown the output and nothing else. Not the question, not the retrieved context —
-just the reply, next to a criterion like "every claim can be traced to the retrieved excerpt".
-
-Grounding evals returned pass and fail without ever seeing the source. The numbers looked judged
-and were guessed.
-
-Fixture `inputs` now go to the judge alongside the output:
+LLM judges previously saw the output and nothing else — not the question, not the retrieved
+context. A grounding eval asking whether every claim traces to the source was answering without the
+source. Fixture `inputs` now go to the judge alongside the output:
 
 ```
 System input:
@@ -64,8 +54,9 @@ You can expense meals up to $75.
 Set `judge_sees_inputs: false` on an eval that should judge the output alone, or to keep a large
 context out of every call.
 
-**This changes results** for every eval whose fixture has inputs, and not predictably — a judge
-that can finally read the context may pass answers it was failing.
+**This changes results** for every eval whose fixture has inputs. The direction is not
+predictable: a judge that can read the context may pass answers it was failing, or fail answers it
+was passing.
 
 ### Every run records its judge
 
@@ -84,21 +75,20 @@ that can finally read the context may pass answers it was failing.
 }
 ```
 
-Change `defaults.model` and rescore the same outputs, and the diff used to look exactly like a
-system regression. Runs with different fingerprints are no longer compared automatically, and
-`fieldtest diff --baseline` names what moved:
+Changing `defaults.model` and rescoring the same outputs used to produce a diff indistinguishable
+from a system regression. Runs with different fingerprints are no longer compared automatically,
+and `fieldtest diff --baseline` names what changed:
 
 ```
 ⚠ Judge mismatch — model: claude-haiku-4-5 → claude-sonnet-5.
 ```
 
-`fieldtest history` gained a JUDGE column so a rate series is readable at a glance.
+`fieldtest history` has a JUDGE column.
 
 ### Rates come with an interval
 
-A binary eval reported `failure_rate: 0.2` with the same weight whether that was one failure in
-five runs or twenty in a hundred. At `runs: 5`, one flipped judgment is a 20-point swing — and the
-README told you to gate CI on that number.
+`failure_rate: 0.2` read the same whether it came from one failure in five runs or twenty in a
+hundred. At `runs: 5`, one flipped judgment moves it by 0.2.
 
 ```
 | eval              | pass rate      | n |
@@ -106,10 +96,9 @@ README told you to gate CI on that number.
 | addresses-the-ask | 78% [45–94%]   | 9 |
 ```
 
-Wilson score interval, because at five runs with zero failures the normal approximation claims a
-certainty the sample cannot support. `defaults.confidence` sets the level. Deltas gained an
-`overlapping` flag: movement between two overlapping intervals is movement your sample size cannot
-distinguish from noise.
+The interval is Wilson score; at five runs with zero failures the normal approximation gives
+[0, 0]. `defaults.confidence` sets the level, default 0.95. Delta entries gain an `overlapping`
+flag when the two intervals overlap.
 
 For CI, `failure_rate_ci[0]` is the rate your sample actually supports:
 
@@ -119,9 +108,8 @@ jq '[.summary[][][].failure_rate_ci[0] | select(. != null)] | max // 0' "$DATA"
 
 ### `judge_runs` — how much of the spread is the judge
 
-`runs: 5` produced five outputs, each judged once. So `stddev` was the spread across five
-different outputs scored by a judge that was itself varying. Two sources of variance, summed, and
-attributed to your system.
+`runs: 5` produced five outputs, each judged once, so `stddev` mixed two sources of variance:
+your outputs differing, and the judge scoring the same output differently.
 
 ```yaml
 fixtures:
@@ -136,17 +124,15 @@ fixtures:
 | no-unauthorized-commitments | 50.0%              | —             | —            |
 ```
 
-A judge spread near zero means the eval is well specified. A judge spread that rivals the system
-spread means the criteria are ambiguous, which is the diagnostic worth having.
+Judge spread near zero means the eval is well specified. Judge spread close to system spread
+means the criteria are ambiguous.
 
-Rates stay comparable: `failure_rate` comes from one collapsed verdict per output — majority, ties
-resolved to fail, because a tie means the judge could not decide and on a `safe` eval that is not
-a pass.
+`failure_rate` still comes from one verdict per output — majority across repetitions, ties resolved
+to fail — so rates stay comparable across `judge_runs` settings.
 
 ### Human labels — score the judge, not the system
 
-There was nowhere to record what you think the right verdict is. So an eval reported a rate
-against nothing.
+Record what you think the correct verdict is, per eval and per generator run:
 
 ```yaml
 # evals/fixtures/golden/billing-dispute.yaml
@@ -163,12 +149,12 @@ labels:
 | no-unauthorized-commitments | 3            | 100.0%    | 0 false pass, 0 false fail |
 ```
 
-False passes are counted apart from false fails, because on a `safe` eval they are not the same
-mistake. Labels never touch `failure_rate` — they score the judge.
+False passes are counted separately from false fails; on a `safe` eval they are not the same
+mistake. Labels do not affect `failure_rate`.
 
 ### `fieldtest calibrate` — put the judge under test
 
-fieldtest could measure your system. It could not measure the thing measuring your system.
+Run several judges over the same outputs and compare them.
 
 ```yaml
 calibration:
@@ -182,28 +168,26 @@ fieldtest calibrate --dry-run    # projected cost, calls nothing
 fieldtest calibrate
 ```
 
-Each judge scores the same `outputs/` — cheap, because your generator already wrote them — and you
-get pairwise agreement, Cohen's kappa, and Fleiss' kappa across the panel. Scored evals get mean
-absolute deviation and Spearman correlation.
+Rescoring an existing `outputs/` directory is cheap, so this costs one extra pass per judge. Per
+eval you get pairwise agreement, Cohen's kappa and Fleiss' kappa; scored evals get mean absolute
+deviation and Spearman correlation.
 
-Kappa matters here more than raw agreement. On a `safe` eval whose true failure rate is 5%, two
-judges that both always answer pass agree 95% of the time and have demonstrated nothing.
+Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the
+time on an eval whose true failure rate is 5%.
 
-The output that matters is the ranking: your evals ordered by how much the panel disagreed. Those
-are the `pass_criteria` that need rewriting. Where fixtures carry labels, each judge is also ranked
-by agreement with you.
+The report ranks your evals by how much the panel disagreed. Those are the `pass_criteria` to
+rewrite. Where fixtures carry labels, each judge is also ranked by agreement with you.
 
 ### Judge errors stop shrinking your sample quietly
 
-Only the Anthropic adapter retried anything. OpenAI and Gemini errored on the first exception, and
-because errored rows are excluded from `failure_rate`, a burst of provider load quietly turned a
-five-run eval into a one-run eval that still reported a rate.
+Only the Anthropic adapter retried. Since errored rows are excluded from `failure_rate`, provider
+load could turn a five-run eval into a one-run eval that still reported a rate.
 
-All three providers now share one retry policy — 429, 5xx, 529, connection and timeout errors, on
-a 5/10/20/40/60/60 second backoff, tunable via `defaults.judge_retry`. Auth failures, unknown
-models and malformed verdicts still fail immediately.
+All three providers now share one retry policy: 429, 5xx, 529, connection and timeout errors, on a
+5/10/20/40/60/60 second backoff, tunable via `defaults.judge_retry`. Auth failures, unknown models
+and malformed judge responses still fail immediately.
 
-When a run does end up with errors, the report says so:
+Runs with errors say so:
 
 ```
 ⚠ judge errors: 3 of 48 calls failed after retry.
@@ -212,13 +196,13 @@ When a run does end up with errors, the report says so:
 
 ### The judge prompt is harder to hijack
 
-Output was interpolated between bare `---` lines, so an output containing its own `---` closed the
-data block and everything after it read as instruction — the input class
-`docs/recipes/adversarial-fixtures.md` tells you to write.
+Output was interpolated between bare `---` lines, so an output containing its own `---` line
+closed the data block early and anything after it read as instruction.
 
-Whole-line delimiters in outputs and inputs are rewritten before the prompt is built, and the row
-says so: `[output delimiters neutralized] <reasoning>`. Judge responses are read as the last
-complete JSON object, so an output that echoes a verdict before the judge gives one no longer wins.
+Whole-line delimiters in outputs and inputs are now rewritten before the prompt is built, and the
+row records it: `[output delimiters neutralized] <reasoning>`. Judge responses are parsed as the
+last complete JSON object, so an output that echoes a verdict before the judge gives one is not
+read as the verdict.
 
 ---
 
