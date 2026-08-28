@@ -43,12 +43,17 @@ order of how much work each asks of them.
    demonstrated rather than assumed — an `openai_compatible` adapter is mostly a way to configure
    `base_url` from `config.yaml` instead of the environment.
 
-   One caveat belongs in the docs beside the recommendation: OpenRouter absorbs parameters the
-   underlying model does not accept. `openai/o3-mini` took `temperature` and `max_tokens` without
-   complaint; the same models called natively reject both — `gpt-5` returns
-   `unsupported: ["temperature"]` through fieldtest's own adapter. Convenient in use, and it means
-   a judge reached through OpenRouter may not be pinned the way the config says, with nothing in
-   the report to reveal it. See spec 12 for why the live test tier cannot rely on it.
+   One caveat belongs in the docs beside the recommendation, stated as narrowly as the evidence
+   allows. `openai/o3-mini` through OpenRouter took `temperature` and `max_tokens` without
+   complaint, and fieldtest reported nothing dropped. Called natively, `gpt-5` returns
+   `unsupported: ["temperature"]` through the same adapter.
+
+   Those are different models, so this does not establish that OpenRouter strips parameters —
+   o3-mini has never been called natively from here, and the difference could as easily be the
+   model. What it does establish is the part that matters operationally: **the drop path did not
+   fire through OpenRouter**, so a judge reached that way may be running unpinned with nothing in
+   the report to reveal it, and the live tier cannot use OpenRouter to exercise that path. See
+   spec 12.
 1c. **A user can register their own adapter** for anything that does not speak that protocol,
    without forking fieldtest. This mirrors `@rule`, which already loads user code from
    `evals/rules.py` — the precedent for user-supplied behavior in a project directory exists and

@@ -70,12 +70,17 @@ that can finally read the context may pass answers it was failing.
 ### Every run records its judge
 
 ```json
-"judge": {
-  "provider": "anthropic",
-  "model": "claude-haiku-4-5",
-  "temperature": 0.0,
-  "overrides": {},
-  "fingerprint": "9c022b78"
+{
+  "schema_version": 2,
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "temperature": 0.0,
+    "seed": null,
+    "overrides": {},
+    "blinded_evals": [],
+    "fingerprint": "4f10569a"
+  }
 }
 ```
 
@@ -96,8 +101,9 @@ five runs or twenty in a hundred. At `runs: 5`, one flipped judgment is a 20-poi
 README told you to gate CI on that number.
 
 ```
-| eval          | pass rate      | n |
-| no-fabricate  | 80% [38–96%]   | 5 |
+| eval              | pass rate      | n |
+| golden-reply      | 100% [44–100%] | 3 |
+| addresses-the-ask | 78% [45–94%]   | 9 |
 ```
 
 Wilson score interval, because at five runs with zero failures the normal approximation claims a
@@ -125,9 +131,9 @@ fixtures:
 
 ```
 ### Judge Repeatability (judge_runs: 3)
-| eval          | judge disagreement | system spread | judge spread |
-| tone          | —                  | 1.0           | 0.82         |
-| no_promises   | 50.0%              | —             | —            |
+| eval                        | judge disagreement | system spread | judge spread |
+| appropriate-tone            | —                  | 1.0           | 0.8165       |
+| no-unauthorized-commitments | 50.0%              | —             | —            |
 ```
 
 A judge spread near zero means the eval is well specified. A judge spread that rivals the system
@@ -153,7 +159,8 @@ labels:
 ```
 ### Judge vs Human Labels
 | eval                        | labeled runs | agreement | errors                     |
-| no-unauthorized-commitments | 3            | 66.7%     | 1 false pass, 0 false fail |
+| addresses-the-ask           | 3            | 100.0%    | 0 false pass, 0 false fail |
+| no-unauthorized-commitments | 3            | 100.0%    | 0 false pass, 0 false fail |
 ```
 
 False passes are counted apart from false fails, because on a `safe` eval they are not the same

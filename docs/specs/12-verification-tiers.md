@@ -101,9 +101,10 @@ problem for the happy path.
 But it cannot exercise the parameter-rejection path, and that was established empirically rather
 than assumed. Calling `openai/o3-mini` through OpenRouter with `temperature: 0.0` and `max_tokens`
 set — the exact combination OpenAI documents as a 400 on reasoning models — **succeeded, with
-nothing reported as dropped**. OpenRouter absorbs the incompatibility somewhere upstream; its
-docs describe what happens when a parameter is *absent* and are silent on what happens when an
-unsupported one is *present*.
+nothing reported as dropped**. Whether OpenRouter strips the parameter or that model simply
+accepts it is untested — o3-mini has never been called natively from here — and OpenRouter's docs
+describe what happens when a parameter is *absent* while saying nothing about an unsupported one
+being *present*. The mechanism does not matter for this spec's purpose; the observation does.
 
 That is good for users and bad for tests. `rejects_parameter()` and `call_dropping_unsupported()`
 exist precisely for the case OpenRouter hides, so the live tier needs **provider-native keys** to
@@ -113,7 +114,7 @@ reach it:
 |---|---|---|
 | Adapter works, JSON parses | yes | yes |
 | Cross-lab and open-weight coverage | yes | no (one lab each) |
-| Parameter rejection drops and reports | **no — absorbed upstream** | yes |
+| Parameter rejection drops and reports | **no — did not fire** | yes |
 | Bespoke Anthropic / Gemini adapters | no — OpenAI protocol only | yes |
 
 A live tier that only ever runs through OpenRouter would report green while leaving the newest,
