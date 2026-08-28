@@ -422,3 +422,183 @@ def test_registered_provider_that_raises_produces_an_error_row_not_a_crash(tmp_p
     assert len(rows) == 2
     assert all(r.error for r in rows)
     assert all("user adapter blew up" in r.error for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# A real OpenAI-protocol endpoint on a loopback socket (spec 11 §5)
+#
+# Spec 11's behavioural acceptance asks for a model served by vLLM or Ollama,
+# a config pointed at it, and a calibration panel mixing it with a hosted judge.
+# This runs that shape against a server on 127.0.0.1 rather than a GPU: real
+# socket, real openai SDK, real base_url routing, real score() and calibrate().
+#
+# What it cannot establish is whether a 7B model's judgment is any good, which
+# is what `fieldtest calibrate` exists to answer and not a property of this
+# code. Everything between config.yaml and the HTTP request is covered here.
+#
+# Hermetic and free — loopback only, no credentials, no external network — so
+# it stays in this tier rather than the opt-in live one.
+# ---------------------------------------------------------------------------
+
+class _FakeEndpoint:
+    """An OpenAI chat-completions server. Records what it was actually sent."""
+
+    def __init__(self, verdict: str = "Pass", reject: str | None = None):
+        import json as _json
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        self.requests: list[dict] = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a):  # keep pytest output clean
+                pass
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                payload = _json.loads(body)
+                outer.requests.append({"path": self.path, **payload})
+
+                if reject and reject in payload:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"error": {
+                        "message": f"Unsupported parameter: '{reject}'",
+                        "type": "invalid_request_error", "param": reject,
+                    }}).encode())
+                    return
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(_json.dumps({
+                    "id": "x", "object": "chat.completion", "created": 0,
+                    "model": payload.get("model", "?"),
+                    "choices": [{
+                        "index": 0, "finish_reason": "stop",
+                        "message": {"role": "assistant", "content":
+                                    f'{{"answer": "{verdict}", '
+                                    f'"reasoning": "served locally"}}'},
+                    }],
+                }).encode())
+
+        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.base_url = f"http://127.0.0.1:{self._server.server_port}/v1"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._server.shutdown()
+        self._server.server_close()
+
+
+def test_a_config_can_score_against_a_local_openai_protocol_endpoint(tmp_path):
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    with _FakeEndpoint(verdict="Pass") as endpoint:
+        config_path = _project(
+            tmp_path,
+            evals_yaml=LLM_EVAL,
+            runs=2,
+            defaults_extra=(
+                "  provider: openai_compatible\n"
+                "  model: meta-llama/llama-3.3-70b-instruct\n"
+            ),
+        )
+        config_path.write_text(
+            config_path.read_text()
+            + "providers:\n"
+              "  openai_compatible:\n"
+              f"    base_url: {endpoint.base_url}\n"
+        )
+        config = parse_and_validate(config_path)
+        _, rows = score(config=config, config_path=config_path, write_artifacts=False)
+
+    llm_rows = [r for r in rows if r.eval_id == "is_helpful"]
+    assert len(llm_rows) == 2
+    assert all(r.passed for r in llm_rows), [r.error for r in llm_rows]
+    assert all("served locally" in r.detail for r in llm_rows)
+
+    # The endpoint received what the config asked for, over a real connection.
+    assert len(endpoint.requests) == 2
+    assert endpoint.requests[0]["path"] == "/v1/chat/completions"
+    assert endpoint.requests[0]["model"] == "meta-llama/llama-3.3-70b-instruct"
+    assert endpoint.requests[0]["temperature"] == 0.0
+
+
+def test_a_local_endpoint_rejecting_a_parameter_is_reported_not_fatal(tmp_path):
+    """
+    The drop path against a server that actually returns 400, rather than a
+    mock raising on cue. This is the path the OpenRouter caveat says did not
+    fire there.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.judges.llm import _unsupported_params
+    from fieldtest.runner import score
+
+    _unsupported_params.clear()
+    with _FakeEndpoint(verdict="Pass", reject="temperature") as endpoint:
+        config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=1,
+                               defaults_extra="  provider: openai_compatible\n  model: local-7b\n")
+        config_path.write_text(
+            config_path.read_text()
+            + f"providers:\n  openai_compatible:\n    base_url: {endpoint.base_url}\n"
+        )
+        config = parse_and_validate(config_path)
+        _, rows = score(config=config, config_path=config_path, write_artifacts=False)
+
+    llm_rows = [r for r in rows if r.eval_id == "is_helpful"]
+    assert all(r.passed for r in llm_rows), [r.error for r in llm_rows]
+    # Retried without it, and said so rather than leaving the judge silently unpinned.
+    assert any("temperature" in p for p in _unsupported_params)
+    assert "temperature" not in endpoint.requests[-1]
+
+
+def test_calibrate_runs_a_panel_mixing_a_local_endpoint_and_another_judge(tmp_path):
+    """
+    Spec 11's stated purpose: a local judge and a hosted judge disagreeing on
+    an eval. Only the hosted half is faked here — the local half is served.
+    """
+    from unittest.mock import patch
+
+    from fieldtest.calibrate import run_calibration
+    from fieldtest.config import parse_and_validate
+
+    class _AlwaysFails(ProviderAdapter):
+        def call(self, model, prompt, gen, retry):
+            return {"answer": "Fail", "reasoning": "hosted judge disagrees"}
+
+    with _FakeEndpoint(verdict="Pass") as endpoint:
+        config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=2,
+                               defaults_extra="  provider: openai_compatible\n  model: local-7b\n")
+        config_path.write_text(
+            config_path.read_text()
+            + f"providers:\n  openai_compatible:\n    base_url: {endpoint.base_url}\n"
+            + "calibration:\n"
+              "  panel:\n"
+              "    - { provider: openai_compatible, model: local-7b }\n"
+              "    - { provider: anthropic, model: claude-haiku-4-5 }\n"
+        )
+        config = parse_and_validate(config_path)
+
+        from fieldtest.providers import get_provider_adapter as real_get
+
+        def _route(provider, settings=None):
+            # The local endpoint stays real; only the hosted judge is faked.
+            if provider == "anthropic":
+                return _AlwaysFails()
+            return real_get(provider, settings)
+
+        with patch("fieldtest.judges.llm.get_provider_adapter", side_effect=_route):
+            _, data = run_calibration(config, config_path, "full")
+
+    # Two judges, opposite verdicts on every row: agreement is zero.
+    stats = data["evals"]["is_helpful"]
+    assert stats["judges_participating"] == 2
+    assert stats["mean_agreement"] == 0.0
+    assert endpoint.requests, "the local endpoint was never called"

@@ -680,3 +680,52 @@ def test_unregistered_provider_name_still_rejected(tmp_path):
     with pytest.raises(ConfigError) as exc:
         parse_and_validate(_write_config(tmp_path, yaml))
     assert "Unknown provider" in str(exc.value)
+
+
+def test_registered_provider_does_not_leak_into_another_project(tmp_path):
+    """
+    A name registered by one project must not resolve for the next, including
+    when the next has no providers.py — otherwise defaults.provider silently
+    accepts a name that project never defined.
+    """
+    proj_a = tmp_path / "a"
+    proj_a.mkdir()
+    _write_providers_py(proj_a, '''
+        from fieldtest import provider
+
+        @provider("leaky-service")
+        def call(model, prompt, gen, retry):
+            return {"answer": "pass", "reasoning": "a"}
+    ''')
+    cfg_a = _write_config(proj_a, _plus("""
+        defaults:
+          provider: leaky-service
+    """))
+    assert parse_and_validate(cfg_a).defaults.provider == "leaky-service"
+
+    proj_b = tmp_path / "b"
+    proj_b.mkdir()
+    cfg_b = _write_config(proj_b, _plus("""
+        defaults:
+          provider: leaky-service
+    """))
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(cfg_b)
+    assert "Unknown provider 'leaky-service'" in str(exc.value)
+
+
+def test_reloading_the_same_project_keeps_its_providers(tmp_path):
+    """Scoping must not break the common case: the same project, twice."""
+    _write_providers_py(tmp_path, '''
+        from fieldtest import provider
+
+        @provider("stable-service")
+        def call(model, prompt, gen, retry):
+            return {"answer": "pass", "reasoning": "ok"}
+    ''')
+    cfg = _write_config(tmp_path, _plus("""
+        defaults:
+          provider: stable-service
+    """))
+    assert parse_and_validate(cfg).defaults.provider == "stable-service"
+    assert parse_and_validate(cfg).defaults.provider == "stable-service"

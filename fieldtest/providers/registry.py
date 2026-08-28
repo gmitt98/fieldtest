@@ -89,9 +89,27 @@ def registered_provider_names() -> set[str]:
     return set(_provider_registry)
 
 
+# The project directory the registry currently reflects.
+_registry_project: list[str] = []
+
+
 def load_providers(providers_path: Path) -> None:
     """
-    Import providers.py so @provider decorators register. No-op if absent.
-    Raises ConfigError on syntax or import error.
+    Import providers.py so @provider decorators register. Raises ConfigError on
+    syntax or import error.
+
+    Registrations are scoped to one project. Loading a config from a different
+    directory clears them first, including when that project has no
+    providers.py at all — otherwise a name registered by the first project
+    would still resolve for the second, and `defaults.provider` would silently
+    accept a name that project never defined. One process scores one project at
+    a time; the calibration panel threads share a directory, so this does not
+    fire between them.
     """
+    project = str(providers_path.resolve().parent)
+    if _registry_project and _registry_project[0] != project:
+        _provider_registry.clear()
+        _loaded_provider_files.clear()
+    _registry_project[:] = [project]
+
     import_user_file(providers_path, "_fieldtest_providers", _loaded_provider_files)
