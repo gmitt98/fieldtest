@@ -1,6 +1,6 @@
 # Spec 09 — Discovery position
 
-**Tier** 3 · **Depends on** none · **Touches** `docs/philosophy.md`, `README.md` · **Status** sketch
+**Tier** 3 · **Depends on** none · **Touches** `docs/philosophy.md`, `README.md` · **Status** shipped
 
 ## §1 Problem
 

@@ -1084,9 +1084,9 @@ def test_endpoint_change_is_named_in_the_judge_diff():
 
 def test_fingerprint_unchanged_for_configs_without_endpoints():
     """
-    A config naming no endpoint must fingerprint exactly as it did before this
-    field existed, or every baseline recorded by 0.3.0 is orphaned. The
-    pre-change payload is rebuilt here rather than trusted.
+    A config naming no endpoint must hash the same with and without the
+    endpoints field, so the fingerprint stays additive. The payload without it
+    is rebuilt here rather than trusted.
     """
     import hashlib
     import json

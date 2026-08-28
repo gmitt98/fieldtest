@@ -25,10 +25,10 @@ measure nothing.
 | 06 | [Judge variance decomposition](06-judge-variance-decomposition.md) | 2 | 01, 02 | shipped |
 | 07 | [Human labels in fixtures](07-human-labels.md) | 2 | none | shipped |
 | 08 | [`fieldtest calibrate`](08-calibrate-command.md) | 2 | 01, 02, 06, 07 | shipped |
-| 09 | [Discovery position](09-discovery-position.md) | 3 | none | sketch |
+| 09 | [Discovery position](09-discovery-position.md) | 3 | none | shipped |
 | 10 | [Inspect interop](10-inspect-interop.md) | 3 | 01 | sketch |
-| 11 | [Provider surface beyond the big three](11-provider-surface.md) | 2 | 02, 05 | draft |
-| 12 | [Verification tiers](12-verification-tiers.md) | 2 | 11 | draft |
+| 11 | [Provider surface beyond the big three](11-provider-surface.md) | 2 | 02, 05 | shipped |
+| 12 | [Verification tiers](12-verification-tiers.md) | 2 | 11 | shipped |
 | 13 | [Judge input visibility](13-judge-input-visibility.md) | 1 | 03 | shipped |
 
 ## Version boundary

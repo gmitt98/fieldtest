@@ -91,9 +91,10 @@ def judge_fingerprint(judge: dict) -> str:
         "overrides":   judge.get("overrides", {}),
         "blinded_evals": judge.get("blinded_evals", []),
     }
-    # Added to the payload only when present. Including an empty dict
-    # unconditionally would change the hash of every config that does not name
-    # an endpoint, orphaning every baseline recorded before this field existed.
+    # Added to the payload only when present, so a config that names no endpoint
+    # hashes identically with and without this field. That keeps the fingerprint
+    # additive: the next provider setting can be added the same way without
+    # churning the fingerprint of every config that does not use it.
     endpoints = judge.get("endpoints")
     if endpoints:
         payload["endpoints"] = endpoints

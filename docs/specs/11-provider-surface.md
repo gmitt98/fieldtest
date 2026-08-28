@@ -1,6 +1,6 @@
 # Spec 11 — Provider surface beyond the big three
 
-**Tier** 2 · **Depends on** 02, 05 · **Touches** `providers/`, `config.py`, README · **Status** draft · §1 rewritten after live verification
+**Tier** 2 · **Depends on** 02, 05 · **Touches** `providers/`, `config.py`, README · **Status** shipped · §1 rewritten after live verification
 
 ## §1 Problem
 

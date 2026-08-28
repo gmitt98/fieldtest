@@ -1,6 +1,6 @@
 # Spec 12 — Verification tiers
 
-**Tier** 2 · **Depends on** 11 · **Touches** `tests/`, `pyproject.toml`, CI workflow · **Status** draft
+**Tier** 2 · **Depends on** 11 · **Touches** `tests/`, `pyproject.toml`, CI workflow · **Status** shipped
 
 ## §1 Problem
 

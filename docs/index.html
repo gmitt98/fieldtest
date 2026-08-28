@@ -1071,6 +1071,13 @@ hr.divider {
           <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first.</div>
         </div>
       </div>
+      <div class="of-card">
+        <div class="of-icon">🔌</div>
+        <div class="of-body">
+          <div class="of-name">Any judge you can reach</div>
+          <div class="of-desc">Anthropic, OpenAI and Gemini by name; vLLM, Ollama, OpenRouter and anything else speaking the OpenAI protocol by base URL, named in config rather than a shell variable so it lands in the fingerprint. For anything else, register an adapter with <code>@provider</code>. The same model served from two endpoints is two instruments, and the diff says so.</div>
+        </div>
+      </div>
     </div>
 
     <div class="code-window" style="margin-top:28px;">
@@ -1079,10 +1086,16 @@ hr.divider {
   <span class="cy">judge_temperature:</span> <span class="cs">0.0</span>          <span class="cc"># the instrument, held still</span>
   <span class="cy">confidence:</span> <span class="cs">0.95</span>               <span class="cc"># interval on every binary rate</span>
 
+<span class="cy">providers:</span>
+  <span class="cy">openai_compatible:</span>
+    <span class="cy">base_url:</span> <span class="cs">https://openrouter.ai/api/v1</span>
+    <span class="cy">api_key_env:</span> <span class="cs">OPENROUTER_API_KEY</span>   <span class="cc"># the name, never the key</span>
+
 <span class="cy">calibration:</span>
   <span class="cy">panel:</span>
     - { <span class="cy">provider:</span> <span class="cs">anthropic</span>, <span class="cy">model:</span> <span class="cs">claude-haiku-4-5</span> }
-    - { <span class="cy">provider:</span> <span class="cs">openai</span>, <span class="cy">model:</span> <span class="cs">gpt-5</span> }</pre>
+    - { <span class="cy">provider:</span> <span class="cs">openai</span>, <span class="cy">model:</span> <span class="cs">gpt-5</span> }
+    - { <span class="cy">provider:</span> <span class="cs">openai_compatible</span>, <span class="cy">model:</span> <span class="cs">meta-llama/llama-3.3-70b-instruct</span> }</pre>
     </div>
   </div>
 </section>

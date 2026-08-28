@@ -204,6 +204,53 @@ row records it: `[output delimiters neutralized] <reasoning>`. Judge responses a
 last complete JSON object, so an output that echoes a verdict before the judge gives one is not
 read as the verdict.
 
+### Judge with anything, and record which anything
+
+fieldtest shipped three provider names. Anything else raised `ProviderError`.
+
+The gap was narrower than it looked — the `openai` SDK honours `OPENAI_BASE_URL`,
+so the existing adapter already reached OpenRouter, vLLM and Ollama — but the
+endpoint lived in a shell variable. It was not versioned with your config, not
+visible to anyone reading it, and not in the judge fingerprint, so two runs
+against the same model name on different endpoints compared as though one
+instrument produced both.
+
+Name it in config instead:
+
+```yaml
+defaults:
+  provider: openai_compatible
+  model: meta-llama/llama-3.3-70b-instruct
+
+providers:
+  openai_compatible:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY    # omit for an endpoint needing no key
+```
+
+`api_key_env` names an environment variable. A literal key in config.yaml is
+rejected rather than ignored, so the file stays committable. The endpoint joins
+the fingerprint, and `fieldtest diff` names a change of it.
+
+For an endpoint that does not speak the OpenAI protocol, register an adapter
+where you already register rule evals:
+
+```python
+# evals/providers.py
+from fieldtest import provider
+
+@provider("my-inference-service")
+def call(model, prompt, gen, retry) -> dict:
+    ...
+```
+
+A registered name works in `defaults.provider`, in a per-eval override, and in a
+`calibration.panel` entry. An adapter that raises costs one errored row rather
+than the run.
+
+`fieldtest validate` now reports which providers your config reaches and whether
+each credential is set, before the run rather than twenty errored rows into it.
+
 ---
 
 ## Changes from v0.2.2
@@ -212,6 +259,8 @@ read as the verdict.
 - `-data.json` adds `schema_version`, `judge`, `judge_runs`; summaries add `failure_rate_ci`,
   `confidence`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
+- New provider `openai_compatible`, plus a `providers` config block and the
+  `@provider` decorator loaded from `evals/providers.py`
 - New config: `defaults.judge_temperature`, `judge_seed`, `judge_retry`, `confidence`;
   `fixtures.judge_runs`; `calibration.panel`; `Eval.judge_sees_inputs`
 - Fixtures accept a `labels` block — per eval, per generator run
@@ -219,7 +268,7 @@ read as the verdict.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 349, in three tiers (`unit`, `integration`, opt-in `live`)
+- Test suite: 130 → 380, in three tiers (`unit`, `integration`, opt-in `live`)
 
 **Breaking:** results move. Pinning temperature removes sampling noise; showing the judge your
 fixture inputs changes what it can see. Both are corrections, and both mean your first run on

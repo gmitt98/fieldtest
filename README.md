@@ -115,6 +115,79 @@ export OPENAI_API_KEY=sk-...          # for openai provider
 export GEMINI_API_KEY=...             # for gemini provider
 ```
 
+### Any OpenAI-compatible endpoint
+
+vLLM, Ollama, OpenRouter, Together, Fireworks and xAI all speak the OpenAI
+chat-completions protocol. Name the endpoint in config rather than in your shell:
+
+```yaml
+defaults:
+  provider: openai_compatible
+  model: meta-llama/llama-3.3-70b-instruct
+
+providers:
+  openai_compatible:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY    # omit for an endpoint needing no key
+```
+
+`api_key_env` is the *name* of an environment variable. Writing a key into
+config.yaml is rejected rather than ignored, so a config file stays committable.
+
+The endpoint is part of the judge fingerprint. The same model name served from
+two places is two instruments, and `fieldtest diff` says so:
+
+```
+⚠ Judge mismatch — openai_compatible endpoint: http://localhost:8000/v1 → https://openrouter.ai/api/v1.
+```
+
+OpenRouter is worth calling out: one key and one base URL reach models from
+Anthropic, OpenAI, Google, xAI, Meta, Qwen, DeepSeek and Mistral behind
+`vendor/model` slugs, so a calibration panel spanning four labs does not need
+four accounts.
+
+One caveat, stated as narrowly as the evidence allows. Through OpenRouter,
+`openai/o3-mini` accepted `temperature` and `max_tokens` and fieldtest reported
+nothing dropped, while `gpt-5` called natively reports `unsupported:
+["temperature"]`. Those are different models, so this does not establish that
+OpenRouter strips parameters. What it does establish is that the drop path did
+not fire through OpenRouter, so a judge reached that way may be running unpinned
+with nothing in the report to reveal it.
+
+### A provider fieldtest does not ship
+
+For an endpoint that does not speak the OpenAI protocol, register an adapter the
+same way you register a rule eval:
+
+```python
+# evals/providers.py
+from fieldtest import provider
+
+@provider("my-inference-service")
+def call(model, prompt, gen, retry) -> dict:
+    """Return the judge's parsed JSON dict, or {"error": str}."""
+    ...
+```
+
+```yaml
+defaults:
+  provider: my-inference-service
+  model: local-7b
+```
+
+A registered name works anywhere a built-in one does: `defaults.provider`, a
+per-eval override, or a `calibration.panel` entry. `gen` carries the temperature
+and seed you configured; honour what your endpoint supports and ignore the rest.
+An adapter that raises costs one errored row rather than the run.
+
+`fieldtest validate` reports which providers your config reaches and whether the
+credential each one names is present, before you spend anything:
+
+```
+  provider 'anthropic' — ANTHROPIC_API_KEY set
+  ⚠ provider 'openai_compatible' → https://openrouter.ai/api/v1 — OPENROUTER_API_KEY NOT set
+```
+
 ### Judge generation settings
 
 The judge runs at temperature 0.0 by default, not at the provider default. A judge left
@@ -683,8 +756,22 @@ fieldtest validate --config path/to/config.yaml
 ```
 
 ```
-✓ config valid — 1 use case, 6 evals, 8 fixtures
+✓ config valid: evals/config.yaml
+  1 use case(s), 6 eval(s)
+  by tag — right: 2, good: 2, safe: 2
+  1 explicitly listed fixture(s)
+  provider 'anthropic' — ANTHROPIC_API_KEY set
+  ≈ 27 judge call(s) for the 'full' set
+
+  human labels:
+    addresses-the-ask: 3 labeled run(s)
+    no-unauthorized-commitments: 3 labeled run(s)
 ```
+
+The provider line names every provider the config reaches — defaults, per-eval
+overrides and calibration panel — and whether its credential is present. The
+judge-call projection is multiplicative (`runs × judge_runs × llm evals ×
+fixtures`), so it is worth reading before a run rather than after the bill.
 
 On error:
 
