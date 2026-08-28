@@ -22,16 +22,28 @@ agrees with itself proves nothing without ground truth; a mock that agrees with 
 built it proves nothing without contact with the real provider. fieldtest asks its users to
 measure their instrument, and its own test suite was measuring itself.
 
-The clearest demonstration arrived after this spec was first drafted. Spec 02's provider matrix
-recorded `gemini | seed | no`. That was corrected to `yes` on the strength of
-`google.genai.types.GenerateContentConfig` exposing a `seed` field — checked against the installed
-SDK, which is a stronger source than the table it replaced. A single live call then rejected the
-parameter: `gemini-3.7-flash` accepts the request and refuses `seed`.
+The clearest demonstration arrived after this spec was first drafted, and it is sharper than the
+one originally written here.
 
-So the table was wrong, the SDK signature was insufficient, and the original entry had been right
-in effect for the wrong reason. Three sources of truth about one boolean, none of them the
-provider, and none of them right. Nothing short of a call could settle it — which is the argument
-for this spec compressed into one field.
+Spec 02's provider matrix recorded `gemini | seed | no`, and the adapter enforced that entry
+directly:
+
+```python
+unsupported = ["seed"] if gen.seed is not None else []
+```
+
+The parameter was never sent. The refusal was manufactured locally and reported to the user in the
+same field a provider refusal would occupy — `⚠ judge parameters ignored by provider: seed
+(gemini)`. A probe run against that adapter returned `unsupported: ['seed']`, which was then read
+as evidence that Gemini rejects the parameter, and the table was updated to say so.
+
+It was fieldtest reporting its own assumption back, in the voice of the provider. Only a call that
+actually sent the parameter settled it, and `gemini-3.7-flash` accepts it.
+
+A wrong table is a documentation bug. A wrong table whose implementation fabricates confirming
+evidence is the failure this spec exists to catch, and it survived a mock suite, three review
+passes and a hand-run probe. Nothing but a real call could have caught it, because every other
+source in the loop was downstream of the same assumption.
 
 ## §2 Requirements
 
