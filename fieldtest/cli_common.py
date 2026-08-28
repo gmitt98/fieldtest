@@ -48,10 +48,15 @@ def _default_config_path() -> Path:
 # Environment variable each built-in provider reads. openai_compatible names
 # its own in config; a @provider adapter is the user's, so nothing is claimed
 # about it beyond that it is registered.
+#
+# Must match what the adapters actually read. This said GOOGLE_API_KEY for
+# gemini while the adapter read GEMINI_API_KEY, so validate reported a
+# correctly configured key as missing. Pinned by
+# test_provider_env_names_match_what_the_adapters_read.
 _PROVIDER_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai":    "OPENAI_API_KEY",
-    "gemini":    "GOOGLE_API_KEY",
+    "gemini":    "GEMINI_API_KEY",
 }
 
 

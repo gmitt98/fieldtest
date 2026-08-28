@@ -1454,3 +1454,27 @@ def test_retry_policy_applies_to_a_compatible_endpoint(monkeypatch):
 
     assert len(attempts) == 2
     assert result["answer"] == "pass"
+
+
+def test_provider_env_names_match_what_the_adapters_read():
+    """
+    `fieldtest validate` reports a credential per provider. If that table names
+    a different variable than the adapter reads, validate reports a correctly
+    configured key as missing — or worse, reports a missing one as present and
+    the run fails anyway.
+
+    Asserted against the adapters' own behaviour rather than a second copy of
+    the table, so the two cannot drift.
+    """
+    from fieldtest.cli_common import _PROVIDER_ENV
+    from fieldtest.providers import get_provider_adapter
+
+    for provider, declared in _PROVIDER_ENV.items():
+        adapter = get_provider_adapter(provider)
+        with patch.dict("os.environ", {}, clear=True):
+            result = adapter.call("some-model", "prompt", GEN, RETRY)
+        assert "error" in result, f"{provider} did not error with no credentials"
+        assert declared in result["error"], (
+            f"validate says {provider} reads {declared}, but its adapter's error "
+            f"names something else: {result['error']!r}"
+        )
