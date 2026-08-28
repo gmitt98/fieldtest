@@ -594,17 +594,18 @@ hr.divider {
       <a class="nav-link" href="#quickstart">Quickstart</a>
       <a class="nav-link" href="#report">Report</a>
       <a class="nav-link" href="#concepts">Concepts</a>
+      <a class="nav-link" href="#judge">Judge</a>
       <a class="nav-link" href="#config">Config</a>
       <a class="nav-link" href="#philosophy">Philosophy</a>
     </div>
-    <span class="nav-pill">v0.2.2</span>
+    <span class="nav-pill">v0.3.0</span>
   </div>
 </nav>
 
 <!-- ── Hero ── -->
 <div class="hero">
   <div class="container">
-    <div class="hero-eyebrow">fieldtest v0.2.2 release</div>
+    <div class="hero-eyebrow">fieldtest v0.3.0 release</div>
     <h1>Eval practice,<br><span>not just eval tooling.</span></h1>
     <p class="hero-sub">
       Drop <code style="color:#7ec8e3;font-size:16px;">fieldtest</code> into any AI project. Write one config file.
@@ -648,9 +649,9 @@ hr.divider {
       <div class="terminal-body">
 <pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
 <span class="t-dim">Collecting fieldtest</span>
-<span class="t-dim">  Downloading fieldtest-0.2.2-py3-none-any.whl (112 kB)</span>
+<span class="t-dim">  Downloading fieldtest-0.3.0-py3-none-any.whl (128 kB)</span>
 <span class="t-dim">Installing collected packages: fieldtest</span>
-<span class="t-green">Successfully installed fieldtest-0.2.2</span>
+<span class="t-green">Successfully installed fieldtest-0.3.0</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest demo --example rag --offline</span>
 <span class="t-green">✓</span> Copied demo: rag → <span class="t-out">./demo-rag/</span>
@@ -983,7 +984,7 @@ hr.divider {
 
 <span class="cy">defaults:</span>
   <span class="cy">provider:</span> <span class="cs">anthropic</span>                            <span class="cc"># or openai, gemini</span>
-  <span class="cy">model:</span> <span class="cs">claude-haiku-3-5-20251001</span>              <span class="cc"># judge model</span></pre>
+  <span class="cy">model:</span> <span class="cs">claude-haiku-4-5</span>              <span class="cc"># judge model</span></pre>
       </div>
     </div>
 
@@ -1016,6 +1017,72 @@ hr.divider {
         <div class="type-desc">Compares output against an <code>expected</code> block in the fixture. Checks <code>contains</code> (required strings) and <code>not_contains</code> (forbidden strings).</div>
         <div class="type-note">No API calls. Ground-truth fixtures only. Skip row shows <code>—</code> when fixture has no expected block.</div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── The judge ── -->
+<section id="judge">
+  <div class="container">
+    <div class="section-label">The judge</div>
+    <h2 class="section-title">Your judge is an instrument. Check it.</h2>
+    <p class="section-sub">A <code>failure_rate</code> is a claim about your system, produced by a model. If you cannot say which model, at what temperature, and how often it agrees with you, the number is a guess wearing a decimal point.</p>
+
+    <div class="output-files">
+      <div class="of-card">
+        <div class="of-icon">📌</div>
+        <div class="of-body">
+          <div class="of-name">Pinned by default</div>
+          <div class="of-desc">Judges run at temperature 0.0, not the provider default. Score the same outputs twice, get the same answer twice. Where a model refuses the parameter, the run completes and the header says the judge is not pinned.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">🔖</div>
+        <div class="of-body">
+          <div class="of-name">Recorded on every run</div>
+          <div class="of-desc">Provider, model, temperature, seed, per-eval overrides, and a fingerprint over all of it. Swap the judge and rescore the same outputs, and the diff used to look exactly like a regression. Runs with different fingerprints are no longer compared.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">📈</div>
+        <div class="of-body">
+          <div class="of-name">Rates carry an interval</div>
+          <div class="of-desc">One failure in five runs is 20%. So is twenty in a hundred. Binary evals now report a Wilson score interval and <code>n</code>, so you can tell those apart — and gate CI on the rate your sample supports rather than the one it happened to produce.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">🔁</div>
+        <div class="of-body">
+          <div class="of-name">Repeatability, measured</div>
+          <div class="of-desc">Set <code>judge_runs: 3</code> and the report separates system spread from judge spread. Near zero means the eval is well specified. Judge spread rivalling system spread means the criteria are ambiguous — which is a finding, not a bug.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">🧑‍⚖️</div>
+        <div class="of-body">
+          <div class="of-name">Agreement with you</div>
+          <div class="of-desc">Record what you think the right verdict is, per eval and per run, in the fixture. The report shows how often the judge agreed, counting false passes apart from false fails. Labels never move <code>failure_rate</code> — they score the judge.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">⚖️</div>
+        <div class="of-body">
+          <div class="of-name">fieldtest calibrate</div>
+          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Two judges that both always answer pass agree 95% of the time on a 5% failure rate and have demonstrated nothing — kappa says so. Evals rank by disagreement, most contested first.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-window" style="margin-top:28px;">
+      <div class="cw-bar"><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-title">evals/config.yaml</span></div>
+<pre class="cw-body"><span class="cy">defaults:</span>
+  <span class="cy">judge_temperature:</span> <span class="cs">0.0</span>          <span class="cc"># the instrument, held still</span>
+  <span class="cy">confidence:</span> <span class="cs">0.95</span>               <span class="cc"># interval on every binary rate</span>
+
+<span class="cy">calibration:</span>
+  <span class="cy">panel:</span>
+    - { <span class="cy">provider:</span> <span class="cs">anthropic</span>, <span class="cy">model:</span> <span class="cs">claude-haiku-4-5</span> }
+    - { <span class="cy">provider:</span> <span class="cs">openai</span>, <span class="cy">model:</span> <span class="cs">gpt-5</span> }</pre>
     </div>
   </div>
 </section>
@@ -1133,6 +1200,10 @@ hr.divider {
         <div class="p-val">A single run tells you almost nothing about a probabilistic system. fieldtest runs each fixture N times and shows <strong>distributions</strong>. 3 runs is the minimum; smoke suites use 1 for speed.</div>
       </div>
       <div class="principle">
+        <div class="p-key">The judge is an instrument too.</div>
+        <div class="p-val">Spread across runs has two sources: your system, and the model scoring it. fieldtest pins the judge at temperature 0, records which judge produced every run, and refuses to compare runs scored by different ones. <strong>Set <code>judge_runs</code></strong> to see how much of the spread is the judge.</div>
+      </div>
+      <div class="principle">
         <div class="p-key">Runner decoupled from scoring.</div>
         <div class="p-val">Your runner writes <code>outputs/[fixture-id]/run-N.txt</code>. The scorer reads those files. They share nothing except the directory format. <strong>Re-score without re-running</strong> when you improve a judge.</div>
       </div>
@@ -1237,7 +1308,7 @@ Next steps:
       <a href="https://pypi.org/project/fieldtest/">PyPI</a>
       <a href="https://fieldtest.run">fieldtest.run</a>
     </div>
-    <div>v0.2.2 · MIT License · 2026</div>
+    <div>v0.3.0 · MIT License · 2026</div>
     <div style="margin-top: 6px; font-size: 12px; color: #555;">fieldtest is open source. Built for engineers, PM, and other builders who need measurement, not magic.</div>
   </div>
 </div>

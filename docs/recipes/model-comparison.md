@@ -54,4 +54,10 @@ The second `fieldtest score` automatically detects the first run as a baseline (
 
 - Use the same fixture set for both runs — cross-set deltas are misleading
 - Name your runs or tag them in your notes; fieldtest identifies runs by timestamp
-- If you're comparing judge models (not your system's model), use the per-eval `model:` override in config instead
+- If you're comparing judge models (not your system's model), use `fieldtest calibrate` — it runs a
+  panel over one output set and reports pairwise agreement and kappa, rather than making you diff
+  two runs and eyeball the difference. The per-eval `model:` override still works for pinning one
+  eval to a stronger judge once you know which one it needs.
+- Comparing your system's models is unaffected by any of that, but note that fieldtest now refuses
+  to auto-compare runs scored by different judges. Keep the judge fixed while you vary the system,
+  or the diff tells you about the instrument instead of the model.
