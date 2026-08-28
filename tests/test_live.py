@@ -28,6 +28,16 @@ pytestmark = pytest.mark.live
 
 PROMPT = ('Reply with exactly this JSON and nothing else: '
           '{"answer": "Pass", "reasoning": "ok"}')
+
+# openai_compatible is not an OpenRouter adapter — OpenRouter is just the
+# endpoint that is cheapest to reach from a laptop. Point these at a local
+# vLLM or Ollama instead by setting these two.
+COMPATIBLE_BASE_URL = os.environ.get(
+    "FIELDTEST_LIVE_BASE_URL", "https://openrouter.ai/api/v1"
+)
+COMPATIBLE_MODEL = os.environ.get(
+    "FIELDTEST_LIVE_MODEL", "meta-llama/llama-3.3-70b-instruct"
+)
 GEN = JudgeGenerationConfig()
 RETRY = RetryPolicy()
 
@@ -200,7 +210,12 @@ def test_live_pinned_temperature_is_accepted_or_reported():
 # ---------------------------------------------------------------------------
 
 needs_openrouter = pytest.mark.skipif(
-    not os.environ.get("OPENROUTER_API_KEY"), reason="live: set OPENROUTER_API_KEY"
+    not os.environ.get("OPENROUTER_API_KEY"),
+    reason=(
+        "live: OPENROUTER_API_KEY unset — the openai_compatible adapter goes "
+        "untested. Key from openrouter.ai/keys; these two tests cost a few "
+        "cents total."
+    ),
 )
 
 
@@ -209,15 +224,15 @@ def test_openai_compatible_reaches_a_third_party_endpoint():
     from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
 
     adapter = OpenAICompatibleAdapter(
-        base_url="https://openrouter.ai/api/v1",
+        base_url=COMPATIBLE_BASE_URL,
         api_key_env="OPENROUTER_API_KEY",
     )
-    result = adapter.call("meta-llama/llama-3.3-70b-instruct", PROMPT, GEN, RETRY)
+    result = adapter.call(COMPATIBLE_MODEL, PROMPT, GEN, RETRY)
 
     assert "error" not in result, result
     assert result.get("answer") == "Pass"
     # Whatever the endpoint refused is reported rather than silently dropped.
-    print(f"\nopenrouter/llama-3.3-70b dropped: {result.get('unsupported') or 'nothing'}")
+    print(f"\n{COMPATIBLE_MODEL} at {COMPATIBLE_BASE_URL} dropped: {result.get('unsupported') or 'nothing'}")
 
 
 @needs_openrouter
@@ -232,10 +247,10 @@ def test_openai_compatible_config_path_end_to_end(tmp_path):
     adapter = get_provider_adapter(
         "openai_compatible",
         ProviderSettings(
-            base_url="https://openrouter.ai/api/v1",
+            base_url=COMPATIBLE_BASE_URL,
             api_key_env="OPENROUTER_API_KEY",
         ),
     )
-    result = adapter.call("meta-llama/llama-3.3-70b-instruct", PROMPT, GEN, RETRY)
+    result = adapter.call(COMPATIBLE_MODEL, PROMPT, GEN, RETRY)
     assert "error" not in result, result
     assert result.get("answer") == "Pass"

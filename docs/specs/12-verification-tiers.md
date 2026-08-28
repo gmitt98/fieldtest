@@ -93,6 +93,27 @@ requires = pytest.mark.skipif(
 )
 ```
 
+**A silent skip is the same blind spot in a quieter form.** `2 skipped` scrolls past and the run
+reads as verification, which is how the four defects reached a release in the first place — a
+suite that could not ask, reporting success. So the run ends with a coverage report naming every
+provider that went untested, and a live run with no credentials at all exits non-zero rather than
+green:
+
+```
+============================== live tier coverage ==============================
+  exercised   openai_compatible  OPENROUTER_API_KEY
+  NOT TESTED  anthropic          ANTHROPIC_API_KEY is unset
+
+  1 of 4 providers went untested. Their adapters are unverified against a real API by this run.
+```
+
+Per-provider skipping stays allowed, because nobody holds accounts everywhere. Skipping without
+saying so does not.
+
+`openai_compatible` is a protocol, not a vendor, so its live tests take the endpoint from
+`FIELDTEST_LIVE_BASE_URL` and `FIELDTEST_LIVE_MODEL` and default to OpenRouter. A contributor with
+a local vLLM or Ollama can exercise the same path without an account anywhere.
+
 **OpenRouter is the primary live credential, and it is not sufficient on its own.** One key
 reaches Anthropic, OpenAI, Google, xAI and open-weight models behind `vendor/model` slugs, which
 turns "we have never made a real OpenAI or Gemini call" from a four-account problem into a one-key
