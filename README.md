@@ -8,7 +8,7 @@ Most eval tools assume you already know what to evaluate: you install a framewor
 
 The config asks you — in order — to name your use cases, define what right, good, and safe means for each, and specify how you'll test them. This is an easy sequence to skip, which is why teams can end up with evals that measure what's easy rather than what matters for their product. The structure of the testing enforces the reasoning behind your quality needs.
 
-If you've used DeepEval, Promptfoo, Inspect, or Ragas and felt that running the eval was the easy part, that deciding *what* to evaluate was where the work actually lived, then you've experienced the gap that fieldtest is built for. This is not another judge framework — it is a config-first framework that forces you to name what "correct," "well-formed," and "safe" mean for your system before you can score anything. The output is structured, diff-friendly, and scored as distributions instead of pass/fail verdicts, so failure tells you where to look and what kind of fix it is.
+If you've used DeepEval, Promptfoo, Inspect, or Ragas and felt that running the eval was the easy part, that deciding *what* to evaluate was where the work actually lived, then you've experienced the gap that fieldtest is built for. This is not another judge framework — it is a config-first framework that forces you to name what "correct," "well-formed," and "safe" mean for your system before you can score anything. The output is structured, diff-friendly, and scored as distributions instead of pass/fail verdicts, so failure tells you where to look and what kind of fix it is. The trade is that fieldtest only reports on failure modes you named; unanticipated ones surface in the `-data.csv` reasoning column, not in the report ([why](docs/philosophy.md#what-fieldtest-will-not-find)).
 
 ---
 
@@ -149,9 +149,8 @@ adapter drops that parameter, retries, completes the run, and names it once in t
 ⚠ judge parameters ignored by provider: temperature (anthropic)
 ```
 
-A judge running without the parameters you asked for is **not pinned**, and the header saying so
-is the point — treat its run-to-run variation as real rather than as system noise, and reach for
-`judge_runs` to measure it. **The default judge is `claude-haiku-4-5` precisely because it can be
+A judge running without the parameters you asked for is **not pinned**. Treat its run-to-run
+variation as real rather than as system noise, and reach for `judge_runs` to measure it. **The default judge is `claude-haiku-4-5` precisely because it can be
 pinned.**
 
 Temperature 0.0 reduces run-to-run judge disagreement but does not eliminate it — no provider
@@ -182,7 +181,7 @@ generator already wrote them — and the report gives you, per eval, pairwise ag
 kappa, and Fleiss' kappa across the panel. Scored evals get mean absolute deviation and Spearman
 correlation instead.
 
-**Kappa rather than raw agreement is the point.** On a `safe` eval whose true failure rate is 5%,
+**Kappa rather than raw agreement.** On a `safe` eval whose true failure rate is 5%,
 two judges that both always answer pass show 95% raw agreement and a kappa near zero. Raw
 agreement alone would certify a useless judge.
 
@@ -251,7 +250,7 @@ for binary evals `judge disagreement` is the share of outputs the judge could no
 way every time.
 
 A judge spread near zero is a well-specified eval. A judge spread comparable to the system spread
-means the eval's criteria are ambiguous — that diagnostic is the point of the feature.
+means the eval's criteria are ambiguous.
 
 **This multiplies your bill.** `runs × judge_runs × llm evals × fixtures` judge calls;
 `fieldtest validate` prints the projection for the full set so you meet the number before paying
