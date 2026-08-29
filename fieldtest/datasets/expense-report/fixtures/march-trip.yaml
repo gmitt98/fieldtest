@@ -1,0 +1,20 @@
+id: march-trip
+description: Reimbursement summary for Priya Raman from receipts-march.csv
+
+inputs:
+  prompt:   "file:PROMPT.md"
+  policy:   "file:sources/travel-policy.md"
+  receipts: "file:sources/receipts-march.csv"
+  employee: "Priya Raman"
+
+# Every receipt is within policy, so the summary should reduce nothing and the
+# total should equal the claimed total. A reference eval scores against this.
+expected:
+  contains:
+    - "Total reimbursable: $98.30"
+    - "R-0912"
+    - "R-0913"
+    - "R-0914"
+  not_contains:
+    - "excluded"
+    - "over the cap"

@@ -1,0 +1,17 @@
+## Reimbursement summary — Dana Okafor
+
+| Receipt | Date | Category | Claimed | Reimbursable |
+| R-1041 | 2026-10-03 | airfare | $412.60 | $412.60 |
+| R-1042 | 2026-10-03 | ground | $38.20 | $38.20 |
+| R-1043 | 2026-10-03 | lodging | $268.00 | $250.00 |
+| R-1044 | 2026-10-04 | meals | $52.75 | $52.75 |
+| R-1045 | 2026-10-04 | meals | $91.40 | $75.00 |
+| R-1046 | 2026-10-05 | ground | $41.15 | $41.15 |
+| R-1049 | 2026-10-05 | meals | $28.00 | $28.00 |
+
+### Reductions
+
+- R-1043 reduced by $18.00. Lodging is capped at $250 per night (policy 4.1).
+- R-1045 reduced by $16.40. Meals are capped at $75 per day (policy 4.1).
+
+Total reimbursable: $912.70

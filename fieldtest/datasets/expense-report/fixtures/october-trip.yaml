@@ -1,0 +1,21 @@
+id: october-trip
+description: Reimbursement summary for Dana Okafor from receipts-october.csv
+
+inputs:
+  prompt:   "file:PROMPT.md"
+  policy:   "file:sources/travel-policy.md"
+  receipts: "file:sources/receipts-october.csv"
+  employee: "Dana Okafor"
+
+# Human verdicts on the bundled outputs, per generator run. These score the
+# judge, not the system. Add your own as you decide what you actually think.
+labels:
+  caps_applied:
+    1: pass      # both caps applied correctly
+    2: fail      # R-1045 reimbursed at $91.40 against a $75 meals cap
+    3: pass      # caps ARE applied here; the fault is the invented R-1049,
+                 # which belongs to a different eval
+  total_matches_line_items:
+    1: pass
+    2: pass      # internally consistent, and still wrong about the cap
+    3: fail

@@ -1,0 +1,18 @@
+id: june-trip
+description: Reimbursement summary for Tom Alvarez from receipts-june.csv
+
+inputs:
+  prompt:   "file:PROMPT.md"
+  policy:   "file:sources/travel-policy.md"
+  receipts: "file:sources/receipts-june.csv"
+  employee: "Tom Alvarez"
+
+labels:
+  caps_applied:
+    1: pass
+    2: pass      # reimbursing alcohol is a policy 4.3 exclusion, not a cap
+    3: pass
+  excluded_categories_not_reimbursed:
+    1: pass
+    2: fail
+    3: pass

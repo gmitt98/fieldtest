@@ -307,3 +307,81 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         _handle_error(e)
 
     click.echo(f"\nFiles saved to {dest}/ — edit evals/outputs/ to experiment, then run fieldtest score")
+
+
+# ---------------------------------------------------------------------------
+# dataset
+# ---------------------------------------------------------------------------
+
+def _datasets_root() -> Path:
+    return Path(__file__).resolve().parent / "datasets"
+
+
+def available_datasets() -> list[str]:
+    root = _datasets_root()
+    if not root.is_dir():
+        return []
+    return sorted(d.name for d in root.iterdir() if (d / "config.yaml").is_file())
+
+
+@click.group()
+def dataset():
+    """Sample datasets to write evals against."""
+    pass
+
+
+@dataset.command("list")
+def dataset_list():
+    """List the datasets bundled with fieldtest."""
+    names = available_datasets()
+    if not names:
+        click.echo("No datasets bundled with this install.")
+        return
+    click.echo("Bundled datasets:")
+    for name in names:
+        readme = _datasets_root() / name / "README.md"
+        summary = ""
+        if readme.is_file():
+            for line in readme.read_text().splitlines():
+                if line.strip() and not line.startswith("#"):
+                    summary = f" — {line.strip()}"
+                    break
+        click.echo(f"  {name}{summary}")
+    click.echo("\nCopy one into this project with:  fieldtest dataset use <name>")
+
+
+@dataset.command("use")
+@click.argument("name")
+@click.option("--dest", default="evals", type=click.Path(),
+              help="Where to copy it (default: evals/)")
+@click.option("--force", is_flag=True, help="Overwrite an existing destination")
+def dataset_use(name: str, dest: str, force: bool):
+    """Copy a bundled dataset into this project so you can edit it."""
+    import shutil
+
+    src = _datasets_root() / name
+    if not (src / "config.yaml").is_file():
+        available = ", ".join(available_datasets()) or "none"
+        click.echo(f"Unknown dataset '{name}'. Available: {available}", err=True)
+        sys.exit(1)
+
+    target = Path(dest)
+    if target.exists() and any(target.iterdir()) and not force:
+        # Copying over someone's evals is not recoverable, and a dataset is
+        # exactly what a new project directory looks like.
+        click.echo(
+            f"{target}/ already exists and is not empty.\n"
+            f"  Use --dest to copy elsewhere, or --force to overwrite.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Results belong to whoever runs it, not to the shipped copy.
+    shutil.copytree(
+        src, target, dirs_exist_ok=force,
+        ignore=shutil.ignore_patterns("results", "__pycache__", ".DS_Store"),
+    )
+    click.echo(f"Copied '{name}' to {target}/")
+    click.echo(f"  {target}/README.md   what is in it and what to write")
+    click.echo(f"  {target}/config.yaml your evals — three are TODO")
+    click.echo("\nRun it now (no API key needed):  fieldtest score --set full")

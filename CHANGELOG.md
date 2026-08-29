@@ -251,6 +251,44 @@ than the run.
 `fieldtest validate` now reports which providers your config reaches and whether
 each credential is set, before the run rather than twenty errored rows into it.
 
+### A dataset to write your first eval against
+
+The demos show a finished eval suite. Every eval in them is already written,
+which makes them a poor place to learn how to write one.
+
+```bash
+fieldtest dataset use expense-report
+fieldtest score --set full          # no API key needed
+```
+
+`expense-report` ships the artifacts and leaves the evals to you: a prompt, a
+travel policy, receipt files, and nine outputs as though a generator had just
+written them. Six carry a deliberate fault. Two of those are catchable with no
+API call, because the shipped scaffold's filled-in evals are `rule`, `regex`
+and `reference` — so the first run produces real failures before you have a key
+or have written anything. Three more evals are `TODO`.
+
+`reference-evals.yaml` is the answer key, covering all five judge types. It is
+worth reading for its failures too: its `caps_applied` eval is scoped in
+writing to judge two daily caps, and the judge still fails outputs for
+unrelated defects. The fixtures carry human labels, so the report says so —
+100% judge/human agreement on the rule evals, 66.7% on that one.
+
+### Fixture inputs can name a file
+
+```yaml
+inputs:
+  policy: "file:sources/travel-policy.md"
+```
+
+Previously the judge would have been shown the string `sources/travel-policy.md`
+and asked whether the output was grounded in it. `file:` reads the document at
+fixture load, so rule evals and LLM evals are handed the same thing, and a
+missing target fails `fieldtest validate` rather than the twentieth judge call.
+
+Values without the prefix are unchanged, so `question: "see notes/faq.md"` stays
+a literal string.
+
 ---
 
 ## Changes from v0.2.2
@@ -259,6 +297,8 @@ each credential is set, before the run rather than twenty errored rows into it.
 - `-data.json` adds `schema_version`, `judge`, `judge_runs`; summaries add `failure_rate_ci`,
   `confidence`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
+- New: `fieldtest dataset list` / `fieldtest dataset use <name>`
+- Fixture inputs accept a `file:` prefix, read at load time
 - New provider `openai_compatible`, plus a `providers` config block and the
   `@provider` decorator loaded from `evals/providers.py`
 - New config: `defaults.judge_temperature`, `judge_seed`, `judge_retry`, `confidence`;
@@ -268,7 +308,7 @@ each credential is set, before the run rather than twenty errored rows into it.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 404, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 412, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

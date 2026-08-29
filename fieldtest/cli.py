@@ -20,7 +20,7 @@ from fieldtest.cli_common import (
     _load_config,
     _provider_report,
 )
-from fieldtest.cli_project import clean, demo_cmd, init_cmd, view_cmd
+from fieldtest.cli_project import clean, dataset, demo_cmd, init_cmd, view_cmd
 from fieldtest.cli_reports import diff, history
 
 
@@ -352,5 +352,5 @@ if __name__ == "__main__":
 # Registered rather than decorated in place: defining them here would put every
 # command back in one file, and decorating them in their own modules would make
 # those modules import this one, which imports them.
-for _command in (history, diff, clean, init_cmd, view_cmd, demo_cmd):
+for _command in (history, diff, clean, init_cmd, view_cmd, demo_cmd, dataset):
     main.add_command(_command)

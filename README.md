@@ -33,6 +33,27 @@ That's it. You just ran a structured eval suite with four eval types (rule, rege
 
 ---
 
+## Write your first eval against a bundled dataset
+
+The demos show you a finished eval suite. A dataset gives you the artifacts and
+leaves the evals to you.
+
+```bash
+fieldtest dataset list
+fieldtest dataset use expense-report
+fieldtest score --set full            # works with no API key
+```
+
+`expense-report` ships a prompt, a travel policy, receipt files, and nine
+outputs as though a generator had just written them. Four evals are filled in —
+one `rule`, one `regex`, one `reference`, one more `rule` — and all four are
+deterministic, so the first run works before you have a key. Three more are
+`TODO` with the question each has to answer.
+
+Six of the nine outputs carry a deliberate fault. Two are catchable by
+arithmetic alone; the rest need a judge. Working out which is which is the
+exercise.
+
 ## Three demo modes
 
 ### Mode 1 — Offline (no API key, instant)
@@ -800,6 +821,18 @@ Error: eval 'no_fabrication' (type: llm) missing required field: pass_criteria
 ```
 
 ---
+
+### `fieldtest dataset`
+
+```bash
+fieldtest dataset list                              # what is bundled
+fieldtest dataset use expense-report                # copy into ./evals
+fieldtest dataset use expense-report --dest sandbox # copy elsewhere
+```
+
+Copies rather than references, because the point is to edit it. Refuses to
+overwrite a non-empty destination unless you pass `--force`; `results/` is not
+copied, since results belong to whoever runs it.
 
 ### `fieldtest score`
 

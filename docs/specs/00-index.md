@@ -30,7 +30,7 @@ measure nothing.
 | 11 | [Provider surface beyond the big three](11-provider-surface.md) | 2 | 02, 05 | shipped |
 | 12 | [Verification tiers](12-verification-tiers.md) | 2 | 11 | shipped |
 | 13 | [Judge input visibility](13-judge-input-visibility.md) | 1 | 03 | shipped |
-| 14 | [Sample datasets](14-sample-datasets.md) | 3 | 13 | draft |
+| 14 | [Sample datasets](14-sample-datasets.md) | 3 | 13 | shipped |
 
 ## Version boundary
 

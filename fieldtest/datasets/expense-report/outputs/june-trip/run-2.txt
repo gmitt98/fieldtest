@@ -1,0 +1,13 @@
+## Reimbursement summary — Tom Alvarez
+
+| Receipt | Date | Category | Claimed | Reimbursable |
+| R-1188 | 2026-06-07 | lodging | $182.00 | $182.00 |
+| R-1189 | 2026-06-07 | meals | $64.30 | $64.30 |
+| R-1190 | 2026-06-07 | alcohol | $47.00 | $47.00 |
+| R-1191 | 2026-06-08 | ground | $29.75 | $29.75 |
+
+### Reductions
+
+None. All four receipts are under the applicable daily limits.
+
+Total reimbursable: $323.05

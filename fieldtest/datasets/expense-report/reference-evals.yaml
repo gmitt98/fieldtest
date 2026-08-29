@@ -1,0 +1,110 @@
+# The answer key. Write your own evals in config.yaml first, then run this and
+# compare — not because these are the correct answers, but because seeing a
+# second person's decisions is the fastest way to notice the ones you skipped.
+#
+#     fieldtest score --config reference-evals.yaml --set full
+#
+# All five judge types appear here. The three deterministic ones run without an
+# API key; the llm ones need a judge.
+#
+# `no_invented_receipts` is deliberately absent. It is the exercise in rules.py,
+# and an answer key that also does your homework is not one.
+
+schema_version: 2
+
+system:
+  name: expense assistant
+  domain: finance operations
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-4-5
+  runs: 3
+
+use_cases:
+  - id: reimbursement-summary
+    description: Reimbursement summaries, scored by a complete eval set.
+
+    evals:
+      # ---- RIGHT -------------------------------------------------------
+      - id: total_matches_line_items
+        tag: right
+        type: rule
+        description: the stated total equals the sum of the reimbursable column
+
+      - id: golden_summary
+        tag: right
+        type: reference
+        description: the march trip matches its known-correct summary
+
+      # ---- GOOD --------------------------------------------------------
+      - id: no_unfilled_placeholders
+        tag: good
+        type: regex
+        description: no template placeholder survived into the output
+        pattern: '\$?\[[A-Z_]+\]'
+        match: false
+
+      - id: follows_requested_structure
+        tag: good
+        type: llm
+        description: contains the three sections the prompt asked for
+        pass_criteria: >
+          The output contains all three of: a table with one row per receipt
+          showing claimed and reimbursable amounts; a section naming every
+          amount reduced or excluded and the policy section behind it; and a
+          final line of the form "Total reimbursable: $N.NN". A summary with
+          nothing to reduce may say so briefly, but the section must be there.
+        fail_criteria: >
+          Any of the three is missing. A bare table with a total and no
+          explanation of reductions fails, even when every number is right.
+
+          Judge structure only. Ignore whether the numbers, caps, exclusions or
+          receipt IDs are correct — other evals cover those. An output with all
+          three sections present passes here even if every figure in it is
+          wrong.
+        # The scoping paragraph above is in fail_criteria, not in a comment.
+        # It was a comment first, and the judge went on failing outputs for
+        # reimbursing alcohol, because a YAML comment is not part of the prompt.
+
+      - id: explanation_clarity
+        tag: good
+        type: llm
+        binary: false
+        description: how clearly the reductions are explained to the employee
+        scale: [1, 5]
+        anchors:
+          1: No explanation, or one that does not say why an amount changed.
+          3: States what was reduced and cites the policy, but the employee
+             would still have to reread the policy to understand the number.
+          5: States what was reduced, by how much, and why, so the employee can
+             check it without opening the policy.
+
+      # ---- SAFE --------------------------------------------------------
+      - id: excluded_categories_not_reimbursed
+        tag: safe
+        type: rule
+        description: nothing in policy 4.3 is reimbursed above $0.00
+
+      - id: caps_applied
+        tag: safe
+        type: llm
+        description: the daily caps in policy 4.1 are applied to every line
+        pass_criteria: >
+          Every lodging line is reimbursed at no more than $250 and every meals
+          line at no more than $75. A line under its cap is reimbursed in full.
+          Note that the arithmetic may be internally consistent and still wrong
+          here: check each line against the cap, not the total against the sum.
+        fail_criteria: >
+          Any lodging line reimbursed above $250 or any meals line above $75.
+
+          Judge the two daily caps in policy 4.1 only. Ignore invented
+          receipts, excluded categories such as alcohol, arithmetic errors and
+          formatting — each has its own eval. An output whose only fault is one
+          of those passes here.
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [october-trip, march-trip, june-trip]
+        smoke: [october-trip]

@@ -731,3 +731,150 @@ def test_validate_reports_resolved_file_inputs(tmp_path):
     config_path = _project_with_file_input(tmp_path, "file:sources/handbook.md")
     config = parse_and_validate(config_path)
     assert summarize_file_inputs(config, config_path.parent) == {"fix1": ["policy"]}
+
+
+# ---------------------------------------------------------------------------
+# The bundled datasets (spec 14 §5)
+#
+# Acceptance is behavioural: the shipped scaffold must produce real failures
+# with no API key, and the answer key must catch every planted defect. A test
+# that only checks the files exist would pass on a dataset that scores nothing.
+# ---------------------------------------------------------------------------
+
+DATASET = "expense-report"
+
+
+def _dataset_dir():
+    import fieldtest
+    return Path(fieldtest.__file__).resolve().parent / "datasets" / DATASET
+
+
+def test_the_shipped_scaffold_scores_with_no_api_key(tmp_path, monkeypatch):
+    """The first run has to work before the user has a key or has written
+    anything, or the dataset cannot be explored at all."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir() / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    assert not any(r.error for r in rows), [r.error for r in rows if r.error]
+    failures = [r for r in rows if r.passed is False]
+    assert failures, "a dataset whose scaffold finds nothing teaches nothing"
+    # Not all failing either — a user should see the report distinguish them.
+    assert any(r.passed for r in rows)
+
+
+def test_every_planted_defect_is_caught_by_a_deterministic_eval(tmp_path):
+    """
+    The three defects the README claims are findable without an API key.
+    Asserted by fixture and run, so moving a defect without updating the README
+    fails here.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _dataset_dir() / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    failed = {(r.fixture_id, r.run, r.eval_id) for r in rows if r.passed is False}
+    assert ("october-trip", 3, "total_matches_line_items") in failed
+    assert ("march-trip", 2, "no_unfilled_placeholders") in failed
+    assert ("june-trip", 2, "excluded_categories_not_reimbursed") in failed
+
+
+def test_the_clean_outputs_actually_pass(tmp_path):
+    """Every planted defect is deliberate, so run 1 of each trip is clean."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _dataset_dir() / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    for trip in ("october-trip", "march-trip", "june-trip"):
+        clean = [r for r in rows if r.fixture_id == trip and r.run == 1
+                 and r.passed is False]
+        assert not clean, [(r.eval_id, r.detail) for r in clean]
+
+
+def test_the_answer_key_covers_every_judge_type():
+    """
+    Five types exist and the dataset is meant to teach the mechanics of each.
+    Four of five would leave one type undemonstrated.
+    """
+    from fieldtest.config import parse_and_validate
+
+    config = parse_and_validate(_dataset_dir() / "reference-evals.yaml")
+    evals = [ev for uc in config.use_cases for ev in uc.evals]
+    kinds = {ev.type for ev in evals}
+    assert kinds == {"rule", "regex", "llm", "reference"}
+    assert any(ev.type == "llm" and ev.binary for ev in evals), "no binary llm eval"
+    assert any(ev.type == "llm" and not ev.binary for ev in evals), "no scored llm eval"
+
+
+def test_the_scaffold_leaves_work_to_do():
+    """
+    A scaffold with no TODO is a fourth demo. Checked on the file, because the
+    TODOs are commented-out YAML and invisible to the parser.
+    """
+    text = (_dataset_dir() / "config.yaml").read_text()
+    assert text.count("# TODO") >= 3
+    assert "TODO" in (_dataset_dir() / "rules.py").read_text()
+
+
+def test_dataset_use_copies_a_runnable_project(tmp_path):
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    dest = tmp_path / "evals"
+    result = CliRunner().invoke(
+        main, ["dataset", "use", DATASET, "--dest", str(dest)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert (dest / "config.yaml").is_file()
+    assert (dest / "outputs" / "october-trip" / "run-1.txt").is_file()
+    # Results belong to whoever runs it, not to the shipped copy.
+    assert not (dest / "results").exists()
+
+
+def test_dataset_use_refuses_to_overwrite_existing_work(tmp_path):
+    """Copying over someone's evals is not recoverable."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    dest = tmp_path / "evals"
+    dest.mkdir()
+    (dest / "config.yaml").write_text("mine: do not clobber\n")
+    result = CliRunner().invoke(
+        main, ["dataset", "use", DATASET, "--dest", str(dest)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+    assert (dest / "config.yaml").read_text() == "mine: do not clobber\n"
+
+
+def test_dataset_use_rejects_an_unknown_name(tmp_path):
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(
+        main, ["dataset", "use", "no-such-dataset", "--dest", str(tmp_path / "e")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "Unknown dataset" in result.output
+    assert DATASET in result.output

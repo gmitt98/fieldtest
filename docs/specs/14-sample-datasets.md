@@ -1,6 +1,6 @@
 # Spec 14 — Sample datasets
 
-**Tier** 3 · **Depends on** 13 · **Touches** `datasets/`, `judges/llm.py`, `config.py`, `cli_project.py`, README · **Status** draft
+**Tier** 3 · **Depends on** 13 · **Touches** `datasets/`, `judges/llm.py`, `config.py`, `cli_project.py`, README · **Status** shipped
 
 ## §1 Problem
 
