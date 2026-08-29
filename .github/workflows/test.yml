@@ -10,10 +10,14 @@ on:
     branches: ["**"]
   pull_request:
   schedule:
-    # 1st and 15th. Provider drift is slow and there is no user base to page,
-    # so twice a month trades detection latency for not turning a provider
-    # outage into a red X every morning. GitHub cron has no "every 2 weeks".
-    - cron: "0 7 1,15 * *"
+    # 14th and 28th, so the first run lands mid-September. Provider drift is
+    # slow and there is no user base to page, so twice a month trades detection
+    # latency for not turning a provider outage into a red X every morning.
+    #
+    # GitHub cron has no "every 2 weeks". 14/28 rather than 15/29 because the
+    # 29th does not exist in a non-leap February, which silently drops a run
+    # and stretches that gap to 28 days. 14/28 holds 14-17 days year round.
+    - cron: "0 7 14,28 * *"
   workflow_dispatch:
 
 jobs:

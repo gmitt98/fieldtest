@@ -83,7 +83,7 @@ addopts = "-m 'not live'"
 `pytest` runs unit + integration. `pytest -m live` runs the live tier.
 
 `.github/workflows/test.yml` runs the default tier plus `scripts/verify_tiers.py` on every push
-and pull request, and the live tier on the 1st and 15th or on demand, where a failure means a
+and pull request, and the live tier on the 14th and 28th or on demand, where a failure means a
 provider changed something rather than that a contributor did. Twice a month rather than
 daily because provider drift is slow and a scheduled run that goes red on an outage is
 noise, not a signal. The live job needs four repository
