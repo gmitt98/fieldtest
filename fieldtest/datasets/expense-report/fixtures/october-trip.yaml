@@ -24,15 +24,14 @@ labels:
     2: pass
     3: pass
 
-# Labels for the caps_applied eval in reference-evals.yaml. Uncomment them when
-# you write that eval and the report will score your judge against these
-# immediately.
-#
-# Run 3 is the interesting one: the caps ARE applied correctly there, and the
-# fault is the invented receipt R-1049, which belongs to a different eval.
-#
-# labels:
-#   caps_applied:
-#     1: pass
-#     2: fail    # R-1045 reimbursed at $91.40 against a $75 meals cap
-#     3: pass
+  # For the caps_applied eval in reference-evals.yaml. Uncomment these four
+  # lines — they belong under the `labels:` key above, not in a second one.
+  # A second `labels:` key would silently replace everything above it.
+  #
+  # Run 3 is the interesting one: the caps ARE applied correctly there, and the
+  # fault is the invented receipt R-1049, which belongs to a different eval.
+  #
+  # caps_applied:
+  #   1: pass
+  #   2: fail    # R-1045 reimbursed at $91.40 against a $75 meals cap
+  #   3: pass

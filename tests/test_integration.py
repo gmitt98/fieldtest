@@ -989,3 +989,47 @@ def test_the_agent_dataset_scores_json_traces():
     for p in sorted((_dataset_dir("support-agent") / "outputs").rglob("run-*.txt")):
         trace = json.loads(p.read_text())
         assert trace["steps"], p
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_uncommenting_the_answer_key_labels_keeps_the_others(name):
+    """
+    The README tells the reader to uncomment labels for the answer-key eval.
+    Those lines shipped once as a second top-level `labels:` key, which YAML
+    resolves by keeping the last one — so following the instruction silently
+    deleted every label above it, with no error.
+
+    Simulates the edit rather than trusting the indentation by eye.
+    """
+    import re
+
+    import yaml
+
+    for path in sorted((_dataset_dir(name) / "fixtures").glob("*.yaml")):
+        text = path.read_text()
+        before = yaml.safe_load(text).get("labels", {})
+
+        # The dangerous shape directly: a commented-out top-level `labels:`.
+        # Uncommenting it makes a second top-level key, and YAML keeps the last.
+        assert not any(
+            re.match(r"^#\s*labels:", ln) for ln in text.splitlines()
+        ), (
+            f"{path.name}: a commented-out top-level 'labels:' key. Uncommenting "
+            f"it would replace the labels above it instead of adding to them — "
+            f"indent the entries under the existing key."
+        )
+
+        if not any(re.match(r"^  # \w+:", ln) for ln in text.splitlines()):
+            continue  # this fixture has no commented labels
+
+        uncommented = "\n".join(
+            ln.replace("  # ", "  ", 1)
+            if re.match(r"^  # (\w+:|  \d+: (pass|fail))", ln) else ln
+            for ln in text.splitlines()
+        )
+        after = yaml.safe_load(uncommented).get("labels", {})
+
+        assert set(before) <= set(after), (
+            f"{path.name}: uncommenting dropped {set(before) - set(after)}"
+        )
+        assert len(after) > len(before), f"{path.name}: uncommenting added nothing"

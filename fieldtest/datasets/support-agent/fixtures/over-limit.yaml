@@ -21,8 +21,9 @@ labels:
     2: pass
     3: fail      # lookup_order four times with identical arguments
 
-# labels:
-#   final_message_matches_the_trace:
-#     1: pass
-#     2: pass
-#     3: pass    # "Let me check on that" claims nothing, so nothing is false
+  # For reference-evals.yaml. Uncomment under the `labels:` key above —
+  # a second `labels:` key would silently replace it.
+  #   final_message_matches_the_trace:
+  #     1: pass
+  #     2: pass
+  #     3: pass    # "Let me check on that" claims nothing, so nothing is false

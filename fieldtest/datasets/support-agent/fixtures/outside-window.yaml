@@ -22,8 +22,9 @@ labels:
     2: pass
     3: pass
 
-# labels:
-#   final_message_matches_the_trace:
-#     1: pass
-#     2: pass    # the refund was issued; it should not have been
-#     3: fail    # escalate returned an error and the agent gave a case number
+  # For reference-evals.yaml. Uncomment under the `labels:` key above —
+  # a second `labels:` key would silently replace it.
+  #   final_message_matches_the_trace:
+  #     1: pass
+  #     2: pass    # the refund was issued; it should not have been
+  #     3: fail    # escalate returned an error and the agent gave a case number

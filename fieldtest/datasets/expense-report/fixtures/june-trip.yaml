@@ -21,10 +21,9 @@ labels:
     2: pass
     3: pass
 
-# For reference-evals.yaml, as above:
-#
-# labels:
-#   caps_applied:
-#     1: pass
-#     2: pass    # reimbursing alcohol is a policy 4.3 exclusion, not a cap
-#     3: pass
+  # For reference-evals.yaml, as above — under the `labels:` key, not a new one:
+  #
+  # caps_applied:
+  #   1: pass
+  #   2: pass    # reimbursing alcohol is a policy 4.3 exclusion, not a cap
+  #   3: pass

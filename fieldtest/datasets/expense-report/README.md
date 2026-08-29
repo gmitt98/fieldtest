@@ -70,6 +70,8 @@ says it out loud:
 ```
 | eval                               | labeled runs | agreement | errors                     |
 | total_matches_line_items           | 9            | 100.0%    | 0 false pass, 0 false fail |
+| golden_summary                     | 3            | 100.0%    | 0 false pass, 0 false fail |
+| no_unfilled_placeholders           | 9            | 100.0%    | 0 false pass, 0 false fail |
 | excluded_categories_not_reimbursed | 9            | 100.0%    | 0 false pass, 0 false fail |
 | caps_applied                       | 6            |  66.7%    | 0 false pass, 2 false fail |
 ```
