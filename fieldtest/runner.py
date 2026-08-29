@@ -107,7 +107,7 @@ def score(
         runs        = resolve_runs(config, uc)
         for fid in fixture_ids:
             fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
-            fixture      = load_fixture(fixture_path)
+            fixture      = load_fixture(fixture_path, base_dir)
             for (eval_id, run_number), value in extract_labels(fixture).items():
                 human_labels[(fid, eval_id, run_number)] = value
             run_outputs  = []

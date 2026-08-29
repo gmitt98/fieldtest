@@ -154,7 +154,7 @@ def test_rule_evals_resolve_through_every_entry_point(tmp_path):
     """
     from fieldtest.calibrate import run_calibration
     from fieldtest.config import parse_and_validate
-    from fieldtest.judges.registry import _rule_registry
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
     from fieldtest.runner import score
 
     config_path = _project(tmp_path, evals_yaml=LLM_EVAL + RULE_EVAL, with_rules=True)
@@ -166,11 +166,17 @@ def test_rule_evals_resolve_through_every_entry_point(tmp_path):
         {"provider": "openai", "model": "b"},
     ])
 
-    # No registry manipulation: tmp_path is a fresh project, so rules.py has
-    # never been loaded and both entry points must load it themselves. Before the
-    # fix, calibrate reached dispatch_judge with an empty registry and raised,
-    # because loading lived in the score CLI command rather than in score().
-    assert "has_hello" not in _rule_registry or True
+    # The precondition this test rests on: nothing has registered has_hello, so
+    # both entry points must load rules.py themselves. Before the fix, calibrate
+    # reached dispatch_judge with an empty registry and raised, because loading
+    # lived in the score CLI command rather than in score().
+    #
+    # Cleared rather than assumed. The registry is process-global, so an earlier
+    # test in the same session can satisfy the precondition by accident — which
+    # is why this assertion was previously written `or True` and proved nothing.
+    _rule_registry.pop("has_hello", None)
+    _loaded_rule_files.clear()
+    assert "has_hello" not in _rule_registry
 
     adapter = RecordingAdapter()
     with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
@@ -602,3 +608,126 @@ def test_calibrate_runs_a_panel_mixing_a_local_endpoint_and_another_judge(tmp_pa
     assert stats["judges_participating"] == 2
     assert stats["mean_agreement"] == 0.0
     assert endpoint.requests, "the local endpoint was never called"
+
+
+# ---------------------------------------------------------------------------
+# file: inputs (spec 14 §3)
+#
+# The defect these fix: inputs reach the judge through str(value), so a fixture
+# written the way README §3 showed sent the judge a 25-character path instead of
+# the document. Spec 13's defect, arriving through documentation.
+# ---------------------------------------------------------------------------
+
+HANDBOOK = "Employees may expense meals up to $75 without prior approval."
+
+
+def _project_with_file_input(tmp_path: Path, value: str) -> Path:
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=1)
+    evals_dir = config_path.parent
+    (evals_dir / "sources").mkdir(exist_ok=True)
+    (evals_dir / "sources" / "handbook.md").write_text(HANDBOOK)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n"
+        f"  policy: \"{value}\"\n"
+        "  question: What is the meal limit?\n"
+    )
+    return config_path
+
+
+def test_a_file_input_reaches_the_judge_as_the_document(tmp_path):
+    """
+    Asserted on the prompt the judge was handed, not on the loader's return
+    value. The loader returning a string was never the broken part.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project_with_file_input(tmp_path, "file:sources/handbook.md")
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path,
+              write_artifacts=False)
+
+    prompt = adapter.calls[0]["prompt"]
+    assert HANDBOOK in prompt
+    assert "file:sources/handbook.md" not in prompt
+    assert "sources/handbook.md" not in prompt
+
+
+def test_a_plain_string_input_is_left_alone(tmp_path):
+    """`see notes/faq.md` is a legitimate literal, not a file reference."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project_with_file_input(tmp_path, "see sources/handbook.md")
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path,
+              write_artifacts=False)
+
+    prompt = adapter.calls[0]["prompt"]
+    assert "see sources/handbook.md" in prompt
+    assert HANDBOOK not in prompt
+
+
+def test_a_rule_eval_gets_the_document_too(tmp_path):
+    """
+    Resolution happens at load, not at prompt-building, so a rule eval and an
+    LLM eval are handed the same thing. A rule reading a path would be the same
+    defect in a cheaper judge.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project(tmp_path, evals_yaml=RULE_EVAL, runs=1, with_rules=True)
+    evals_dir = config_path.parent
+    (evals_dir / "sources").mkdir(exist_ok=True)
+    (evals_dir / "sources" / "handbook.md").write_text(HANDBOOK)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        'id: fix1\ninputs:\n  policy: "file:sources/handbook.md"\n'
+    )
+    (evals_dir / "rules.py").write_text(
+        "from fieldtest import rule\n\n"
+        "@rule('has_hello')\n"
+        "def check(output, inputs):\n"
+        "    got = inputs.get('policy', '')\n"
+        "    return {'passed': '$75' in got, 'detail': f'policy is {len(got)} chars'}\n"
+    )
+    _, rows = score(config=parse_and_validate(config_path), config_path=config_path,
+                    write_artifacts=False)
+    row = [r for r in rows if r.eval_id == "has_hello"][0]
+    assert row.passed, row.detail
+    assert f"{len(HANDBOOK)} chars" in row.detail
+
+
+def test_a_missing_file_input_fails_validation_not_the_judge(tmp_path):
+    """Twenty errored rows into a run is the wrong place to learn this."""
+    from fieldtest.config import parse_and_validate, summarize_file_inputs
+
+    from fieldtest.config import load_fixture, validate_fixture_labels
+    from fieldtest.errors import ConfigError
+
+    config_path = _project_with_file_input(tmp_path, "file:sources/nope.md")
+    config = parse_and_validate(config_path)
+    base_dir = config_path.parent
+
+    errors, _ = validate_fixture_labels(config, base_dir)
+    assert any("nope.md" in e for e in errors), errors
+
+    # And the loader refuses rather than handing anyone the path.
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(base_dir / "fixtures" / "fix1.yaml", base_dir)
+    assert "nope.md" in str(exc.value)
+    assert "inputs.policy" in str(exc.value)
+
+    # summarize_file_inputs is a reporting helper and skips what it cannot read,
+    # so a broken reference shows up as an error above, not as a false report.
+    assert summarize_file_inputs(config, base_dir) == {}
+
+
+def test_validate_reports_resolved_file_inputs(tmp_path):
+    from fieldtest.config import parse_and_validate, summarize_file_inputs
+
+    config_path = _project_with_file_input(tmp_path, "file:sources/handbook.md")
+    config = parse_and_validate(config_path)
+    assert summarize_file_inputs(config, config_path.parent) == {"fix1": ["policy"]}

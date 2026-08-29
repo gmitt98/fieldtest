@@ -268,7 +268,7 @@ each credential is set, before the run rather than twenty errored rows into it.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 399, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 404, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

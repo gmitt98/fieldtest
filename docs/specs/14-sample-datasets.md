@@ -67,7 +67,10 @@ notes/faq.md"` is a legitimate literal, and silently replacing it with file cont
 worse failure than today's. A `file:` input that does not exist is a `ConfigError` from
 `fieldtest validate`, not an error at the first judge call.
 
-The row records resolution so a reader can tell the judge saw the document rather than the path.
+`fieldtest validate` reports how many inputs resolved, so a reader can confirm the judge is
+handed the document rather than the path. On the row rather than in validate was the first
+sketch; validate gives the same guarantee where a user already checks their config, without
+threading a flag through the dispatcher.
 
 ### Layout
 

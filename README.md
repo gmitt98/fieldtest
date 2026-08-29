@@ -531,11 +531,16 @@ description: >
   Baseline fixture; should score well across all evals.
 
 inputs:
-  resume: fixtures/resumes/experienced-swe.txt
-  job:    fixtures/jobs/senior-swe.txt
+  resume: "file:fixtures/resumes/experienced-swe.txt"
+  job:    "file:fixtures/jobs/senior-swe.txt"
   is_recent_grad: false
   expected_name:  "Alex Rivera"
   expected_email: "alex.rivera@email.com"
+
+# `file:` reads the file and passes its contents. Without the prefix the value
+# is a literal string, which is what your generator may want — but an LLM judge
+# would then be shown the path rather than the resume, and a grounding eval
+# would be scoring a filename. Paths are relative to evals/.
 
 # The expected block makes this a "golden" fixture.
 # These are deterministic string checks — no API cost.

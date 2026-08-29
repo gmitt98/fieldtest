@@ -378,6 +378,7 @@ def parse_and_validate(config_path: Path) -> Config:
 from fieldtest.fixtures import (  # noqa: E402
     extract_labels,
     load_fixture,
+    summarize_file_inputs,
     validate_fixture_labels,
 )
 from fieldtest.resolve import (  # noqa: E402
@@ -393,7 +394,8 @@ __all__ = [
     "EvalTag", "EvalType", "FixturesConfig", "LLMExample", "PanelJudge",
     "ProviderSettings", "ResultRow", "ScoredJudgeOutput", "SystemConfig",
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
-    "extract_labels", "load_fixture", "parse_and_validate", "validate_fixture_labels",
+    "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
+    "validate_fixture_labels",
     "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
     "use_cases_with_fixtures",
 ]

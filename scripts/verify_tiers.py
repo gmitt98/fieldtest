@@ -107,7 +107,22 @@ def find_vacuous_tests() -> list[str]:
                 if isinstance(n, ast.Assert)
             ]
             if guarded and not unguarded:
-                vacuous.append(f"{f.name}:{fn.lineno} {fn.name}")
+                vacuous.append(f"{f.name}:{fn.lineno} {fn.name} (all assertions conditional)")
+
+            # An assertion that cannot fail. `assert x or True` slipped past the
+            # check above, because it is unguarded — it is just always true.
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Assert):
+                    continue
+                t = node.test
+                if isinstance(t, ast.Constant) and t.value:
+                    vacuous.append(f"{f.name}:{node.lineno} {fn.name} (assert of a constant)")
+                elif (
+                    isinstance(t, ast.BoolOp)
+                    and isinstance(t.op, ast.Or)
+                    and any(isinstance(v, ast.Constant) and v.value for v in t.values)
+                ):
+                    vacuous.append(f"{f.name}:{node.lineno} {fn.name} (assert ... or True)")
     return vacuous
 
 

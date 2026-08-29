@@ -11,7 +11,7 @@ works.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import yaml
 
@@ -22,14 +22,79 @@ if TYPE_CHECKING:  # avoids a cycle: config re-exports these
     from fieldtest.config import Config
 
 
-def load_fixture(fixture_path: Path) -> dict:
-    """Load a YAML fixture file. Raises ConfigError if id field missing."""
+# Marks an input whose value names a file to read rather than text to use.
+FILE_PREFIX = "file:"
+
+
+def resolve_file_inputs(
+    inputs: dict,
+    base_dir: Path,
+    where: Path,
+) -> tuple[dict, list[str]]:
+    """
+    Replace `file:`-prefixed input values with the contents of the file.
+
+    Returns (inputs, keys resolved). Raises ConfigError naming the fixture if a
+    referenced file is missing, so a broken reference is a validation failure
+    rather than a judge that silently reads a path.
+
+    A prefix rather than a heuristic on values that look like paths: a fixture
+    whose input is literally "see notes/faq.md" is legitimate, and quietly
+    swapping it for file contents would be a worse failure than the one this
+    fixes.
+    """
+    if not isinstance(inputs, dict):
+        return inputs, []
+
+    resolved_keys: list[str] = []
+    out = dict(inputs)
+    for key, value in inputs.items():
+        if not isinstance(value, str) or not value.startswith(FILE_PREFIX):
+            continue
+        rel = value[len(FILE_PREFIX):].strip()
+        target = (base_dir / rel).resolve()
+        if not target.is_file():
+            raise ConfigError(
+                f"Config error at {where}: inputs.{key} references "
+                f"'{rel}', which does not exist\n"
+                f"  looked in {base_dir}"
+            )
+        try:
+            out[key] = target.read_text()
+        except Exception as e:
+            raise ConfigError(
+                f"Config error at {where}: inputs.{key} could not read '{rel}': {e}"
+            ) from e
+        resolved_keys.append(key)
+
+    return out, resolved_keys
+
+
+def load_fixture(fixture_path: Path, base_dir: Optional[Path] = None) -> dict:
+    """
+    Load a YAML fixture file. Raises ConfigError if the id field is missing.
+
+    When base_dir is given, `file:` inputs are resolved against it, so every
+    consumer — judge, rule, report — sees the document rather than its path.
+    Resolution happens here rather than at prompt-building time so that a rule
+    eval and an LLM eval are handed the same thing.
+    """
     try:
         data = yaml.safe_load(fixture_path.read_text())
     except Exception as e:
         raise ConfigError(f"Config error at {fixture_path}: {e}") from e
     if not isinstance(data, dict) or "id" not in data:
         raise ConfigError(f"Config error at {fixture_path}: fixture missing required 'id' field")
+
+    if base_dir is not None and isinstance(data.get("inputs"), dict):
+        data["inputs"], resolved = resolve_file_inputs(
+            data["inputs"], base_dir, fixture_path
+        )
+        if resolved:
+            # Kept on the fixture rather than logged: `fieldtest validate`
+            # reports it, so a reader can confirm the judge was handed the
+            # document and not the path.
+            data["_resolved_file_inputs"] = resolved
     return data
 
 
@@ -80,8 +145,13 @@ def validate_fixture_labels(config: Config, base_dir: Path) -> tuple[list[str], 
 
         for fixture_path in sorted(fixture_dir.glob("*.yaml")):
             try:
-                fixture = load_fixture(fixture_path)
-            except ConfigError:
+                fixture = load_fixture(fixture_path, base_dir)
+            except ConfigError as e:
+                # A file: input pointing at nothing is reportable, not
+                # skippable: the judge would otherwise be handed a path at the
+                # first call, twenty errored rows into a run.
+                if "references" in str(e) or "could not read" in str(e):
+                    errors.append(f"  ⚠ {str(e).splitlines()[0]}")
                 continue
 
             raw = fixture.get("labels")
@@ -144,3 +214,27 @@ def validate_fixture_labels(config: Config, base_dir: Path) -> tuple[list[str], 
                     coverage[eval_id] = coverage.get(eval_id, 0) + 1
 
     return errors, coverage
+
+
+def summarize_file_inputs(config: "Config", base_dir: Path) -> dict[str, list[str]]:
+    """
+    Fixture id → the input keys that were read from files.
+
+    Reported by `fieldtest validate` so a reader can confirm the judge is handed
+    the document rather than its path — the distinction that made a grounding
+    eval score 0.818 while its reasoning said no source was provided.
+    """
+    found: dict[str, list[str]] = {}
+    for uc in use_cases_with_fixtures(config):
+        fixture_dir = base_dir / uc.fixtures.directory
+        if not fixture_dir.exists():
+            continue
+        for fixture_path in sorted(fixture_dir.rglob("*.yaml")):
+            try:
+                fixture = load_fixture(fixture_path, base_dir)
+            except ConfigError:
+                continue
+            resolved = fixture.get("_resolved_file_inputs")
+            if resolved:
+                found[fixture_path.stem] = resolved
+    return found

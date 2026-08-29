@@ -109,6 +109,15 @@ def validate(config_path: Optional[str]):
     for line in _provider_report(config):
         click.echo(line)
 
+    from fieldtest.config import summarize_file_inputs
+    resolved = summarize_file_inputs(config, base_dir)
+    if resolved:
+        total = sum(len(keys) for keys in resolved.values())
+        click.echo(
+            f"  {total} file input(s) resolved across "
+            f"{len(resolved)} fixture(s) — the judge sees the document, not the path"
+        )
+
     # Cost is multiplicative: runs × judge_runs × llm evals × fixtures. Say it
     # before the bill, not after — judge_runs: 3 is a 3x charge.
     from fieldtest.config import resolve_judge_runs, resolve_runs
