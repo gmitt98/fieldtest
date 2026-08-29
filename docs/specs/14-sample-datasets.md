@@ -1,6 +1,6 @@
 # Spec 14 — Sample datasets
 
-**Tier** 3 · **Depends on** 13 · **Touches** `datasets/`, `judges/llm.py`, `config.py`, `cli_project.py`, README · **Status** shipped
+**Tier** 3 · **Depends on** 13 · **Touches** `datasets/`, `fixtures.py`, `runner.py`, `config.py`, `cli_project.py`, README · **Status** shipped
 
 ## §1 Problem
 
@@ -62,7 +62,9 @@ inputs:
   employee: "Dana Okafor"          # literal, unchanged
 ```
 
-Resolved relative to the config's directory. A prefix rather than a heuristic: `question: "see
+Resolved at fixture load in `fixtures.py`, relative to the config's directory —
+not at prompt-building time, so a rule eval and an LLM eval are handed the same thing.
+`judges/llm.py` is unchanged. A prefix rather than a heuristic: `question: "see
 notes/faq.md"` is a legitimate literal, and silently replacing it with file contents would be a
 worse failure than today's. A `file:` input that does not exist is a `ConfigError` from
 `fieldtest validate`, not an error at the first judge call.
