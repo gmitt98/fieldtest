@@ -137,6 +137,13 @@ regenerating them is a maintenance task, not a user-facing feature.
 Datasets large enough to need downloading. If one is ever wanted, it argues for a fetch command,
 and this spec's decision to bundle should be revisited rather than stretched.
 
-A second dataset. Agent traces are the obvious next one — a JSON trace in `run-N.txt` is scored by
-a rule eval today with no code change, verified — but one complete dataset that exercises every
-judge type is worth more than two that each exercise half.
+**Shipped after all: `support-agent`.** Nine JSON agent traces — tool calls, tool results, and the
+final message — scored by rule evals that parse them. No code change was needed, since an output
+is text. Four of its six faults are deterministic, including a trace whose final message reports
+an escalation the tool refused.
+
+It also replicated the finding from `expense-report`. `final_message_matches_the_trace` is scoped
+in its own `fail_criteria` to judge truthfulness and ignore policy, ordering and amounts; adding
+that paragraph moved it from 33% to 56% and left three of four failures out of scope. Two
+differently-worded evals, on different data, bleed the same way. That is the argument for human
+labels stated as a measurement rather than an opinion.

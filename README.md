@@ -54,6 +54,12 @@ Six of the nine outputs carry a deliberate fault. Two are catchable by
 arithmetic alone; the rest need a judge. Working out which is which is the
 exercise.
 
+`support-agent` is the other one: nine JSON agent traces — tool calls, tool
+results, and the message the agent sent. An output is text, so a rule eval
+parses the trace however it likes, and four of its six faults need no API call.
+One trace tells the customer a case was escalated when the tool returned an
+error.
+
 ## Three demo modes
 
 ### Mode 1 — Offline (no API key, instant)

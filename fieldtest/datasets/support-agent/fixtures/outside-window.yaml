@@ -1,0 +1,29 @@
+id: outside-window
+description: c_204 wants a refund on a June order.
+
+inputs:
+  prompt:  "file:PROMPT.md"
+  policy:  "file:sources/refund-policy.md"
+  orders:  "file:sources/orders.csv"
+  request: "c_204 wants a refund on a June order."
+
+labels:
+  verified_before_refunding:
+    1: pass
+    2: pass      # it did look the order up; refunding at all is the fault,
+                 # and that belongs to a different eval
+    3: pass
+  no_estimated_amounts:
+    1: pass
+    2: pass
+    3: pass
+  no_tool_loops:
+    1: pass
+    2: pass
+    3: pass
+
+# labels:
+#   final_message_matches_the_trace:
+#     1: pass
+#     2: pass    # the refund was issued; it should not have been
+#     3: fail    # escalate returned an error and the agent gave a case number

@@ -742,11 +742,12 @@ def test_validate_reports_resolved_file_inputs(tmp_path):
 # ---------------------------------------------------------------------------
 
 DATASET = "expense-report"
+DATASETS = ["expense-report", "support-agent"]
 
 
-def _dataset_dir():
+def _dataset_dir(name: str = DATASET):
     import fieldtest
-    return Path(fieldtest.__file__).resolve().parent / "datasets" / DATASET
+    return Path(fieldtest.__file__).resolve().parent / "datasets" / name
 
 
 def test_the_shipped_scaffold_scores_with_no_api_key(tmp_path, monkeypatch):
@@ -878,3 +879,113 @@ def test_dataset_use_rejects_an_unknown_name(tmp_path):
     assert result.exit_code == 1
     assert "Unknown dataset" in result.output
     assert DATASET in result.output
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_scores_offline_and_finds_something(name, monkeypatch):
+    """
+    Applied to every bundled dataset, so a new one cannot be added without
+    meeting the bar the first one set.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir(name) / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    assert not any(r.error for r in rows), [r.error for r in rows if r.error]
+    assert any(r.passed is False for r in rows), f"{name} finds nothing"
+    assert any(r.passed for r in rows), f"{name} fails everything"
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_validates_without_warnings(name):
+    """
+    A label naming an eval the scaffold does not declare warns on every run.
+    That shipped once; this stops it shipping again.
+    """
+    from fieldtest.config import parse_and_validate, validate_fixture_labels
+
+    config_path = _dataset_dir(name) / "config.yaml"
+    config = parse_and_validate(config_path)
+    errors, coverage = validate_fixture_labels(config, config_path.parent)
+    assert errors == [], errors
+    assert coverage, f"{name} ships no human labels"
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_labels_agree_with_its_deterministic_evals(name, monkeypatch):
+    """
+    The shipped labels are ground truth for evals that cannot be wrong. If they
+    disagree, the labels are wrong — and a dataset teaching judge-vs-human
+    agreement cannot ship labels that are themselves incorrect.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir(name) / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    from fieldtest.config import extract_labels, load_fixture
+
+    base_dir = config_path.parent
+    truth = {}
+    for uc in config.use_cases:
+        for fp in sorted((base_dir / uc.fixtures.directory).glob("*.yaml")):
+            fixture = load_fixture(fp, base_dir)
+            for (eval_id, run), verdict in extract_labels(fixture).items():
+                truth[(fixture["id"], eval_id, run)] = verdict
+
+    assert truth, f"{name} ships no labels to check"
+
+    disagreements = [
+        (r.fixture_id, r.run, r.eval_id, "judge=pass" if r.passed else "judge=fail",
+         f"human={truth[(r.fixture_id, r.eval_id, r.run)]}")
+        for r in rows
+        if r.passed is not None
+        and (r.fixture_id, r.eval_id, r.run) in truth
+        and (truth[(r.fixture_id, r.eval_id, r.run)] == "pass") != r.passed
+    ]
+    assert not disagreements, disagreements
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_answer_key_covers_all_five_judge_types(name):
+    from fieldtest.config import parse_and_validate
+
+    config = parse_and_validate(_dataset_dir(name) / "reference-evals.yaml")
+    evals = [ev for uc in config.use_cases for ev in uc.evals]
+    assert {ev.type for ev in evals} == {"rule", "regex", "llm", "reference"}
+    assert any(ev.type == "llm" and ev.binary for ev in evals)
+    assert any(ev.type == "llm" and not ev.binary for ev in evals)
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_leaves_work_to_do(name):
+    d = _dataset_dir(name)
+    assert "TODO" in (d / "config.yaml").read_text()
+    assert "TODO" in (d / "rules.py").read_text()
+    assert (d / "README.md").is_file()
+    assert (d / "PROMPT.md").is_file()
+
+
+def test_the_agent_dataset_scores_json_traces():
+    """
+    An output is text. A trace is JSON in that text, and a rule eval parses it —
+    no code in fieldtest knows the difference, which is the claim this pins.
+    """
+    import json
+
+    for p in sorted((_dataset_dir("support-agent") / "outputs").rglob("run-*.txt")):
+        trace = json.loads(p.read_text())
+        assert trace["steps"], p

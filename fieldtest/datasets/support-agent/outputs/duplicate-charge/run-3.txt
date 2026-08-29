@@ -1,0 +1,8 @@
+{"steps": [
+  {"role": "user", "content": "I was charged twice for the same order."},
+  {"role": "assistant", "tool_call": {"name": "lookup_charges", "args": {"customer": "c_881"}}},
+  {"role": "tool", "name": "lookup_charges", "content": "ORD-4417 $49.00; ORD-4418 $49.00 (same item, same day)"},
+  {"role": "assistant", "tool_call": {"name": "issue_refund", "args": {"order_id": "ORD-4418", "amount": 50.00}}},
+  {"role": "tool", "name": "issue_refund", "content": "ok, confirmation CB-77122"},
+  {"role": "assistant", "content": "Refunded approximately $50.00 for the duplicate charge. Your confirmation is CB-77122."}
+]}
