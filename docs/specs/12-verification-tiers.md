@@ -83,8 +83,10 @@ addopts = "-m 'not live'"
 `pytest` runs unit + integration. `pytest -m live` runs the live tier.
 
 `.github/workflows/test.yml` runs the default tier plus `scripts/verify_tiers.py` on every push
-and pull request, and the live tier on a daily schedule or on demand, where a failure means a
-provider changed something rather than that a contributor did. The live job needs four repository
+and pull request, and the live tier on the 1st and 15th or on demand, where a failure means a
+provider changed something rather than that a contributor did. Twice a month rather than
+daily because provider drift is slow and a scheduled run that goes red on an outage is
+noise, not a signal. The live job needs four repository
 secrets — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` — and
 fails rather than passing quietly if none are present.
 

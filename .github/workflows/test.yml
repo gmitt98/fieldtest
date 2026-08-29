@@ -10,8 +10,10 @@ on:
     branches: ["**"]
   pull_request:
   schedule:
-    # Daily. Provider drift is the thing this catches, and it is slow.
-    - cron: "0 7 * * *"
+    # 1st and 15th. Provider drift is slow and there is no user base to page,
+    # so twice a month trades detection latency for not turning a provider
+    # outage into a red X every morning. GitHub cron has no "every 2 weeks".
+    - cron: "0 7 1,15 * *"
   workflow_dispatch:
 
 jobs:
