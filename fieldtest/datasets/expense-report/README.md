@@ -63,17 +63,28 @@ scoped in its own `fail_criteria` to judge the two daily caps and ignore
 everything else. Run it and the judge still fails outputs for reimbursing
 alcohol and for citing an invented receipt — both real defects, neither a cap.
 
-The fixtures carry human labels recording what those verdicts should be, so the
-report says so out loud:
+The fixtures already record what those verdicts should be, commented out beside
+the `caps_applied` TODO. Uncomment them, run the answer key, and the report
+says it out loud:
 
 ```
 | eval                               | labeled runs | agreement | errors                     |
-| total_matches_line_items           | 3            | 100.0%    | 0 false pass, 0 false fail |
-| excluded_categories_not_reimbursed | 3            | 100.0%    | 0 false pass, 0 false fail |
-| caps_applied                       | 6            | 66.7%     | 0 false pass, 2 false fail |
+| total_matches_line_items           | 9            | 100.0%    | 0 false pass, 0 false fail |
+| excluded_categories_not_reimbursed | 9            | 100.0%    | 0 false pass, 0 false fail |
+| caps_applied                       | 6            |  66.7%    | 0 false pass, 2 false fail |
 ```
 
-The two rule evals agree with a human every time. The LLM eval, given explicit
-written scope, does not. That is not a flaw in this dataset — it is the reason
-`fieldtest calibrate` and human labels exist, reproducible on nine files you
-can read in a minute.
+The rule evals agree with a human on all thirty labelled runs. The LLM eval,
+given explicit written scope, does not. That is not a flaw in this dataset — it
+is the reason `fieldtest calibrate` and human labels exist, reproducible on
+nine files you can read in a minute.
+
+## Labels
+
+The fixtures ship with human verdicts for every eval in the scaffold: what a
+person thinks the right answer is, per output. They score the judge, not the
+system, and they never affect `failure_rate`.
+
+Write an eval, and the report tells you immediately how often it agreed with
+you. That is the loop the labels are for — not documentation of these nine
+files, but a check on the evals you are about to write.

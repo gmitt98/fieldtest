@@ -8,11 +8,23 @@ inputs:
   employee: "Tom Alvarez"
 
 labels:
-  caps_applied:
-    1: pass
-    2: pass      # reimbursing alcohol is a policy 4.3 exclusion, not a cap
-    3: pass
   excluded_categories_not_reimbursed:
     1: pass
-    2: fail
+    2: fail      # R-1190, alcohol, reimbursed in full
     3: pass
+  total_matches_line_items:
+    1: pass
+    2: pass      # adds up; it is the policy that was ignored, not the sum
+    3: pass
+  no_unfilled_placeholders:
+    1: pass
+    2: pass
+    3: pass
+
+# For reference-evals.yaml, as above:
+#
+# labels:
+#   caps_applied:
+#     1: pass
+#     2: pass    # reimbursing alcohol is a policy 4.3 exclusion, not a cap
+#     3: pass
