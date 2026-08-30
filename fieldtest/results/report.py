@@ -477,10 +477,30 @@ def format_report(
                     f"⚠ judge errors — {count} calls failed for {eval_id}; "
                     f"excluded from pass rate"
                 )
-            lines.append(
-                "  re-run with --concurrency 1 to isolate; "
-                "check your API key (ANTHROPIC_API_KEY or OPENAI_API_KEY) if errors persist"
+            # Providers say why. Repeating generic advice over a specific
+            # message sends people to check a key that is working: a run that
+            # died on an exhausted balance was told to check its credentials.
+            causes = {
+                "credit balance": "the account is out of credit",
+                "quota": "the account is over quota",
+                "rate limit": "rate limited beyond the retry policy",
+                "authentication": "the API key was rejected",
+                "not found": "the model id was not recognised",
+                "permission": "the key lacks access to that model",
+            }
+            reason = next(
+                (text for marker, text in causes.items()
+                 if any(marker in (r.error or "").lower()
+                        for r in rows if r.use_case == uc.id and r.error)),
+                None,
             )
+            if reason:
+                lines.append(f"  every failure says the same thing: {reason}")
+            else:
+                lines.append(
+                    "  re-run with --concurrency 1 to isolate; "
+                    "check your API key if errors persist"
+                )
             lines.append("")
 
         # --- Fixture × Eval Matrix ----------------------------------------

@@ -1728,3 +1728,60 @@ def test_every_artifact_carries_the_judge_repetition_data(tmp_path, monkeypatch)
         assert str(stats["clarity"]["judge_stddev"]) in artifact, (
             f"{name} does not display the judge spread value"
         )
+
+
+def test_judge_error_remediation_names_the_provider_stated_cause(tmp_path, monkeypatch):
+    """
+    A real run died on an exhausted credit balance and the report said "check
+    your API key" — sending someone to inspect a credential that was working.
+    The provider had said exactly what was wrong; the report repeated generic
+    advice over it.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter, RetryPolicy
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    class _OutOfCredit(ProviderAdapter):
+        def call(self, model, prompt, gen: JudgeGenerationConfig, retry: RetryPolicy):
+            return {"error": "Error code: 400 - Your credit balance is too low "
+                             "to access the Anthropic API."}
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=2)
+    config = parse_and_validate(config_path)
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=_OutOfCredit()):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    assert "the account is out of credit" in md
+    assert "check your API key" not in md
+
+
+def test_generic_remediation_survives_for_an_unrecognised_error(tmp_path, monkeypatch):
+    """When the provider says nothing useful, the old advice is still the best."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.providers.base import ProviderAdapter
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    class _Vague(ProviderAdapter):
+        def call(self, model, prompt, gen, retry):
+            return {"error": "something went wrong"}
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=2)
+    config = parse_and_validate(config_path)
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=_Vague()):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    assert "check your API key" in md
