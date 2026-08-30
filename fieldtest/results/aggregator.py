@@ -454,6 +454,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged":           [],
         "baseline_pre_judge":  False,
         "baseline_judge_runs": None,
+        "baseline_error_share": 0.0,
     }
 
     if baseline_path is None or not baseline_path.exists():
@@ -472,6 +473,27 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # Collapsed failure_rate values stay comparable across repetition counts;
     # the judge spread fields do not. Keep the comparison, carry the caveat.
     baseline_judge_runs = baseline_data.get("judge_runs", 1)
+
+    # A baseline whose judge calls largely failed is a rate over whatever
+    # survived. One real run lost 140 of 237 calls to an exhausted balance and
+    # silently became the baseline for the next, which then reported a 26-point
+    # "drop" against a third of the evidence. Keep the comparison and say so.
+    baseline_errors = sum(
+        st.get("error_count", 0)
+        for tags in baseline_summary.values()
+        for evals in tags.values()
+        for st in evals.values()
+    )
+    baseline_scored = sum(
+        st.get("total_runs", 0)
+        for tags in baseline_summary.values()
+        for evals in tags.values()
+        for st in evals.values()
+    )
+    baseline_error_share = (
+        baseline_errors / (baseline_errors + baseline_scored)
+        if (baseline_errors + baseline_scored) else 0.0
+    )
 
     increased: list[dict] = []
     decreased: list[dict] = []
@@ -526,6 +548,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged":         unchanged,
         "baseline_pre_judge": baseline_pre_judge,
         "baseline_judge_runs": baseline_judge_runs,
+        "baseline_error_share": round(baseline_error_share, 4),
     }
 
 

@@ -1106,3 +1106,54 @@ def test_fingerprint_unchanged_for_configs_without_endpoints():
     }
     canonical = json.dumps(before, sort_keys=True, separators=(",", ":"))
     assert judge_fingerprint(judge) == hashlib.sha256(canonical.encode()).hexdigest()[:8]
+
+
+def test_delta_records_how_much_of_the_baseline_errored(tmp_path):
+    """
+    A baseline whose judge calls largely failed is a rate over whatever
+    survived. One real run lost 140 of 237 calls to an exhausted balance,
+    silently became the next run's baseline, and produced a 26-point "drop"
+    against a third of the evidence.
+    """
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 10, "error_count": 30,
+        }}}},
+    }))
+    current = {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 40,
+                                         "error_count": 0}}}}
+
+    delta = build_delta(current, baseline)
+    assert delta["baseline_error_share"] == 0.75
+    # The comparison is kept — the caveat is the point, not suppression.
+    assert delta["decreased"] or delta["increased"]
+
+
+def test_a_clean_baseline_reports_no_error_share(tmp_path):
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 40, "error_count": 0,
+        }}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 40}}}}, baseline
+    )
+    assert delta["baseline_error_share"] == 0.0
+
+
+def test_no_baseline_reports_no_error_share():
+    from fieldtest.results.aggregator import build_delta
+
+    assert build_delta({}, None)["baseline_error_share"] == 0.0

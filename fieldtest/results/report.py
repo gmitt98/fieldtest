@@ -239,6 +239,14 @@ def format_report(
 
     # Deltas against a baseline written before judge tracking are still shown —
     # blanking them out on upgrade is worse — but the caveat travels with them.
+    share = delta.get("baseline_error_share") or 0.0
+    if delta.get("baseline_run_id") and share >= 0.1:
+        lines.append(
+            f"⚠ baseline lost {share * 100:.0f}% of its judge calls to errors — "
+            f"its rates are over whatever survived, so these deltas are not a "
+            f"like-for-like comparison"
+        )
+
     if delta.get("baseline_run_id") and delta.get("baseline_pre_judge"):
         lines.append(
             "⚠ baseline predates judge tracking — the judge that produced it is "

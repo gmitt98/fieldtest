@@ -237,6 +237,18 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         )
         click.echo("")
 
+    # A baseline that lost most of its judge calls is a rate over whatever
+    # survived. Comparing against it is not like-for-like, and `diff` is where
+    # someone reads these numbers most closely.
+    share = delta.get("baseline_error_share") or 0.0
+    if base_run_id and share >= 0.1:
+        click.echo(
+            f"⚠ Baseline lost {share * 100:.0f}% of its judge calls to errors — "
+            f"its rates cover only what survived, so these deltas are not "
+            f"like-for-like."
+        )
+        click.echo("")
+
     increased = delta.get("increased", [])
     decreased = delta.get("decreased", [])
     unchanged = delta.get("unchanged", [])
