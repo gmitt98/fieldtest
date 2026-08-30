@@ -332,6 +332,10 @@ a literal string.
   removed `temperature` from `messages.create()`, and the drop path did not
   recognise a client-library `TypeError` as a refusal. It does now — the call
   completes and the header names the dropped parameter
+- `fieldtest validate` warns when a fixture set is declared in one use case and
+  not another — `--set <name>` fails for the use case that lacks it, and nothing
+  said so before the command was spent
+- `fieldtest history` says how many older result files it could not read
 - New: `fieldtest --version`
 - New: `fieldtest help [COMMAND]`; `fieldtest --help <command>` now shows that
   command's help instead of the general help
@@ -350,7 +354,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 475, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 477, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

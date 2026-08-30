@@ -1632,3 +1632,50 @@ def test_history_stays_quiet_when_every_run_is_readable(tmp_path):
     )
     assert result.exit_code == 0
     assert "older result file" not in result.output
+
+
+def test_validate_warns_about_sets_that_cannot_be_scored(tmp_path):
+    """
+    A set declared in one use case and not another cannot be scored: resolve_set
+    raises for the use case that lacks it. A real project had three of its five
+    sets in that state and nothing said so until the command was spent.
+    """
+    import textwrap
+
+    two_use_cases = MINIMAL_CONFIG.replace(
+        "defaults:",
+        textwrap.dedent("""\
+              - id: uc2
+                description: second use case
+                evals:
+                  - id: ev_regex2
+                    tag: right
+                    type: regex
+                    description: checks for Go
+                    pattern: "Go"
+                    match: true
+                fixtures:
+                  directory: fixtures/
+                  sets:
+                    full: [fix3]
+            defaults:"""),
+    )
+    evals_dir = _setup_project(tmp_path, config=two_use_cases)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "set 'smoke' is declared in 'uc1' but not in 'uc2'" in result.output
+    assert "`--set smoke` will fail" in result.output
+    # `full` exists in both and must not be flagged.
+    assert "set 'full' is declared" not in result.output
+
+
+def test_validate_stays_quiet_when_every_set_is_shared(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "will fail" not in result.output

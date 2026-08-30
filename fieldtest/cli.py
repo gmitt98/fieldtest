@@ -157,6 +157,21 @@ def validate(config_path: Optional[str]):
                             f"but not found at {fixture_file}"
                         )
 
+    # A set declared in one use case and not another cannot be scored at all:
+    # resolve_set raises for the use case that lacks it. The config looks fine
+    # until you spend the command.
+    if len(config.use_cases) > 1:
+        by_uc = {uc.id: set(uc.fixtures.sets) for uc in config.use_cases}
+        everywhere = set.intersection(*by_uc.values()) if by_uc else set()
+        for uc_id, names in by_uc.items():
+            for missing in sorted(names - everywhere):
+                absent = sorted(o for o, s in by_uc.items() if missing not in s)
+                warnings.append(
+                    f"  ⚠ set '{missing}' is declared in '{uc_id}' but not in "
+                    f"{', '.join(repr(a) for a in absent)} — "
+                    f"`--set {missing}` will fail"
+                )
+
     click.echo(f"✓ config valid: {path}")
     click.echo(f"  {len(config.use_cases)} use case(s), {total_evals} eval(s)")
     click.echo(
