@@ -1202,3 +1202,65 @@ def test_an_unchanged_sample_reports_nothing(tmp_path):
         {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 33}}}}, baseline
     )
     assert delta["sample_changed"] == []
+
+
+def test_summary_eval_order_does_not_depend_on_row_arrival_order():
+    """
+    Rows arrive from as_completed(), so judge latency decided table order and
+    two identical runs produced different reports — in markdown, HTML and JSON.
+    """
+    import random
+
+    rows = _rows_for_two_evals()
+    config = _config_for_two_evals()
+
+    baseline = _eval_order(build_summary(rows, config))
+    for seed in range(6):
+        shuffled = rows[:]
+        random.Random(seed).shuffle(shuffled)
+        assert _eval_order(build_summary(shuffled, config)) == baseline, (
+            f"row order changed the table order (seed {seed})"
+        )
+
+    # And that order is the order the evals are declared in, not alphabetical.
+    declared = [ev.id for ev in config.use_cases[0].evals]
+    assert baseline == declared, f"expected config order {declared}, got {baseline}"
+
+
+def _eval_order(summary: dict) -> list[str]:
+    out = []
+    for uc in summary.values():
+        for tag_evals in uc.values():
+            if isinstance(tag_evals, dict):
+                out.extend(k for k in tag_evals if isinstance(tag_evals[k], dict))
+    return out
+
+
+def _config_for_two_evals():
+    return Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "s", "domain": "d"},
+        "use_cases": [{
+            "id": "uc1",
+            "description": "d",
+            # Declared zebra-first so config order and alphabetical differ.
+            "evals": [
+                {"id": "zebra_check", "tag": "right", "type": "regex",
+                 "description": "d", "pattern": "z", "match": True},
+                {"id": "alpha_check", "tag": "right", "type": "regex",
+                 "description": "d", "pattern": "a", "match": True},
+            ],
+            "fixtures": {"directory": "fixtures/", "sets": {"full": ["f1"]}},
+        }],
+    })
+
+
+def _rows_for_two_evals():
+    rows = []
+    for eval_id in ("zebra_check", "alpha_check"):
+        for run in (1, 2, 3):
+            rows.append(ResultRow(
+                use_case="uc1", eval_id=eval_id, tag="right",
+                fixture_id="f1", run=run, passed=run != 3, detail="", type="regex",
+            ))
+    return rows

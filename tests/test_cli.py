@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+import fieldtest
 from fieldtest.cli import main
 
 
@@ -1679,3 +1680,213 @@ def test_validate_stays_quiet_when_every_set_is_shared(tmp_path):
         catch_exceptions=False,
     )
     assert "will fail" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# view and demo failure paths (Track D)
+#
+# Neither command had a single CLI test. Between them they hold seven reachable
+# failures, all of which a user meets before they meet anything else — `view` is
+# what you run after a score, and `demo` is the first command in the README.
+# ---------------------------------------------------------------------------
+
+def test_view_names_the_report_it_could_not_find(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results").mkdir(exist_ok=True)
+    result = CliRunner().invoke(
+        main, ["view", "nosuchrun", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "nosuchrun-report.html" in result.output
+
+
+def test_view_with_no_results_directory_says_what_to_run(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    import shutil
+    shutil.rmtree(evals_dir / "results")
+    result = CliRunner().invoke(
+        main, ["view", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "No results found" in result.output
+    assert "fieldtest score" in result.output
+
+
+def test_view_with_results_but_no_html_says_so(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results").mkdir(exist_ok=True)
+    (evals_dir / "results" / "2026-01-01T00-00-00-aaaa-data.json").write_text("{}")
+    result = CliRunner().invoke(
+        main, ["view", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "No HTML reports found" in result.output
+
+
+def test_view_opens_the_newest_report(tmp_path, monkeypatch):
+    """The success path, which was also untested."""
+    import time
+
+    evals_dir = _setup_project(tmp_path)
+    results = evals_dir / "results"
+    results.mkdir(exist_ok=True)
+    older = results / "2026-01-01T00-00-00-aaaa-report.html"
+    newer = results / "2026-02-02T00-00-00-bbbb-report.html"
+    older.write_text("<p>old</p>")
+    time.sleep(0.01)
+    newer.write_text("<p>new</p>")
+
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    result = CliRunner().invoke(
+        main, ["view", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert opened and newer.name in opened[0]
+
+
+def test_demo_refuses_an_existing_target_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "fieldtest-demo").mkdir()
+    result = CliRunner().invoke(
+        main, ["demo", "--offline"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+
+
+def test_demo_live_without_a_key_points_at_offline(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY",):
+        monkeypatch.delenv(var, raising=False)
+    result = CliRunner().invoke(
+        main, ["demo", "--example", "rag"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert "ANTHROPIC_API_KEY" in result.output
+    assert "--offline" in result.output
+
+
+def test_diff_with_an_unknown_run_id_names_the_file(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results" / "2026-01-01T00-00-00-aaaa-data.json").write_text("{}")
+    result = CliRunner().invoke(
+        main, ["diff", "nosuchrun", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "Run not found:" in result.output
+    assert "nosuchrun-data.json" in result.output
+
+
+def test_demo_reports_a_failing_score_rather_than_claiming_success(tmp_path, monkeypatch):
+    """The subprocess is the whole demo; a silent nonzero would read as success."""
+    import subprocess as _sp
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-used")
+
+    class _Failed:
+        returncode = 1
+
+    monkeypatch.setattr(_sp, "run", lambda *a, **k: _Failed())
+    result = CliRunner().invoke(main, ["demo"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "fieldtest score failed" in result.output
+
+
+def test_an_unexpected_error_prints_a_traceback_and_where_to_file_it():
+    """FieldtestError prints one line; anything else is a bug and says so."""
+    import click as _click
+    from fieldtest.cli_common import _handle_error
+    from fieldtest.errors import ConfigError
+
+    runner = CliRunner()
+
+    @_click.command()
+    def boom():
+        try:
+            raise ValueError("something we did not anticipate")
+        except Exception as e:
+            _handle_error(e)
+
+    result = runner.invoke(boom, [], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Traceback" in result.output
+    assert "something we did not anticipate" in result.output
+    assert "github.com/galenmittermann/fieldtest/issues" in result.output
+
+    @_click.command()
+    def expected():
+        try:
+            raise ConfigError("Config error at x: tag is blank")
+        except Exception as e:
+            _handle_error(e)
+
+    result = runner.invoke(expected, [], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "github.com" not in result.output
+    assert "tag is blank" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Advertised choices vs what ships (Track D)
+#
+# `--example` and `--template` are click.Choice-bound, so their "not found"
+# branches are unreachable *as long as* every advertised name has a directory
+# in the package. These pin that, because the failure mode is a user picking a
+# documented option and getting an error instead.
+# ---------------------------------------------------------------------------
+
+def test_every_demo_choice_has_a_directory():
+    import click as _click
+    from fieldtest.cli_project import demo_cmd
+
+    choices = next(
+        p.type.choices for p in demo_cmd.params
+        if p.name == "example" and isinstance(p.type, _click.Choice)
+    )
+    demo_root = Path(fieldtest.__file__).parent / "demo"
+    missing = [c for c in choices if not (demo_root / c).is_dir()]
+    assert not missing, f"--example offers {missing}, which do not ship"
+
+
+def test_every_template_choice_has_a_file_and_the_help_names_them_all():
+    from fieldtest.cli_project import init_cmd
+    from fieldtest.templates import AVAILABLE_TEMPLATES
+
+    param = next(p for p in init_cmd.params if p.name == "template")
+    tpl_root = Path(fieldtest.__file__).parent / "templates"
+    missing = [c for c in param.type.choices if not (tpl_root / f"{c}.yaml").is_file()]
+    assert not missing, f"--template offers {missing}, which do not ship"
+
+    # The help text lists them by hand, so it drifts silently when one is added.
+    for name in AVAILABLE_TEMPLATES:
+        assert name in param.help, f"--template help does not mention '{name}'"
+
+
+def test_the_wheel_ships_the_data_directories_the_cli_reaches_for():
+    """demo/, templates/ and datasets/ are data, not modules — easy to drop."""
+    pkg = Path(fieldtest.__file__).parent
+    for sub in ("demo", "templates", "datasets"):
+        assert (pkg / sub).is_dir(), f"fieldtest/{sub}/ is missing"
+        assert any((pkg / sub).iterdir()), f"fieldtest/{sub}/ is empty"
+
+
+def test_validate_counts_a_fixture_in_two_sets_once(tmp_path):
+    """It summed set lengths, so the shipped 3-fixture dataset reported 4."""
+    # MINIMAL_CONFIG already lists fix1 in both `smoke` and `full`; the count
+    # read 3 for two fixtures and nothing asserted it.
+    assert "smoke: [fix1]" in MINIMAL_CONFIG and "full: [fix1, fix2]" in MINIMAL_CONFIG
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "2 explicitly listed fixture(s)" in result.output

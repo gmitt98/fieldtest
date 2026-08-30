@@ -63,21 +63,20 @@ class Eval(BaseModel):
     model:    Optional[str] = None
     provider: Optional[str] = None
 
-    @field_validator("pattern")
-    @classmethod
-    def pattern_required_for_regex(cls, v, info):
-        if info.data.get("type") == "regex" and v is None:
-            raise ValueError("pattern is required for type: regex")
-        return v
-
-    @field_validator("match")
-    @classmethod
-    def match_required_for_regex(cls, v, info):
-        if info.data.get("type") == "regex" and v is None:
-            raise ValueError(
-                "match is required for type: regex (true = must match, false = must not match)"
-            )
-        return v
+    @model_validator(mode="after")
+    def regex_type_required_fields(self) -> "Eval":
+        # A model validator, not a field validator on `pattern`/`match`: pydantic
+        # skips a field validator when the field is absent, so the omitted case —
+        # the one a user actually writes — sailed through, and `score` then died
+        # with a TypeError from re.search(None, ...) and a "please file a bug".
+        if self.type == "regex":
+            if self.pattern is None:
+                raise ValueError("pattern is required for type: regex")
+            if self.match is None:
+                raise ValueError(
+                    "match is required for type: regex (true = must match, false = must not match)"
+                )
+        return self
 
     @model_validator(mode="after")
     def llm_type_required_fields(self) -> "Eval":

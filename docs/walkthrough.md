@@ -233,9 +233,9 @@ fieldtest score --set full
 ### RIGHT
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |
 |------|--------|----------|---|------|-----------|--------|---------|
-| no_invented_receipts | — | 89% [56–98%] | 9 | — | 0 | 0 | — |
 | total_matches_line_items | — | 78% [45–94%] | 9 | — | 0 | 0 | ↔ |
 | golden_summary | — | 67% [21–94%] | 3 | — | 0 | 0 | ↔ |
+| no_invented_receipts | — | 89% [56–98%] | 9 | — | 0 | 0 | — |
 
 **no_invented_receipts**
 - `october-trip` run 3: cites R-1049, which is in no source receipt
@@ -267,8 +267,8 @@ Run again:
 ### Judge vs Human Labels
 | eval | labeled runs | agreement | errors |
 |------|--------------|-----------|--------|
-| golden_summary | 3 | 100.0% | 0 false pass, 0 false fail |
 | total_matches_line_items | 9 | 100.0% | 0 false pass, 0 false fail |
+| golden_summary | 3 | 100.0% | 0 false pass, 0 false fail |
 | no_invented_receipts | 3 | 100.0% | 0 false pass, 0 false fail |
 | no_unfilled_placeholders | 9 | 100.0% | 0 false pass, 0 false fail |
 | excluded_categories_not_reimbursed | 9 | 100.0% | 0 false pass, 0 false fail |

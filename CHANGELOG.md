@@ -365,8 +365,8 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 486, in three tiers (`unit`, `integration`, opt-in `live`),
-  plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
+- Test suite: 130 → 519, in three tiers (`unit`, `integration`, opt-in `live`),
+  plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 
 **Breaking:** results move. Pinning temperature removes sampling noise; showing the judge your

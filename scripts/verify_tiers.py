@@ -191,9 +191,26 @@ def check_documented_test_count() -> list[str]:
     if not found:
         return []
     actual = int(found.group(1))
+    out = []
     if claimed != actual:
-        return [f"CHANGELOG claims {claimed} tests; the suite has {actual}"]
-    return []
+        out.append(f"CHANGELOG claims {claimed} tests; the suite has {actual}")
+
+    # The same line states how many defects this script reintroduces, and that
+    # number drifted the moment a fifth was added.
+    words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
+    d = re.search(r"reintroduces (\w+) defects", changelog)
+    if not d:
+        out.append("CHANGELOG no longer states how many defects are reintroduced")
+    else:
+        stated = words.get(d.group(1).lower())
+        if stated is None:
+            out.append(f"CHANGELOG states an unreadable defect count: {d.group(1)!r}")
+        elif stated != len(MUTATIONS):
+            out.append(
+                f"CHANGELOG says this script reintroduces {stated} defects; "
+                f"it reintroduces {len(MUTATIONS)}"
+            )
+    return out
 
 
 def main() -> int:

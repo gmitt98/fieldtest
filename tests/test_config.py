@@ -761,3 +761,93 @@ def test_no_dead_module_level_constants():
             if uses <= 1:
                 dead.append(f"{path.relative_to(root)}: {name}")
     assert not dead, f"module constants defined but never used: {dead}"
+
+
+# ---------------------------------------------------------------------------
+# Validators that no test reached (Track D)
+#
+# Each of these fires on a config a user can plausibly write, and each was
+# unreached by the suite — so the message a user meets had never been read
+# back by anything.
+# ---------------------------------------------------------------------------
+
+def test_regex_eval_without_a_pattern_is_rejected(tmp_path):
+    yaml = MINIMAL_VALID.replace('            pattern: "foo"\n', "")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "pattern is required for type: regex" in str(exc.value)
+
+
+def test_regex_eval_without_match_says_what_match_means(tmp_path):
+    yaml = MINIMAL_VALID.replace("            match: true\n", "")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "match is required for type: regex" in msg
+    # The distinction is the whole point of the field; a user who omitted it
+    # does not know which way round it goes.
+    assert "must match" in msg and "must not match" in msg
+
+
+@pytest.mark.parametrize("value", ["0", "1", "95", "-0.5"])
+def test_confidence_level_outside_the_unit_interval_is_rejected(tmp_path, value):
+    """95 is the plausible mistake: the field reads as a percentage."""
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", f"    defaults:\n      confidence_level: {value}\n    use_cases:"
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "confidence_level must be between 0 and 1" in str(exc.value)
+
+
+def test_kappa_threshold_outside_minus_one_to_one_is_rejected(tmp_path):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:",
+        "    calibration:\n"
+        "      kappa_threshold: 60\n"
+        "      panel:\n"
+        "        - provider: anthropic\n"
+        "          model: a\n"
+        "        - provider: anthropic\n"
+        "          model: b\n"
+        "    use_cases:",
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "kappa_threshold must be between -1 and 1" in msg
+    assert "not a percentage" in msg
+
+
+def test_a_panel_listing_the_same_judge_twice_is_rejected(tmp_path):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:",
+        "    calibration:\n"
+        "      panel:\n"
+        "        - provider: anthropic\n"
+        "          model: claude-haiku-4-5-20251001\n"
+        "        - provider: anthropic\n"
+        "          model: claude-haiku-4-5-20251001\n"
+        "    use_cases:",
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "twice" in msg
+    assert "agrees with itself" in msg
+
+
+def test_a_config_that_is_not_a_mapping_says_what_it_got(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("- one\n- two\n")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(p)
+    assert "expected a YAML mapping, got list" in str(exc.value)
+
+
+def test_unparseable_yaml_is_a_config_error_not_a_traceback(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("schema_version: 1\nsystem: [unclosed\n")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(p)
+    assert str(p) in str(exc.value)

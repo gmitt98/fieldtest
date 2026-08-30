@@ -1851,3 +1851,196 @@ def test_html_says_which_population_its_tag_rates_cover(tmp_path, monkeypatch):
     # One use case: no scope note, and no "across N use cases" on the header.
     assert "across" not in html.split("tag-health")[0].split("Fixtures:")[-1][:80]
     assert "Rates below cover all" not in html
+
+
+# ---------------------------------------------------------------------------
+# Loader, fixture and set-resolution failures (Track D)
+#
+# All of these fire on files a user writes by hand, and none was reached by the
+# suite before now.
+# ---------------------------------------------------------------------------
+
+def test_a_fixture_without_an_id_names_the_file(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = tmp_path / "nameless.yaml"
+    f.write_text("description: forgot the id\ninputs: {}\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "nameless.yaml" in str(exc.value)
+    assert "missing required 'id' field" in str(exc.value)
+
+
+def test_a_fixture_that_is_not_a_mapping_is_rejected(tmp_path):
+    """A YAML list parses fine, then has no .get — caught as a config error."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = tmp_path / "listy.yaml"
+    f.write_text("- id: one\n- id: two\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "missing required 'id' field" in str(exc.value)
+
+
+def test_unparseable_fixture_yaml_names_the_file(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = tmp_path / "broken.yaml"
+    f.write_text("id: x\ninputs: [unclosed\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "broken.yaml" in str(exc.value)
+
+
+def test_a_file_input_that_cannot_be_read_names_the_input(tmp_path):
+    """Exists, but is not decodable as text — the read, not the existence check."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    (tmp_path / "blob.txt").write_bytes(b"\xff\xfe\x00\x81\x82binary")
+    f = tmp_path / "fx.yaml"
+    f.write_text('id: x\ninputs:\n  doc: "file:blob.txt"\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f, base_dir=tmp_path)
+    msg = str(exc.value)
+    assert "inputs.doc" in msg
+    assert "could not read" in msg
+
+
+def test_an_unrecognised_set_value_says_what_is_allowed(tmp_path):
+    from fieldtest.resolve import resolve_set
+    from fieldtest.config import UseCase
+    from fieldtest.errors import ConfigError
+
+    uc = UseCase.model_validate({
+        "id": "uc1",
+        "description": "d",
+        "evals": [{"id": "e", "tag": "right", "type": "regex",
+                   "description": "d", "pattern": "x", "match": True}],
+        "fixtures": {"directory": "fixtures/", "sets": {"odd": "some/thing"}},
+    })
+    with pytest.raises(ConfigError) as exc:
+        resolve_set("odd", uc, tmp_path)
+    msg = str(exc.value)
+    assert "use_cases.uc1.fixtures.sets.odd" in msg
+    assert "Expected list, 'all', or 'dir/*'" in msg
+
+
+def test_a_rules_file_with_a_syntax_error_names_the_line(tmp_path):
+    from fieldtest.loader import import_user_file
+    from fieldtest.errors import ConfigError
+
+    p = tmp_path / "rules.py"
+    p.write_text("def broken(:\n    pass\n")
+    with pytest.raises(ConfigError) as exc:
+        import_user_file(p, "rules_syntax_probe", set())
+    msg = str(exc.value)
+    assert "SyntaxError" in msg
+    assert "rules.py" in msg
+
+
+def test_a_rules_file_that_raises_on_import_names_the_line(tmp_path):
+    from fieldtest.loader import import_user_file
+    from fieldtest.errors import ConfigError
+
+    p = tmp_path / "rules.py"
+    p.write_text("import json\nraise RuntimeError('no config for you')\n")
+    with pytest.raises(ConfigError) as exc:
+        import_user_file(p, "rules_raise_probe", set())
+    msg = str(exc.value)
+    assert "RuntimeError: no config for you" in msg
+    assert "rules.py:2" in msg
+
+
+def test_a_module_that_fails_to_import_is_retried_not_cached(tmp_path):
+    """Recording after exec, not before — the calibration-panel race."""
+    from fieldtest.loader import import_user_file
+    from fieldtest.errors import ConfigError
+
+    loaded: set = set()
+    p = tmp_path / "rules.py"
+    p.write_text("raise RuntimeError('boom')\n")
+    with pytest.raises(ConfigError):
+        import_user_file(p, "rules_retry_probe", loaded)
+    assert not loaded, "a module that raised must not be recorded as loaded"
+
+    p.write_text("VALUE = 42\n")
+    mod = import_user_file(p, "rules_retry_probe", loaded)
+    assert mod is not None and mod.VALUE == 42
+
+
+def test_every_report_table_quoted_in_the_walkthrough_is_in_tool_order(tmp_path, monkeypatch):
+    """
+    The doc's numbers were right and its row order was not, twice — the tables
+    were typed rather than pasted. Numbers alone do not catch that, so this
+    compares the sequence of row labels, which is what a reader follows down
+    the page when checking their own output against the doc.
+    """
+    import re
+
+    from fieldtest.results.report import format_report
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.fixtures import extract_labels, load_fixture
+    from fieldtest.config import parse_and_validate
+
+    doc = _walkthrough()
+
+    # Bring the dataset to the state the doc has it in by step 8: the rule
+    # written, declared, and labelled.
+    snippet = re.search(r"```python\n(@rule\(\"no_invented_receipts\"\).*?)```", doc, re.S)
+    yaml_block = re.search(r"```yaml\n(      - id: no_invented_receipts\n.*?)```", doc, re.S)
+    labels = re.search(r"```yaml\n(  no_invented_receipts:\n.*?)```", doc, re.S)
+    assert snippet and yaml_block and labels, "the doc no longer contains all three edits"
+
+    def mutate(dest: Path):
+        (dest / "rules.py").write_text(
+            (dest / "rules.py").read_text() + "\n\n" + snippet.group(1))
+        cfg = dest / "config.yaml"
+        todo = "      # TODO one of the outputs cites a receipt that exists in no source file."
+        cfg.write_text(cfg.read_text().replace(
+            todo, yaml_block.group(1).rstrip() + "\n\n" + todo, 1))
+        fx = dest / "fixtures" / "october-trip.yaml"
+        fx.write_text(fx.read_text().rstrip() + "\n" + labels.group(1).rstrip() + "\n")
+
+    rows = _score_dataset_copy(tmp_path, monkeypatch, mutate)
+    evals_dir = tmp_path / "evals"
+    config = parse_and_validate(evals_dir / "config.yaml")
+
+    # Labels the same way score() collects them, so the labels table is present.
+    human_labels: dict = {}
+    for fx in sorted((evals_dir / "fixtures").glob("*.yaml")):
+        fixture = load_fixture(fx, base_dir=evals_dir)
+        for (eval_id, run_number), value in extract_labels(fixture).items():
+            human_labels[(fixture["id"], eval_id, run_number)] = value
+    assert human_labels, "no labels loaded — the labels table would be absent"
+
+    summary = build_summary(rows, config, labels=human_labels)
+    report = format_report(rows, summary, {}, config, "run-under-test", "full")
+
+    def rows_under(text: str, heading: str) -> list[str]:
+        """Row labels of the first markdown table after `heading`."""
+        after = text.split(heading, 1)
+        if len(after) < 2:
+            return []
+        out = []
+        for line in after[1].splitlines():
+            if line.startswith("|") and not set(line) <= set("|- "):
+                label = line.split("|")[1].strip()
+                if label not in ("eval", ""):
+                    out.append(label)
+            elif out and not line.startswith("|"):
+                break
+        return out
+
+    for heading in ("### RIGHT", "### Judge vs Human Labels"):
+        actual = rows_under(report, heading)
+        quoted = rows_under(doc, heading)
+        assert actual, f"the tool emits no {heading} table"
+        assert quoted, f"the walkthrough no longer quotes a {heading} table"
+        assert quoted == actual, (
+            f"{heading}: the walkthrough lists {quoted}, "
+            f"the tool prints {actual}"
+        )

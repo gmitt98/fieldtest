@@ -112,7 +112,7 @@ def validate(config_path: Optional[str]):
     # Coverage summary
     total_evals   = sum(len(uc.evals) for uc in config.use_cases)
     tag_counts    = {"right": 0, "good": 0, "safe": 0}
-    fixture_count = 0
+    listed_fixtures: set = set()
     warnings      = []
 
     for uc in config.use_cases:
@@ -144,10 +144,12 @@ def validate(config_path: Optional[str]):
                         f"type:rule but no @rule('{ev.id}') registered in evals/rules.py"
                     )
 
-        # Count fixtures referenced in sets
+        # Count fixtures referenced in sets. Distinct ids, not set entries: a
+        # fixture named by both `full` and `smoke` is one fixture, and summing
+        # set lengths reported 4 for a three-fixture dataset.
         for set_val in uc.fixtures.sets.values():
             if isinstance(set_val, list):
-                fixture_count += len(set_val)
+                listed_fixtures.update(set_val)
                 # Warn: fixtures referenced but not on disk
                 for fid in set_val:
                     fixture_file = base_dir / uc.fixtures.directory / f"{fid}.yaml"
@@ -178,7 +180,7 @@ def validate(config_path: Optional[str]):
         f"  by tag — right: {tag_counts['right']}, "
         f"good: {tag_counts['good']}, safe: {tag_counts['safe']}"
     )
-    click.echo(f"  {fixture_count} explicitly listed fixture(s)")
+    click.echo(f"  {len(listed_fixtures)} explicitly listed fixture(s)")
 
     # Which providers this config reaches, and whether the credential each one
     # names is present. Before the run, not twenty errored rows into it.

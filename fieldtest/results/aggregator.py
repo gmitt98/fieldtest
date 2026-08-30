@@ -238,6 +238,22 @@ def build_summary(
         tag = uc.setdefault(row.tag, {})
         tag.setdefault(row.eval_id, []).append(row)
 
+    # Reinsert each tag's evals in config declaration order. Rows arrive from
+    # as_completed(), so insertion order is judge-completion order and two
+    # identical runs produced tables in different orders — in the markdown, the
+    # HTML and the JSON alike. Config order rather than alphabetical, to match
+    # the fixture matrix and the order the user reads in config.yaml.
+    declared = {
+        uc.id: {ev.id: i for i, ev in enumerate(uc.evals)} for uc in config.use_cases
+    }
+    for uc_id, tags in groups.items():
+        order = declared.get(uc_id, {})
+        for tag, evals in tags.items():
+            tags[tag] = {
+                k: evals[k]
+                for k in sorted(evals, key=lambda e: (order.get(e, len(order)), e))
+            }
+
     summary: dict = {}
     for uc_id, tags in groups.items():
         uc_model      = uc_by_id.get(uc_id)
