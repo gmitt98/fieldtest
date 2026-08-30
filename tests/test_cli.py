@@ -1396,3 +1396,30 @@ def test_a_genuinely_wrong_tag_keeps_the_ordinary_error(tmp_path):
         parse_and_validate(cfg)
     assert "tag is blank" not in str(exc.value)
     assert "should be" in str(exc.value)
+
+
+def test_site_github_links_point_at_files_that_exist():
+    """
+    The site links the walkthrough on GitHub. A renamed or moved file would
+    leave a 404 that nothing on this machine notices, because the link resolves
+    against the published repo rather than the checkout.
+
+    Uses /blob/HEAD/ rather than /blob/master/, so a default-branch rename does
+    not break it either.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    site = (root / "docs" / "index.html").read_text()
+
+    links = re.findall(
+        r'href="https://github\.com/[\w.-]+/[\w.-]+/blob/([\w.-]+)/([^"#]+)', site
+    )
+    assert links, "no GitHub file links on the site — did the walkthrough link move?"
+
+    for ref, path in links:
+        assert ref == "HEAD", (
+            f"link pins the branch name '{ref}'; use HEAD so a rename cannot break it"
+        )
+        assert (root / path).is_file(), f"site links {path}, which is not in the repo"
