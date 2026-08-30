@@ -1188,3 +1188,59 @@ def test_walkthrough_file_tree_lists_what_dataset_use_copies(tmp_path):
 
     for entry in sorted(p.name for p in dest.iterdir()):
         assert entry in tree, f"{entry} is copied but missing from the walkthrough tree"
+
+
+def test_site_dataset_figures_match_a_real_run(tmp_path, monkeypatch):
+    """
+    docs/index.html quotes the dataset's report. Those figures were pasted from
+    a run and will rot silently; the site is the one place nobody re-runs.
+    """
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+
+    right = [r for r in rows if r.tag == "right" and r.passed is not None]
+    good  = [r for r in rows if r.tag == "good" and r.passed is not None]
+    assert f"{sum(1 for r in right if r.passed)} / {len(right)}" in site
+    assert f"{sum(1 for r in good if r.passed)} / {len(good)}" in site
+
+    details = {r.detail for r in rows if r.passed is False}
+    for quoted in ("R-1190 (alcohol) reimbursed $47.00",
+                   "line items sum to $897.70, output states $912.70"):
+        assert quoted in details, f"{quoted!r} is on the site but not in a real run"
+        assert quoted in site
+
+
+def test_site_output_comparison_matches_the_real_outputs():
+    """
+    The side-by-side panels claim run 1 reimburses R-1045 at $75.00 and run 2 at
+    $91.40, with totals of $869.70 and $886.10. Read from the outputs.
+    """
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    out = _dataset_dir("expense-report") / "outputs" / "october-trip"
+
+    run1, run2 = (out / "run-1.txt").read_text(), (out / "run-2.txt").read_text()
+    assert "$75.00" in run1 and "Total reimbursable: $869.70" in run1
+    assert "$91.40 | $91.40" in run2 and "Total reimbursable: $886.10" in run2
+    for figure in ("869.70", "886.10", "91.40", "75.00"):
+        assert figure in site
+
+
+def test_site_uses_no_unstyled_class_names():
+    """
+    I shipped .code-window / .cw-bar with no CSS, so two panels rendered as bare
+    <pre>. Every class used in the markup must be defined in the stylesheet.
+    """
+    import re
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    styles = site[site.index("<style>"):site.index("</style>")]
+    defined = set(re.findall(r"\.([a-zA-Z][\w-]*)", styles))
+
+    used: set[str] = set()
+    for attr in re.findall(r'class="([^"]+)"', site):
+        used.update(attr.split())
+
+    # Utility names that are legitimately styled only via a parent selector.
+    allowed = {"red", "yellow", "green"}
+    undefined = sorted(used - defined - allowed)
+    assert not undefined, f"classes used but never styled: {undefined}"

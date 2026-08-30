@@ -156,6 +156,12 @@ hr.divider {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Tabular output (aligned columns) must not wrap — scroll it instead. */
+.terminal-body pre.tabular {
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
 .t-prompt { color: #7ec8e3; }
 .t-cmd { color: #ffffff; font-weight: 500; }
 .t-comment { color: #666; }
@@ -532,7 +538,15 @@ hr.divider {
   height: 52px;
 }
 .nav-brand { font-size: 16px; font-weight: 800; letter-spacing: -0.5px; color: var(--ink); }
-.nav-links { display: flex; gap: 24px; }
+.nav-links {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-link { white-space: nowrap; }
 .nav-link { font-size: 13px; color: var(--ink3); font-weight: 500; }
 .nav-link:hover { color: var(--ink); }
 .nav-pill {
@@ -565,6 +579,11 @@ hr.divider {
   .types-grid { grid-template-columns: 1fr; }
   .output-files { grid-template-columns: 1fr; }
   .principle { grid-template-columns: 1fr; gap: 4px; }
+
+  /* The nav ran off the side on a phone: eight links at a fixed 24px gap in a
+     375px viewport. Scroll them within the bar rather than widening the page. */
+  .nav-inner { min-width: 0; }
+  .nav-links { gap: 18px; }
 }
 </style>
 
@@ -714,27 +733,285 @@ hr.divider {
   <div class="container">
     <div class="section-label">Write one yourself</div>
     <h2 class="section-title">The demos are finished. A dataset is not.</h2>
-    <p class="section-sub">Every eval in the demos is already written, which makes them a poor place to learn to write one. A dataset ships the artifacts and leaves the evals to you.</p>
+    <p class="section-sub">Every eval in the demos is already written, which makes them a poor place to learn to write one. A dataset ships the artifacts — a prompt, source documents, and outputs as though a generator had just written them — and leaves the evals to you.</p>
 
-    <p class="section-sub" style="margin-top:12px;"><strong><a href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">Read the walkthrough →</a></strong> Fifteen minutes, no API key: install, read the artifacts, run the evals that ship with them, write one yourself, and watch it catch a defect the others miss. Every command and every block of output in it is real.</p>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">Terminal</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset list</span>
+<span class="t-out">Bundled datasets:
+  expense-report — A dataset to write evals against.
+  support-agent — A dataset of agent traces to write evals against.</span>
 
-    <div class="code-window" style="margin-top:28px;">
-      <div class="cw-bar"><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-title">terminal</span></div>
-<pre class="cw-body"><span class="cc">$</span> fieldtest dataset use expense-report
-<span class="cc">$</span> fieldtest score --set full          <span class="cc"># no API key needed</span>
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset use expense-report</span>
+<span class="t-out">Copied 'expense-report' to evals/
+  evals/README.md   what is in it and what to write
+  evals/config.yaml your evals — three are TODO</span>
 
-<span class="cy">RIGHT</span>  75% (9/12)   <span class="cy">GOOD</span> 89% (8/9)   <span class="cy">SAFE</span> 89% (8/9)
-
-october-trip run 3: line items sum to $897.70, output states $912.70
-june-trip run 2: R-1190 (alcohol) reimbursed $47.00</pre>
+<span class="t-green">Run it now (no API key needed):  fieldtest score --set full</span></pre>
+      </div>
     </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">What the assistant was given</h3>
+    <p class="section-sub">Three inputs, named on the fixture with <code>file:</code> so the judge receives the documents rather than their paths.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/PROMPT.md</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="t-out">You are an expense assistant for Meridian Corp.
+
+You will be given the company travel policy and a CSV of receipts for one trip.
+
+Produce a reimbursement summary containing, in this order:
+
+1. A table with one row per receipt: receipt ID, date, category, claimed
+   amount, and reimbursable amount.
+2. A short section listing every amount that was reduced or excluded, naming
+   the policy section that required it.
+3. A final line in exactly this form:
+
+   Total reimbursable: $N.NN
+
+Use only the receipts you are given. Do not invent receipts, merchants, or
+amounts.</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/sources/travel-policy.md — excerpt</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="t-bold t-out">## 4.1 Daily limits</span>
+
+<span class="t-out">- <span class="t-yellow">Meals</span> are reimbursed up to <span class="t-yellow">$75 per day</span>. Amounts above the cap are the
+  employee's responsibility; the rest of the receipt is still reimbursed.
+- <span class="t-yellow">Lodging</span> is reimbursed up to <span class="t-yellow">$250 per night</span>, excluding taxes and fees.
+- Ground transport (taxi, rideshare, rail, parking) has no daily cap.</span>
+
+<span class="t-bold t-out">## 4.3 Exclusions</span>
+
+<span class="t-out">Never reimbursable, regardless of amount or approval:
+  <span class="t-red">Alcohol</span> · In-room entertainment · Fines and citations · Personal items</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/sources/receipts-october.csv</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-dim">receipt_id,date,category,merchant,amount</span>
+<span class="t-out">R-1041,2026-10-03,airfare,United Airlines,412.60
+R-1042,2026-10-03,ground,Uber,38.20
+<span class="t-red">R-1043,2026-10-03,lodging,Hyatt Regency,268.00</span>   <span class="t-comment">← over the $250 cap</span>
+R-1044,2026-10-04,meals,Blue Fig Cafe,52.75
+<span class="t-red">R-1045,2026-10-04,meals,Harbor Grill,91.40</span>    <span class="t-comment">← over the $75 cap</span>
+R-1046,2026-10-05,ground,Uber,41.15</span>
+
+<span class="t-comment">claimed $904.10 · correctly reimbursable $869.70</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/fixtures/october-trip.yaml</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cy">id:</span> <span class="cs">october-trip</span>
+<span class="cy">description:</span> <span class="cs">Reimbursement summary for Dana Okafor</span>
+
+<span class="cy">inputs:</span>
+  <span class="cy">prompt:</span>   <span class="cs">"file:PROMPT.md"</span>
+  <span class="cy">policy:</span>   <span class="cs">"file:sources/travel-policy.md"</span>
+  <span class="cy">receipts:</span> <span class="cs">"file:sources/receipts-october.csv"</span>
+  <span class="cy">employee:</span> <span class="cs">"Dana Okafor"</span>
+
+<span class="cy">labels:</span>                          <span class="cc"># your verdicts, per run</span>
+  <span class="cy">total_matches_line_items:</span>
+    <span class="cy">1:</span> <span class="cv">pass</span>
+    <span class="cy">2:</span> <span class="cv">pass</span>      <span class="cc"># consistent, and still wrong about the cap</span>
+    <span class="cy">3:</span> <span class="cv">fail</span></pre>
+      </div>
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">What it produced</h3>
+    <p class="section-sub">Two runs for the same trip. The second reimburses R-1045 at <strong>$91.40</strong> against a $75 cap — and its total adds up perfectly against its own column, so no arithmetic check catches it.</p>
+
+    <div class="types-grid">
+      <div class="terminal" style="margin:0;">
+        <div class="terminal-bar">
+          <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+          <span class="terminal-label">run-1.txt — clean</span>
+        </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-dim">receipt  category   claimed  reimb.</span>
+<span class="t-out">R-1041   airfare    412.60   412.60
+R-1042   ground      38.20    38.20
+R-1043   lodging    268.00   <span class="t-green">250.00</span>
+R-1044   meals       52.75    52.75
+R-1045   meals       91.40    <span class="t-green">75.00</span>
+R-1046   ground      41.15    41.15
+
+### Reductions
+- R-1043 reduced $18.00 (policy 4.1)
+- R-1045 reduced $16.40 (policy 4.1)
+
+Total reimbursable: <span class="t-green">$869.70</span></span></pre>
+        </div>
+      </div>
+
+      <div class="terminal" style="margin:0;">
+        <div class="terminal-bar">
+          <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+          <span class="terminal-label">run-2.txt — meal cap missed</span>
+        </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-dim">receipt  category   claimed  reimb.</span>
+<span class="t-out">R-1041   airfare    412.60   412.60
+R-1042   ground      38.20    38.20
+R-1043   lodging    268.00   250.00
+R-1044   meals       52.75    52.75
+R-1045   meals       91.40   <span class="t-red">  91.40</span>
+R-1046   ground      41.15    41.15
+
+### Reductions
+- R-1043 reduced $18.00 (policy 4.1)
+
+
+Total reimbursable: <span class="t-red">$886.10</span></span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:20px;">
+      <strong>$886.10 is arithmetically correct.</strong> Catching this one means reading the policy, not adding up — which is the difference between a rule and a judge, and the eval the dataset leaves for you to write.
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">The evals that ship</h3>
+    <p class="section-sub">Three written, three <code>TODO</code>. Every written one is deterministic, so the first run works before you have a key.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/config.yaml — abridged</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cc"># ---- RIGHT — is it correct? ----</span>
+<span class="cy">- id:</span> <span class="cs">total_matches_line_items</span>
+  <span class="cy">tag:</span> <span class="ct">right</span>
+  <span class="cy">type:</span> <span class="cv">rule</span>
+  <span class="cy">description:</span> <span class="cs">the stated total equals the sum of the reimbursable column</span>
+
+<span class="cy">- id:</span> <span class="cs">golden_summary</span>
+  <span class="cy">tag:</span> <span class="ct">right</span>
+  <span class="cy">type:</span> <span class="cv">reference</span>
+
+<span class="t-red"># TODO one of the outputs cites a receipt that exists in no source file.</span>
+<span class="cc">#      rules.py has the sketch. Uncomment and finish.</span>
+
+<span class="cc"># ---- GOOD — is it well-formed? ----</span>
+<span class="cy">- id:</span> <span class="cs">no_unfilled_placeholders</span>
+  <span class="cy">tag:</span> <span class="ct">good</span>
+  <span class="cy">type:</span> <span class="cv">regex</span>
+  <span class="cy">pattern:</span> <span class="cs">'\$?\[[A-Z_]+\]'</span>
+  <span class="cy">match:</span> <span class="cv">false</span>
+
+<span class="t-red"># TODO one output gives numbers and no reductions section. Is that a</span>
+<span class="cc">#      `right` failure or a `good` one? Decide, then write it.</span>
+
+<span class="cc"># ---- SAFE — what must never happen? ----</span>
+<span class="cy">- id:</span> <span class="cs">excluded_categories_not_reimbursed</span>
+  <span class="cy">tag:</span> <span class="ct">safe</span>
+  <span class="cy">type:</span> <span class="cv">rule</span>
+
+<span class="t-red"># TODO one output reimburses above a policy cap. The sum is internally</span>
+<span class="cc">#      consistent, so a rule that only adds up will not catch it.</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/rules.py</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cc">@rule(<span class="cs">"total_matches_line_items"</span>)</span>
+<span class="t-out">def total_matches_line_items(output: str, inputs: dict) -&gt; dict:
+    <span class="cs">"""
+    The stated total must equal the sum of the reimbursable column.
+
+    This is the eval an LLM judge is worst at and a rule is best at. A judge
+    reading a plausible-looking table tends to accept the total printed under
+    it; addition either works or it does not.
+    """</span>
+    rows = ROW.findall(output)
+    stated = TOTAL.search(output)
+    line_sum = sum(_money(amount) for _, amount in rows)
+    claimed  = _money(stated.group(<span class="cv">1</span>))
+    ok = abs(line_sum - claimed) &lt; <span class="cv">0.005</span>
+    return {
+        <span class="cs">"passed"</span>: ok,
+        <span class="cs">"detail"</span>: <span class="cs">f"line items sum to ${line_sum:.2f}, output states ${claimed:.2f}"</span>,
+    }</span></pre>
+      </div>
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">The run</h3>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">$ fieldtest score --set full</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-bold t-out"># Eval Report</span>
+<span class="t-dim">2026-08-29 21:36 | set: full | 3 fixtures × 3 runs = 9 evaluations per eval</span>
+
+<span class="t-bold t-out">### Tag Health</span>
+<span class="t-out">| tag   | pass rate | passed / total |
+| <span class="t-yellow">RIGHT</span> | 75%       | 9 / 12         |
+| <span class="t-yellow">GOOD</span>  | 89%       | 8 / 9          |
+| <span class="t-yellow">SAFE</span>  | 89%       | 8 / 9          |</span>
+
+<span class="t-bold t-out">### Judge vs Human Labels</span>
+<span class="t-out">| eval                               | labeled runs | agreement |
+| golden_summary                     | 3            | <span class="t-green">100.0%</span>    |
+| total_matches_line_items           | 9            | <span class="t-green">100.0%</span>    |
+| no_unfilled_placeholders           | 9            | <span class="t-green">100.0%</span>    |
+| excluded_categories_not_reimbursed | 9            | <span class="t-green">100.0%</span>    |</span>
+
+<span class="t-bold t-out">### Failure Details</span>
+
+<span class="t-out"><span class="t-bold">excluded_categories_not_reimbursed</span>
+- `june-trip` run 2: <span class="t-red">R-1190 (alcohol) reimbursed $47.00</span>
+
+<span class="t-bold">golden_summary</span>
+- `march-trip` run 2: <span class="t-red">missing: Total reimbursable: $98.30</span>
+
+<span class="t-bold">no_unfilled_placeholders</span>
+- `march-trip` run 2: <span class="t-red">pattern '\$?\[[A-Z_]+\]' found</span>
+
+<span class="t-bold">total_matches_line_items</span>
+- `march-trip` run 2: <span class="t-red">no 'Total reimbursable: $N.NN' line</span>
+- `october-trip` run 3: <span class="t-red">line items sum to $897.70, output states $912.70</span></span></pre>
+      </div>
+    </div>
+
+    <p class="section-sub" style="margin-top:20px;">Five failures across three of the nine outputs. Three faulty outputs go unflagged — those are the three <code>TODO</code> evals, and two of them need a judge.</p>
 
     <div class="output-files" style="margin-top:28px;">
       <div class="of-card">
         <div class="of-icon">📄</div>
         <div class="of-body">
           <div class="of-name">Artifacts, not answers</div>
-          <div class="of-desc">A prompt, a travel policy, receipt files, and nine outputs as though a generator had just written them. Six carry a deliberate fault; three are clean. The prompt is a fixture input, so <em>did it do what was asked</em> is an eval you can write. A second dataset, <code>support-agent</code>, ships nine JSON agent traces — tool calls, tool results, and the message the agent sent.</div>
+          <div class="of-desc">Six of the nine outputs carry a deliberate fault; three are clean. The prompt is a fixture input, so <em>did it do what was asked</em> is an eval you can write. A second dataset, <code>support-agent</code>, ships nine JSON agent traces — tool calls, tool results, and the message the agent sent.</div>
         </div>
       </div>
       <div class="of-card">
@@ -748,17 +1025,19 @@ june-trip run 2: R-1190 (alcohol) reimbursed $47.00</pre>
         <div class="of-icon">✍️</div>
         <div class="of-body">
           <div class="of-name">You write the missing one</div>
-          <div class="of-desc">Three evals are left as <code>TODO</code>, each naming the question it has to answer. One output cites a receipt that exists in no source file, and nothing that ships catches it. Write eight lines of Python, re-run, and the report says <code>october-trip run 3: cites R-1049, which is in no source receipt</code>. The <a href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">walkthrough</a> does exactly that, start to finish.</div>
+          <div class="of-desc">One output cites receipt <code>R-1049</code>, which exists in no source file, and nothing that ships catches it on its own. Write eight lines of Python, re-run, and the report says <code>october-trip run 3: cites R-1049, which is in no source receipt</code>.</div>
         </div>
       </div>
       <div class="of-card">
         <div class="of-icon">🗝️</div>
         <div class="of-body">
           <div class="of-name">An answer key that is wrong on purpose</div>
-          <div class="of-desc"><code>reference-evals.yaml</code> covers all five judge types. Its <code>caps_applied</code> eval says in writing to judge two daily caps and ignore everything else, and the judge still flags unrelated defects. Human labels ship alongside, so the report scores the judge: 100% agreement on the rule evals, 66.7% on that one.</div>
+          <div class="of-desc"><code>reference-evals.yaml</code> covers all five judge types. Its <code>caps_applied</code> eval says in writing to judge two daily caps and ignore everything else, and the judge still flags unrelated defects. Human labels ship alongside, so the report scores the judge: 100% agreement on every rule and regex eval, 66.7% on that one.</div>
         </div>
       </div>
     </div>
+
+    <p class="section-sub" style="margin-top:24px;"><strong><a href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">Read the full walkthrough →</a></strong> The same path end to end, including writing the missing eval and watching it fire.</p>
   </div>
 </section>
 
@@ -1135,9 +1414,13 @@ june-trip run 2: R-1190 (alcohol) reimbursed $47.00</pre>
       </div>
     </div>
 
-    <div class="code-window" style="margin-top:28px;">
-      <div class="cw-bar"><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-title">evals/config.yaml</span></div>
-<pre class="cw-body"><span class="cy">defaults:</span>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/config.yaml</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cy">defaults:</span>
   <span class="cy">judge_temperature:</span> <span class="cs">0.0</span>          <span class="cc"># the instrument, held still</span>
   <span class="cy">confidence:</span> <span class="cs">0.95</span>               <span class="cc"># interval on every binary rate</span>
 
@@ -1151,6 +1434,7 @@ june-trip run 2: R-1190 (alcohol) reimbursed $47.00</pre>
     - { <span class="cy">provider:</span> <span class="cs">anthropic</span>, <span class="cy">model:</span> <span class="cs">claude-haiku-4-5</span> }
     - { <span class="cy">provider:</span> <span class="cs">openai</span>, <span class="cy">model:</span> <span class="cs">gpt-5</span> }
     - { <span class="cy">provider:</span> <span class="cs">openai_compatible</span>, <span class="cy">model:</span> <span class="cs">meta-llama/llama-3.3-70b-instruct</span> }</pre>
+      </div>
     </div>
   </div>
 </section>
