@@ -1286,3 +1286,75 @@ def test_the_website_mentions_every_command_and_config_key():
         if field not in site
     ]
     assert not missing_keys, f"config keys the website never names: {missing_keys}"
+
+
+def test_the_website_command_list_is_the_real_help_output():
+    """
+    The site reproduces `fieldtest --help` verbatim. Adding the `help` command
+    made it stale immediately; compare rather than trust.
+    """
+    import re
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    real = CliRunner().invoke(main, ["--help"], catch_exceptions=False).output
+    real_block = real[real.index("Commands:"):].strip()
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    start = site.index("Commands:", site.index('id="commands"'))
+    shown = re.sub(r"<[^>]+>", "", site[start:site.index("</pre>", start)]).strip()
+
+    assert shown == real_block, (
+        "docs/index.html no longer matches `fieldtest --help`:\n"
+        f"--- real ---\n{real_block}\n--- site ---\n{shown}"
+    )
+
+
+@pytest.mark.parametrize("args", [
+    ["calibrate", "--help"],
+    ["--help", "calibrate"],
+    ["help", "calibrate"],
+])
+def test_all_three_help_forms_show_the_same_command(args):
+    """
+    `fieldtest --help calibrate` printed the general help and dropped the
+    command name silently — an answer to a question nobody asked. All three
+    forms people actually type now reach the same place.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(main, args, catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "calibrate [OPTIONS]" in result.output
+    assert "--dry-run" in result.output
+
+
+@pytest.mark.parametrize("args", [["--help", "nope"], ["help", "nope"]])
+def test_an_unknown_name_in_a_help_form_exits_nonzero(args):
+    """Naming what exists beats printing the general help and hoping."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(main, args, catch_exceptions=False)
+    assert result.exit_code == 2
+    assert "No such command 'nope'" in result.output
+    assert "calibrate" in result.output
+
+
+def test_plain_help_still_lists_the_commands():
+    """The change must not break the ordinary form."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    for args in (["--help"], ["help"]):
+        result = CliRunner().invoke(main, args, catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "Commands:" in result.output
+        assert "calibrate" in result.output

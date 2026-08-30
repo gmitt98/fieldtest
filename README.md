@@ -941,6 +941,17 @@ When a judge is erroring (API failure, malformed response), `--concurrency 1` sh
 
 ---
 
+### `fieldtest help`
+
+```bash
+fieldtest help              # the command list
+fieldtest help calibrate    # one command's options
+fieldtest calibrate --help  # the same thing
+fieldtest --help calibrate  # also the same thing
+```
+
+All three forms for a single command are equivalent. `fieldtest --help calibrate` used to print the general help and drop the command name without saying so, which is worse than an error because it looks like an answer. An unrecognised name now exits 2 and lists what exists.
+
 ### `fieldtest calibrate`
 
 Score the same outputs with several judges and report how much they agree.

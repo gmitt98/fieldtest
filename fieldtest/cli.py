@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import sys
+
 import click
 
 from fieldtest.cli_common import (
@@ -26,10 +28,58 @@ from fieldtest.cli_reports import diff, history
 
 
 
-@click.group()
+class _HelpFriendlyGroup(click.Group):
+    """
+    Accepts the two help forms people type out of habit.
+
+    `fieldtest --help calibrate` printed the top-level help and dropped the
+    command name without saying so — the worst kind of wrong answer, because it
+    looks like an answer. git accepts that form, so people type it.
+    """
+
+    def parse_args(self, ctx, args):
+        if "--help" in args:
+            rest = [a for a in args if a != "--help"]
+            if len(rest) == 1:
+                if rest[0] in self.commands:
+                    args = [rest[0], "--help"]
+                else:
+                    # Same reasoning: printing the general help here would
+                    # answer a question the user did not ask.
+                    known = ", ".join(sorted(c for c in self.commands if c != "help"))
+                    click.echo(
+                        f"No such command '{rest[0]}'. Available: {known}", err=True
+                    )
+                    ctx.exit(2)
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=_HelpFriendlyGroup)
 def main():
     """fieldtest — structured AI eval practice for any project."""
     pass
+
+
+@main.command("help")
+@click.argument("command", required=False)
+@click.pass_context
+def help_cmd(ctx, command: Optional[str]):
+    """Show help for a command: fieldtest help calibrate"""
+    if command is None:
+        click.echo(main.get_help(ctx.parent or ctx))
+        return
+    cmd = main.commands.get(command)
+    if cmd is None:
+        known = ", ".join(sorted(c for c in main.commands if c != "help"))
+        click.echo(f"No such command '{command}'. Available: {known}", err=True)
+        sys.exit(2)
+    # parent=None: with this command's context as the parent, click prefixes
+    # the usage line with "fieldtest help [COMMAND]". The program name comes
+    # from the actual invocation rather than a hardcoded "fieldtest", so the
+    # usage line stays true under an alias or `python -m`.
+    prog = ctx.find_root().info_name or "fieldtest"
+    with click.Context(cmd, info_name=f"{prog} {command}") as sub:
+        click.echo(cmd.get_help(sub))
 
 
 
