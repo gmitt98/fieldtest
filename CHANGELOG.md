@@ -280,6 +280,23 @@ scoped in writing to judge two daily caps, and the judge still fails outputs for
 unrelated defects. The fixtures carry human labels, so the report says so — 100%
 judge/human agreement on every deterministic eval, 66.7% on that one.
 
+### The HTML report shows the judge too
+
+The markdown report has named the judge since the start of this release, and
+carried judge-repeatability and judge-vs-label tables alongside it. The HTML
+report — the one `fieldtest view` opens — showed none of them, while embedding
+every figure in its own data.
+
+It now carries a judge line in the header:
+
+```
+Judge: anthropic/claude-haiku-4-5 · temp 0.0 · judged 3× each · 4f10569a
+```
+
+plus a **Judge vs your labels** table wherever fixtures carry labels, and a
+**Judge repeatability** table wherever `judge_runs > 1`. Agreement below 80% is
+marked. Neither appears when there is nothing to report.
+
 ### Fixture inputs can name a file
 
 ```yaml
@@ -321,7 +338,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 456, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 460, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

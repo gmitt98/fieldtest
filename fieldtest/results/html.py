@@ -29,6 +29,8 @@ def _build_html(run_data: dict, config) -> str:
     rows          = run_data.get("rows", [])
     summary       = run_data.get("summary", {})
     delta         = run_data.get("delta", {})
+    judge         = run_data.get("judge") or {}
+    judge_runs    = run_data.get("judge_runs", 1)
 
     # Judge errors shrink the sample instead of failing the run — say so up top.
     from fieldtest.results.aggregator import summarize_judge_errors
@@ -100,6 +102,20 @@ def _build_html(run_data: dict, config) -> str:
         }
 
     # Build delta section HTML
+    judge_meta = ""
+    if judge:
+        temp = judge.get("temperature")
+        bits = [f"{judge.get('provider', '?')}/{judge.get('model', '?')}"]
+        if temp is not None:
+            bits.append(f"temp {temp}")
+        if judge_runs > 1:
+            bits.append(f"judged {judge_runs}× each")
+        if judge.get("fingerprint"):
+            bits.append(judge["fingerprint"])
+        judge_meta = (
+            '<div class="meta">Judge: <span>' + " · ".join(bits) + "</span></div>"
+        )
+
     delta_html = _build_delta_html(delta)
 
     # Build use_case sections HTML
@@ -206,6 +222,13 @@ def _build_html(run_data: dict, config) -> str:
     color: #fff;
     border-color: #1a1a1a;
   }}
+  .judge-block {{ margin-top: 24px; }}
+  .judge-block h3 {{
+    font-size: 14px; font-weight: 600; color: #1a1a1a;
+    margin-bottom: 8px; letter-spacing: -0.2px;
+  }}
+  .judge-note {{ font-size: 12px; color: #666; margin-top: 8px; }}
+  .judge-low {{ color: #c0392b; font-weight: 600; }}
   .matrix-wrap {{
     overflow-x: auto;
     padding: 0 0 4px 0;
@@ -296,6 +319,7 @@ def _build_html(run_data: dict, config) -> str:
   <div class="meta">Set: <span>{set_name}</span></div>
   <div class="meta">Fixtures: <span>{fixture_count}</span></div>
   <div class="meta">Runs/fixture: <span>{runs}</span></div>
+  {judge_meta}
 </div>
 
 {judge_error_banner}
@@ -581,6 +605,8 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
     </table>
   </div>"""
 
+    judge_tables_html = _build_judge_tables(uc_summary)
+
     return f"""
 <div class="uc-section" data-uc="{uc_id}">
   <div class="uc-header">
@@ -589,7 +615,82 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
   </div>
   {label_bar_html}
   {matrix_html}
+  {judge_tables_html}
 </div>"""
+
+
+def _esc_py(text) -> str:
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _build_judge_tables(uc_summary: dict) -> str:
+    """
+    Judge-vs-human agreement and judge repeatability, per eval.
+
+    The markdown report has carried both since specs 07 and 06. The HTML did
+    not, so the file `fieldtest view` opens said nothing about the judge that
+    produced its numbers — while embedding every figure needed to say it.
+    """
+    labelled, repeats = [], []
+    for tag_stats in uc_summary.values():
+        for eval_id, st in tag_stats.items():
+            if st.get("labeled_runs"):
+                labelled.append((eval_id, st))
+            if (st.get("judge_runs") or 1) > 1:
+                repeats.append((eval_id, st))
+
+    html = ""
+
+    if labelled:
+        rows = ""
+        for eval_id, st in sorted(labelled):
+            agreement = st.get("judge_agreement")
+            pct = "—" if agreement is None else "%.1f%%" % (agreement * 100)
+            cls = "judge-low" if (agreement is not None and agreement < 0.8) else ""
+            rows += (
+                "<tr><td>" + _esc_py(eval_id) + "</td>"
+                "<td>" + str(st.get("labeled_runs", 0)) + "</td>"
+                '<td class="' + cls + '">' + pct + "</td>"
+                "<td>" + str(st.get("judge_false_pass", 0)) + " false pass, "
+                + str(st.get("judge_false_fail", 0)) + " false fail</td></tr>"
+            )
+        html += (
+            '\n  <div class="judge-block">\n'
+            "    <h3>Judge vs your labels</h3>\n"
+            '    <div class="matrix-wrap"><table class="matrix">\n'
+            "      <thead><tr><th>eval</th><th>labelled runs</th>"
+            "<th>agreement</th><th>errors</th></tr></thead>\n"
+            "      <tbody>" + rows + "</tbody>\n"
+            "    </table></div>\n"
+            '    <p class="judge-note">A false pass is an output you failed and the judge '
+            "passed. On a <strong>safe</strong> eval that is the error that matters.</p>\n"
+            "  </div>"
+        )
+
+    if repeats:
+        rows = ""
+        for eval_id, st in sorted(repeats):
+            dis = st.get("judge_disagreement_rate")
+            rows += (
+                "<tr><td>" + _esc_py(eval_id) + "</td>"
+                "<td>" + str(st.get("judge_runs")) + "</td>"
+                "<td>" + ("—" if dis is None else "%.1f%%" % (dis * 100)) + "</td></tr>"
+            )
+        html += (
+            '\n  <div class="judge-block">\n'
+            "    <h3>Judge repeatability</h3>\n"
+            '    <div class="matrix-wrap"><table class="matrix">\n'
+            "      <thead><tr><th>eval</th><th>judge runs</th>"
+            "<th>judge disagreement</th></tr></thead>\n"
+            "      <tbody>" + rows + "</tbody>\n"
+            "    </table></div>\n"
+            '    <p class="judge-note">Disagreement near zero means the judge is repeatable. '
+            "A judge that contradicts itself on the same output has ambiguous criteria, not "
+            "a noisy system.</p>\n"
+            "  </div>"
+        )
+
+    return html
 
 
 def _build_delta_html(delta: dict) -> str:

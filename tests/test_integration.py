@@ -1536,3 +1536,61 @@ def test_a_rate_counts_outputs_not_judge_calls(tmp_path, monkeypatch):
     assert stats["total_runs"] == 3, "total_runs must count outputs"
     assert stats["judge_calls"] == 9, "judge_calls must count judge invocations"
     assert stats["failure_rate"] == round(2 / 3, 6)
+
+
+def _html_for(tmp_path, monkeypatch, *, judge_runs=1, labels=""):
+    """Score a project and return the generated HTML report."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3,
+                           judge_runs=judge_runs, labels=labels)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=config, config_path=config_path)
+
+    results = list((config_path.parent / "results").glob("*-report.html"))
+    assert results, "no HTML report written"
+    return results[0].read_text()
+
+
+def test_html_report_names_the_judge_that_produced_its_numbers(tmp_path, monkeypatch):
+    """
+    The markdown report has named the judge since spec 01. The HTML — the file
+    `fieldtest view` opens, and the one the site calls "everything in one file"
+    — did not, while embedding the whole judge block in its data.
+    """
+    html = _html_for(tmp_path, monkeypatch)
+    assert "Judge:" in html
+    assert "claude-haiku-4-5" in html
+    assert "temp 0.0" in html
+
+
+def test_html_report_shows_judge_repeatability(tmp_path, monkeypatch):
+    """judge_runs > 1 produced a markdown section and nothing in the HTML."""
+    html = _html_for(tmp_path, monkeypatch, judge_runs=3)
+    assert "Judge repeatability" in html
+    assert "judge disagreement" in html
+    assert "judged 3× each" in html
+
+
+def test_html_report_shows_agreement_with_your_labels(tmp_path, monkeypatch):
+    """Same for spec 07's labels: markdown had the table, HTML had nothing."""
+    html = _html_for(
+        tmp_path, monkeypatch,
+        labels="labels:\n  is_helpful:\n    1: pass\n    2: fail\n    3: pass\n",
+    )
+    assert "Judge vs your labels" in html
+    assert "false pass" in html
+    assert "labelled runs" in html
+
+
+def test_html_report_omits_the_judge_tables_when_there_is_nothing_to_say(tmp_path, monkeypatch):
+    """A run with one judge pass and no labels should not grow empty tables."""
+    html = _html_for(tmp_path, monkeypatch)
+    assert "Judge vs your labels" not in html
+    assert "Judge repeatability" not in html
