@@ -1249,3 +1249,40 @@ def test_every_command_option_is_documented():
                     if opt.startswith("--") and opt != "--help" and opt not in readme:
                         undocumented.append(f"{name} {sub_name} {opt}".replace(f"{name} {name} ", f"{name} "))
     assert not undocumented, f"options absent from the README: {undocumented}"
+
+
+def test_the_website_mentions_every_command_and_config_key():
+    """
+    The site is a landing page, not a reference — but a command or setting it
+    never names is one a reader has no way to discover.
+
+    It was missing `validate`, `diff` and `history`, and six config keys
+    including binary/scale/anchors — the shape of a scored eval, which the
+    hero claims as a headline feature ("scored as distributions").
+    """
+    from pathlib import Path
+
+    from fieldtest.cli import main
+    from fieldtest.config import (CalibrationConfig, Config, Defaults, Eval,
+                                  FixturesConfig, ProviderSettings, UseCase)
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+
+    missing_cmds = [
+        c for c in main.commands
+        if f"fieldtest {c}" not in site and f">{c}</span>" not in site
+    ]
+    assert not missing_cmds, f"commands the website never names: {missing_cmds}"
+
+    groups = {
+        "defaults": Defaults, "fixtures": FixturesConfig, "eval": Eval,
+        "calibration": CalibrationConfig, "providers": ProviderSettings,
+        "config": Config, "use_case": UseCase,
+    }
+    missing_keys = [
+        f"{group}.{field}"
+        for group, model in groups.items()
+        for field in model.model_fields
+        if field not in site
+    ]
+    assert not missing_keys, f"config keys the website never names: {missing_keys}"

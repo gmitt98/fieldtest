@@ -611,6 +611,7 @@ hr.divider {
     <div class="nav-brand">fieldtest</div>
     <div class="nav-links">
       <a class="nav-link" href="#quickstart">Quickstart</a>
+      <a class="nav-link" href="#commands">Commands</a>
       <a class="nav-link" href="#dataset">Dataset</a>
       <a class="nav-link" href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">Walkthrough</a>
       <a class="nav-link" href="#report">Report</a>
@@ -724,6 +725,52 @@ hr.divider {
     <div class="callout tip" style="margin-top: 24px;">
       <strong>Three examples available:</strong>
       <code>--example email</code> (customer support), <code>--example rag</code> (handbook Q&A), <code>--example extraction</code> (invoice JSON extraction). Each shows different eval patterns and a distinct set of failure modes.
+    </div>
+  </div>
+</section>
+
+<!-- ── Commands ── -->
+<section id="commands">
+  <div class="container">
+    <div class="section-label">Every command</div>
+    <h2 class="section-title">Ten commands, and you need three.</h2>
+    <p class="section-sub"><code>init</code> to scaffold, <code>score</code> to measure, <code>view</code> to read the report. The rest are there when you need them.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">$ fieldtest --help</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-out">Commands:
+  <span class="t-cmd">calibrate</span>  Run a panel of judges over the same outputs and report how...
+  <span class="t-cmd">clean</span>      Clean up accumulated run artifacts.
+  <span class="t-cmd">dataset</span>    Sample datasets to write evals against.
+  <span class="t-cmd">demo</span>       Two steps from install to a live eval report.
+  <span class="t-cmd">diff</span>       Compare two runs — default: most recent vs prior.
+  <span class="t-cmd">history</span>    List past result files, newest first.
+  <span class="t-cmd">init</span>       Scaffold evals/ directory structure in current project.
+  <span class="t-cmd">score</span>      Score outputs for a given fixture set.
+  <span class="t-cmd">validate</span>   Check config.yaml is valid.
+  <span class="t-cmd">view</span>       Open the HTML eval report in the default browser.</span></pre>
+      </div>
+    </div>
+
+    <div class="output-files" style="margin-top:24px;">
+      <div class="of-card">
+        <div class="of-icon">✅</div>
+        <div class="of-body">
+          <div class="of-name">validate before you spend</div>
+          <div class="of-desc"><code>fieldtest validate</code> checks the config, reports which providers it reaches and whether each credential is set, and projects the judge calls a full run will make. Cost is multiplicative — <code>runs × judge_runs × llm evals × fixtures</code> — so it is worth reading before the bill, not after.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">📉</div>
+        <div class="of-body">
+          <div class="of-name">history and diff</div>
+          <div class="of-desc">Every run writes a timestamped result set. <code>fieldtest history</code> lists them with their judge fingerprint; <code>fieldtest diff</code> compares two, defaulting to the most recent against the prior one. Runs judged by different models are not compared silently — the diff names what changed about the judge first.</div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -967,6 +1014,32 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
     }</span></pre>
       </div>
     </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">A scored eval, for comparison</h3>
+    <p class="section-sub">Not everything is a verdict. The answer key uses one of these for explanation quality — a 1–5 scale with <code>anchors</code> saying what each point means.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/reference-evals.yaml</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cy">- id:</span> <span class="cs">explanation_clarity</span>
+  <span class="cy">tag:</span> <span class="ct">good</span>
+  <span class="cy">type:</span> <span class="cv">llm</span>
+  <span class="cy">binary:</span> <span class="cv">false</span>                 <span class="cc"># a number, not a verdict</span>
+  <span class="cy">description:</span> <span class="cs">how clearly the reductions are explained</span>
+  <span class="cy">scale:</span> [<span class="cv">1</span>, <span class="cv">5</span>]
+  <span class="cy">anchors:</span>
+    <span class="cy">1:</span> <span class="cs">No explanation, or one that does not say why an amount changed.</span>
+    <span class="cy">3:</span> <span class="cs">States what was reduced and cites the policy, but the employee
+       would still have to reread the policy to understand the number.</span>
+    <span class="cy">5:</span> <span class="cs">States what was reduced, by how much, and why, so the employee
+       can check it without opening the policy.</span></pre>
+      </div>
+    </div>
+
+    <p class="section-sub">It reports as <code>3.1111/5</code> with a <code>stddev</code> and a count of floor hits, rather than a pass rate. Two outputs scored 1 and are named in the report so you can go read them.</p>
 
     <h3 style="margin:44px 0 8px;font-size:20px;">The run</h3>
 
@@ -1351,6 +1424,12 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="type-note">Most flexible. Per-eval model overrides supported — use Haiku for most, Sonnet for subtle judgments.</div>
       </div>
       <div class="type-card">
+        <div class="type-badge">llm · scored</div>
+        <div class="type-title">Scored LLM judge</div>
+        <div class="type-desc">Set <code>binary: false</code> and the judge returns a number on a <code>scale</code> instead of a verdict. <code>anchors</code> describe what each point means, so the scale measures the same thing run to run.</div>
+        <div class="type-note">Reported as mean and <code>stddev</code>, not a pass rate — the distribution is the answer. Any run at the bottom of the scale is flagged as a floor hit.</div>
+      </div>
+      <div class="type-card">
         <div class="type-badge">reference</div>
         <div class="type-title">Reference comparison</div>
         <div class="type-desc">Compares output against an <code>expected</code> block in the fixture. Checks <code>contains</code> (required strings) and <code>not_contains</code> (forbidden strings).</div>
@@ -1373,6 +1452,13 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="of-body">
           <div class="of-name">Pinned by default</div>
           <div class="of-desc">Judges run at temperature 0.0, not the provider default. Score the same outputs twice, get the same answer twice. If a model refuses the parameter, the run completes and the report header names it.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">👁️</div>
+        <div class="of-body">
+          <div class="of-name">The judge sees the question</div>
+          <div class="of-desc">Judges used to receive the output and nothing else, so a grounding eval asking whether every claim traces to the source was answering without the source. Fixture <code>inputs</code> now go to the judge alongside the output. Set <code>judge_sees_inputs: false</code> on an eval that should read the output alone, or to keep a large retrieved context out of every call.</div>
         </div>
       </div>
       <div class="of-card">
@@ -1407,7 +1493,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="of-icon">⚖️</div>
         <div class="of-body">
           <div class="of-name">fieldtest calibrate</div>
-          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first.</div>
+          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first, and <code>calibration.kappa_threshold</code> sets the point below which a judge pair is flagged as agreeing no better than chance.</div>
         </div>
       </div>
       <div class="of-card">
@@ -1427,6 +1513,9 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 <div class="terminal-body">
 <pre><span class="cy">defaults:</span>
   <span class="cy">judge_temperature:</span> <span class="cs">0.0</span>          <span class="cc"># the instrument, held still</span>
+  <span class="cy">judge_seed:</span> <span class="cs">null</span>                <span class="cc"># where the provider supports one</span>
+  <span class="cy">judge_retry:</span>                     <span class="cc"># 5/10/20/40/60/60s by default</span>
+    <span class="cy">max_attempts:</span> <span class="cs">6</span>
   <span class="cy">confidence_level:</span> <span class="cs">0.95</span>         <span class="cc"># Wilson interval width, not a model's self-report</span>
 
 <span class="cy">providers:</span>
