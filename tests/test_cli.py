@@ -1044,7 +1044,7 @@ def test_diff_explicit_baseline_missing_is_an_error(tmp_path):
 # Pre-release review findings
 # ---------------------------------------------------------------------------
 
-def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
+def test_scaffolded_project_uses_a_pinnable_judge(tmp_path, monkeypatch):
     """
     init handed every new project claude-sonnet-5, which rejects temperature —
     so a first run reported "judge parameters ignored by provider" and the judge
@@ -1053,10 +1053,10 @@ def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
     from fieldtest.config import parse_and_validate
 
     runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(main, ["init"], catch_exceptions=False)
-        assert result.exit_code == 0
-        cfg = parse_and_validate(Path("evals/config.yaml"))
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["init"], catch_exceptions=False)
+    assert result.exit_code == 0
+    cfg = parse_and_validate(tmp_path / "evals" / "config.yaml")
 
     # 5-series models removed sampling parameters; the scaffold must not pick one.
     assert "-5" not in cfg.defaults.model.rsplit("-", 1)[-1] or "haiku" in cfg.defaults.model
@@ -1064,7 +1064,7 @@ def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
 
 
 @pytest.mark.parametrize("template", ["chatbot", "email", "rag"])
-def test_templates_use_a_pinnable_judge(tmp_path, template):
+def test_templates_use_a_pinnable_judge(tmp_path, monkeypatch, template):
     """
     Read the YAML rather than validating it: templates ship blank tags on
     purpose, so a template config is deliberately incomplete until the user
@@ -1074,20 +1074,20 @@ def test_templates_use_a_pinnable_judge(tmp_path, template):
     import yaml
 
     runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(main, ["init", "--template", template], catch_exceptions=False)
-        raw = yaml.safe_load(Path("evals/config.yaml").read_text())
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(main, ["init", "--template", template], catch_exceptions=False)
+    raw = yaml.safe_load((tmp_path / "evals" / "config.yaml").read_text())
     assert raw["defaults"]["model"] == "claude-haiku-4-5"
 
 
-def test_validate_omits_a_zero_call_projection(tmp_path):
+def test_validate_omits_a_zero_call_projection(tmp_path, monkeypatch):
     """A dict whose only value is 0 is truthy — it printed "≈ 0 judge call(s)"."""
     runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(main, ["init"], catch_exceptions=False)
-        result = runner.invoke(
-            main, ["validate", "--config", "evals/config.yaml"], catch_exceptions=False
-        )
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(main, ["init"], catch_exceptions=False)
+    result = runner.invoke(
+        main, ["validate", "--config", "evals/config.yaml"], catch_exceptions=False
+    )
     assert "judge call(s)" not in result.output
 
 
@@ -1890,3 +1890,55 @@ def test_validate_counts_a_fixture_in_two_sets_once(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert "2 explicitly listed fixture(s)" in result.output
+
+
+def test_the_classifiers_cover_every_python_the_package_admits():
+    """
+    requires-python said >= 3.10 and the classifiers stopped at 3.12, while CI
+    ran only 3.14 — three different answers to which interpreters are supported.
+    """
+    import re
+    import sys
+    import tomllib
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text())
+    project = pyproject["project"]
+
+    floor = re.search(r">=\s*3\.(\d+)", project["requires-python"])
+    assert floor, f"cannot read requires-python: {project['requires-python']!r}"
+    lowest = int(floor.group(1))
+    highest = sys.version_info.minor
+
+    claimed = {
+        int(c.rsplit(".", 1)[1])
+        for c in project["classifiers"]
+        if c.startswith("Programming Language :: Python :: 3.")
+    }
+    expected = set(range(lowest, highest + 1))
+    assert claimed == expected, (
+        f"classifiers claim 3.{sorted(claimed)}, requires-python and the "
+        f"running interpreter imply 3.{sorted(expected)}"
+    )
+
+
+def test_ci_runs_every_python_the_package_claims_to_support():
+    """The matrix is the only thing that makes the classifiers true."""
+    import re
+    import tomllib
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    workflow = (root / ".github" / "workflows" / "test.yml").read_text()
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+
+    claimed = {
+        c.rsplit(" :: ", 1)[1]
+        for c in project["classifiers"]
+        if re.match(r"Programming Language :: Python :: 3\.\d+$", c)
+    }
+    block = re.search(r"python: \[([^\]]+)\]", workflow)
+    assert block, "the CI matrix no longer lists python versions"
+    tested = set(re.findall(r"3\.\d+", block.group(1)))
+
+    missing = claimed - tested
+    assert not missing, f"classifiers claim {sorted(missing)}, which CI never runs"
