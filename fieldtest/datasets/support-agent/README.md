@@ -59,8 +59,13 @@ traces for breaking the refund policy — real faults, none of them about whethe
 the message was true.
 
 Its `fail_criteria` says, in writing, to judge truthfulness only and to ignore
-policy, ordering, loops and amounts. Adding that paragraph moved it from 33% to
-56%. It did not fix it.
+policy, ordering, loops and amounts. Adding that paragraph moved its **pass
+rate** from 33% to 56% — from six failures to four, of which three are still
+out of scope. It did not fix it.
+
+That is a pass rate, not an agreement figure: this eval ships no labels, since
+the verdicts belong to the exercise. Uncomment the ones in the fixtures and the
+report will score it against them.
 
 The same thing happens in the `expense-report` dataset, to a differently-worded
 eval on different data. Written scope reduces the bleed; it does not remove it.

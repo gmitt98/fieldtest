@@ -274,11 +274,11 @@ results and the message the agent sent. fieldtest needs no new concept for this
 its six faults are deterministic, including a trace that tells the customer a
 case was escalated when the tool returned an error.
 
-Each ships a `reference-evals.yaml` answer key covering all five judge types. It is
-worth reading for its failures too: its `caps_applied` eval is scoped in
-writing to judge two daily caps, and the judge still fails outputs for
-unrelated defects. The fixtures carry human labels, so the report says so —
-100% judge/human agreement on the rule evals, 66.7% on that one.
+Each ships a `reference-evals.yaml` answer key covering all five judge types. They are
+worth reading for their failures too: `expense-report`'s `caps_applied` eval is
+scoped in writing to judge two daily caps, and the judge still fails outputs for
+unrelated defects. The fixtures carry human labels, so the report says so — 100%
+judge/human agreement on every deterministic eval, 66.7% on that one.
 
 ### Fixture inputs can name a file
 
@@ -321,7 +321,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 451, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 453, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

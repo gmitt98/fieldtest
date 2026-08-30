@@ -1383,3 +1383,72 @@ def test_a_module_that_raises_is_not_recorded_as_loaded(tmp_path):
         with pytest.raises(ConfigError) as exc:
             load_rules(rules)
         assert "boom" in str(exc.value)
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("expense-report", {"rule": 18, "regex": 9, "reference": 3}),
+    ("support-agent",  {"rule": 18, "regex": 9}),
+])
+def test_documented_label_agreement_is_what_the_data_says(name, expected, monkeypatch):
+    """
+    Both dataset READMEs quote how many labelled runs agree with the judge.
+    expense-report's said "the rule evals agree on all thirty" — the rule evals
+    account for 18 of those; the other 12 belong to a regex and a reference
+    eval. A count that spans three eval types cannot be attributed to one.
+    """
+    import shutil
+    import tempfile
+
+    import yaml
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    dest = Path(tempfile.mkdtemp()) / "evals"
+    shutil.copytree(_dataset_dir(name), dest,
+                    ignore=shutil.ignore_patterns("results", "__pycache__"))
+    _rule_registry.clear()
+    _loaded_rule_files.clear()
+
+    config_path = dest / "config.yaml"
+    config = parse_and_validate(config_path)
+    types = {ev.id: ev.type for uc in config.use_cases for ev in uc.evals}
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    truth = {}
+    for f in sorted((dest / "fixtures").glob("*.yaml")):
+        fixture = yaml.safe_load(f.read_text())
+        for eval_id, runs in (fixture.get("labels") or {}).items():
+            for run, verdict in runs.items():
+                truth[(fixture["id"], eval_id, run)] = verdict
+
+    counts, agree = {}, {}
+    for r in rows:
+        key = (r.fixture_id, r.eval_id, r.run)
+        if key not in truth or r.passed is None:
+            continue
+        t = types[r.eval_id]
+        counts[t] = counts.get(t, 0) + 1
+        agree[t] = agree.get(t, 0) + ((truth[key] == "pass") == r.passed)
+
+    assert counts == expected, f"{name}: labelled runs per eval type changed"
+    for t in counts:
+        assert agree[t] == counts[t], (
+            f"{name}: {t} evals disagree with the shipped labels "
+            f"({agree[t]}/{counts[t]}) — the READMEs claim 100%"
+        )
+
+    readme = (_dataset_dir(name) / "README.md").read_text()
+    total = sum(counts.values())
+    assert str(total) in readme or _spelled(total) in readme, (
+        f"{name}: README does not state its {total} labelled runs"
+    )
+
+
+def _spelled(n: int) -> str:
+    return {27: "twenty-seven", 30: "thirty"}.get(n, str(n))

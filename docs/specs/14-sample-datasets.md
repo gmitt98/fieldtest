@@ -146,6 +146,6 @@ an escalation the tool refused.
 
 It also replicated the finding from `expense-report`. `final_message_matches_the_trace` is scoped
 in its own `fail_criteria` to judge truthfulness and ignore policy, ordering and amounts; adding
-that paragraph moved it from 33% to 56% and left three of four failures out of scope. Two
+that paragraph moved its pass rate from 33% to 56% and left three of four failures out of scope. Two
 differently-worded evals, on different data, bleed the same way. That is the argument for human
 labels stated as a measurement rather than an opinion.

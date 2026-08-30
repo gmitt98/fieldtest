@@ -76,8 +76,9 @@ says it out loud:
 | caps_applied                       | 6            |  66.7%    | 0 false pass, 2 false fail |
 ```
 
-The rule evals agree with a human on all thirty labelled runs. The LLM eval,
-given explicit written scope, does not. That is not a flaw in this dataset — it
+The deterministic evals agree with a human on every one of their 30 labelled
+runs — 18 for the two rule evals, 9 for the regex, 3 for the reference. The LLM
+eval, given explicit written scope, does not. That is not a flaw in this dataset — it
 is the reason `fieldtest calibrate` and human labels exist, reproducible on
 nine files you can read in a minute.
 
