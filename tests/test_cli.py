@@ -1892,53 +1892,42 @@ def test_validate_counts_a_fixture_in_two_sets_once(tmp_path):
     assert "2 explicitly listed fixture(s)" in result.output
 
 
-def test_the_classifiers_cover_every_python_the_package_admits():
+def test_requires_python_the_classifiers_and_the_ci_matrix_agree():
     """
-    requires-python said >= 3.10 and the classifiers stopped at 3.12, while CI
-    ran only 3.14 — three different answers to which interpreters are supported.
+    Three files answered "which interpreters are supported" differently:
+    requires-python said >= 3.10, the classifiers stopped at 3.12, and CI ran
+    3.14 alone. Only the matrix makes any of it true, so all three are compared
+    against each other.
+
+    Read with a regex rather than tomllib, which does not exist on 3.10 — the
+    oldest interpreter this very test is asserting support for.
     """
     import re
-    import sys
-    import tomllib
 
     root = Path(fieldtest.__file__).resolve().parent.parent
-    pyproject = tomllib.loads((root / "pyproject.toml").read_text())
-    project = pyproject["project"]
-
-    floor = re.search(r">=\s*3\.(\d+)", project["requires-python"])
-    assert floor, f"cannot read requires-python: {project['requires-python']!r}"
-    lowest = int(floor.group(1))
-    highest = sys.version_info.minor
-
-    claimed = {
-        int(c.rsplit(".", 1)[1])
-        for c in project["classifiers"]
-        if c.startswith("Programming Language :: Python :: 3.")
-    }
-    expected = set(range(lowest, highest + 1))
-    assert claimed == expected, (
-        f"classifiers claim 3.{sorted(claimed)}, requires-python and the "
-        f"running interpreter imply 3.{sorted(expected)}"
-    )
-
-
-def test_ci_runs_every_python_the_package_claims_to_support():
-    """The matrix is the only thing that makes the classifiers true."""
-    import re
-    import tomllib
-
-    root = Path(fieldtest.__file__).resolve().parent.parent
+    pyproject = (root / "pyproject.toml").read_text()
     workflow = (root / ".github" / "workflows" / "test.yml").read_text()
-    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
 
-    claimed = {
-        c.rsplit(" :: ", 1)[1]
-        for c in project["classifiers"]
-        if re.match(r"Programming Language :: Python :: 3\.\d+$", c)
-    }
+    floor = re.search(r'requires-python\s*=\s*"[^"]*>=\s*3\.(\d+)', pyproject)
+    assert floor, "cannot read requires-python from pyproject.toml"
+    lowest = int(floor.group(1))
+
+    claimed = sorted(
+        int(m) for m in
+        re.findall(r'"Programming Language :: Python :: 3\.(\d+)"', pyproject)
+    )
+    assert claimed, "pyproject lists no Python version classifiers"
+
     block = re.search(r"python: \[([^\]]+)\]", workflow)
     assert block, "the CI matrix no longer lists python versions"
-    tested = set(re.findall(r"3\.\d+", block.group(1)))
+    tested = sorted(int(m) for m in re.findall(r"3\.(\d+)", block.group(1)))
 
-    missing = claimed - tested
-    assert not missing, f"classifiers claim {sorted(missing)}, which CI never runs"
+    assert claimed[0] == lowest, (
+        f"requires-python admits 3.{lowest}, the classifiers start at 3.{claimed[0]}"
+    )
+    assert claimed == list(range(claimed[0], claimed[-1] + 1)), (
+        f"the classifiers skip a version: {claimed}"
+    )
+    assert claimed == tested, (
+        f"classifiers claim {claimed}, CI runs {tested}"
+    )
