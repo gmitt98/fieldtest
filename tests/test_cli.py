@@ -1567,3 +1567,24 @@ def test_documented_commands_parse():
                     f"{argv[0]} takes {max_args}"
                 )
     assert not bad, "documented commands the CLI would reject:\n  " + "\n  ".join(bad)
+
+
+def test_version_flag_reports_the_packaged_version():
+    """
+    There was no way to ask which version was installed. A QA plan step said to
+    run `fieldtest --version` before anything else; the command did not exist.
+
+    Reads installed metadata rather than pyproject, so it reports what is
+    actually importable — an editable install with stale metadata will say so,
+    which is the truth worth telling.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(main, ["--version"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "fieldtest, version" in result.output
+
+    from importlib.metadata import version
+    assert version("fieldtest") in result.output

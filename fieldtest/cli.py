@@ -54,7 +54,18 @@ class _HelpFriendlyGroup(click.Group):
         return super().parse_args(ctx, args)
 
 
+def _version() -> str:
+    """Installed version, or a marker when running from an uninstalled tree."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("fieldtest")
+    except PackageNotFoundError:      # running from a source checkout
+        return "unknown (not installed)"
+
+
 @click.group(cls=_HelpFriendlyGroup)
+@click.version_option(version=_version(), prog_name="fieldtest")
 def main():
     """fieldtest — structured AI eval practice for any project."""
     pass

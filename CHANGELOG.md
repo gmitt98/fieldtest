@@ -328,6 +328,7 @@ a literal string.
   `confidence_level`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
 - New: `fieldtest dataset list` / `fieldtest dataset use <name>`
+- New: `fieldtest --version`
 - New: `fieldtest help [COMMAND]`; `fieldtest --help <command>` now shows that
   command's help instead of the general help
 - `fieldtest calibrate` accepts `--set` as well as the positional set name, matching `score`
@@ -345,7 +346,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 470, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 471, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 
