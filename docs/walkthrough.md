@@ -51,6 +51,7 @@ It copies rather than links, because you are going to edit it.
 
 ```
 evals/
+  README.md                      what is in it, and what is left to write
   PROMPT.md                      the prompt that produced the outputs
   sources/travel-policy.md       what the assistant was told the rules are
   sources/receipts-october.csv   the data it was given
@@ -143,7 +144,8 @@ No API key needed: the four evals in the shipped config are `rule`, `regex` and
 - `october-trip` run 3: line items sum to $897.70, output states $912.70
 ```
 
-Four evals, four faults found. Two faults remain that none of them catch.
+Four evals, five failures, across three of the nine outputs. The other three
+faulty outputs went unflagged — nothing that ships catches them.
 
 ## 5. Find the gap
 
@@ -279,12 +281,13 @@ those are not the same mistake.
 
 ## 9. What is left
 
-Two TODOs remain in `config.yaml`, and both need an LLM judge:
+Two TODOs remain in `config.yaml`. Between them they cover the three unflagged
+outputs, and both need an LLM judge:
 
-- One output reimburses a $91.40 meal against a $75 cap. Its arithmetic is
-  internally consistent, so no sum-checking rule will catch it.
-- One output gives correct numbers and omits the section the prompt asked for
-  by name.
+- `october-trip/run-2` reimburses a $91.40 meal against a $75 cap. Its
+  arithmetic is internally consistent, so no sum-checking rule will catch it.
+- `march-trip/run-3` and `june-trip/run-3` give correct numbers and omit the
+  section the prompt asked for by name.
 
 Write those and you will need a key:
 

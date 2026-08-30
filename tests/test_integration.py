@@ -1144,3 +1144,47 @@ def test_walkthrough_quotes_the_real_receipt_ids():
     assert ids == ["R-1041", "R-1042", "R-1043", "R-1044", "R-1045", "R-1046"]
     assert "R-1049" not in csv_text
     assert ", ".join(ids).replace(", ", ",") in _walkthrough().replace(" ", "")
+
+
+def test_walkthrough_fault_counts_are_arithmetic_not_prose(tmp_path, monkeypatch):
+    """
+    The doc says the shipped evals flag three of nine outputs and leave three
+    faulty ones unflagged. I first wrote "two", from memory rather than from a
+    run. Counted here so the sentence cannot drift from the dataset.
+    """
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    doc = _walkthrough()
+
+    flagged = {(r.fixture_id, r.run) for r in rows if r.passed is False}
+    faulty = {("october-trip", 2), ("october-trip", 3), ("march-trip", 2),
+              ("march-trip", 3), ("june-trip", 2), ("june-trip", 3)}
+
+    assert len(flagged) == 3, flagged
+    assert len(faulty - flagged) == 3, faulty - flagged
+    assert sum(1 for r in rows if r.passed is False) == 5
+
+    assert "five failures, across three of the nine outputs" in doc
+    assert "The other three\nfaulty outputs went unflagged" in doc
+
+    # The three the doc names as needing a judge are exactly the unflagged ones.
+    for fixture, run in sorted(faulty - flagged):
+        assert f"{fixture}/run-{run}" in doc, f"{fixture}/run-{run} not named in step 9"
+
+
+def test_walkthrough_file_tree_lists_what_dataset_use_copies(tmp_path):
+    """
+    Step 2 tells the reader to open evals/README.md; step 3's listing omitted
+    it. A tree that quietly disagrees with the directory is worse than none.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    dest = tmp_path / "evals"
+    CliRunner().invoke(main, ["dataset", "use", "expense-report", "--dest", str(dest)],
+                       catch_exceptions=False)
+    doc = _walkthrough()
+    tree = doc[doc.index("evals/\n"):doc.index("**A fixture**")]
+
+    for entry in sorted(p.name for p in dest.iterdir()):
+        assert entry in tree, f"{entry} is copied but missing from the walkthrough tree"
