@@ -455,6 +455,8 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "baseline_pre_judge":  False,
         "baseline_judge_runs": None,
         "baseline_error_share": 0.0,
+        "baseline_fixture_count": None,
+        "sample_changed": [],
     }
 
     if baseline_path is None or not baseline_path.exists():
@@ -490,6 +492,17 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         for evals in tags.values()
         for st in evals.values()
     )
+    # A set can be redefined between runs. Comparing a rate over 14 fixtures
+    # against one over 11 is not like-for-like even though both runs are
+    # nominally the same set, and the deltas read as a change in the system.
+    baseline_fixture_count = baseline_data.get("fixture_count")
+
+    # fixture_count counts what is on disk and does not move when a set is
+    # redefined. Per-eval n does: one project's `full` went from 14 fixtures to
+    # 11 while fixture_count stayed 14, and every rate moved for that reason
+    # alone. Collected per eval and reported once.
+    sample_changed: list[str] = []
+
     baseline_error_share = (
         baseline_errors / (baseline_errors + baseline_scored)
         if (baseline_errors + baseline_scored) else 0.0
@@ -507,6 +520,10 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                 prev_stats = prev_evals.get(eval_id)
                 if prev_stats is None:
                     continue  # new eval — not in baseline
+
+                cur_n, prev_n = stats.get("total_runs"), prev_stats.get("total_runs")
+                if cur_n and prev_n and cur_n != prev_n:
+                    sample_changed.append(f"{eval_id} {prev_n}→{cur_n}")
 
                 # Determine which metric to compare
                 is_scored = stats.get("mean") is not None
@@ -549,6 +566,8 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "baseline_pre_judge": baseline_pre_judge,
         "baseline_judge_runs": baseline_judge_runs,
         "baseline_error_share": round(baseline_error_share, 4),
+        "baseline_fixture_count": baseline_fixture_count,
+        "sample_changed": sorted(set(sample_changed)),
     }
 
 

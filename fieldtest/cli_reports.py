@@ -240,6 +240,15 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # A baseline that lost most of its judge calls is a rate over whatever
     # survived. Comparing against it is not like-for-like, and `diff` is where
     # someone reads these numbers most closely.
+    changed = delta.get("sample_changed") or []
+    if base_run_id and changed:
+        shown = ", ".join(changed[:4]) + (" …" if len(changed) > 4 else "")
+        click.echo(
+            f"⚠ {len(changed)} eval(s) scored a different number of outputs than "
+            f"the baseline ({shown}) — these deltas include a change of population."
+        )
+        click.echo("")
+
     share = delta.get("baseline_error_share") or 0.0
     if base_run_id and share >= 0.1:
         click.echo(

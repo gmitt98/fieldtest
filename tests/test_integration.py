@@ -1785,3 +1785,56 @@ def test_generic_remediation_survives_for_an_unrecognised_error(tmp_path, monkey
 
     md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
     assert "check your API key" in md
+
+
+def test_header_does_not_claim_a_per_eval_count_across_use_cases(tmp_path, monkeypatch):
+    """
+    fixture_count is the total across use cases. Multiplying it by runs claims
+    a per-eval figure only true for a single use case: a real project with 11
+    resume fixtures and 3 cover-letter ones was told "42 scored output(s) per
+    eval" when no eval had more than 33.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=RULE_EVAL, runs=2,
+                           fixtures=("fix1", "fix2"), with_rules=True)
+    # A second use case with its own single fixture.
+    text = config_path.read_text().replace(
+        "        full: [fix1, fix2]\n",
+        "        full: [fix1, fix2]\n"
+        "  - id: uc2\n"
+        "    description: d2\n"
+        "    evals:\n" + RULE_EVAL.replace("has_hello", "has_hello2") +
+        "    fixtures:\n      directory: fixtures/\n      sets:\n        full: [fix3]\n",
+    )
+    config_path.write_text(text)
+    (config_path.parent / "fixtures" / "fix3.yaml").write_text("id: fix3\ninputs:\n  q: x\n")
+    out = config_path.parent / "outputs" / "fix3"
+    out.mkdir(parents=True, exist_ok=True)
+    for n in (1, 2):
+        (out / f"run-{n}.txt").write_text("hello from fix3")
+    (config_path.parent / "rules.py").write_text(
+        "from fieldtest import rule\n"
+        "@rule('has_hello')\n"
+        "def a(output, inputs): return {'passed': True, 'detail': 'x'}\n"
+        "@rule('has_hello2')\n"
+        "def b(output, inputs): return {'passed': True, 'detail': 'x'}\n"
+    )
+
+    config = parse_and_validate(config_path)
+    run_id, rows = score(config=config, config_path=config_path,
+                         write_artifacts=False)
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    header = md.splitlines()[1]
+
+    # 3 fixtures total, but uc1 evals cover 2 and uc2 covers 1.
+    assert "3 fixture(s) across 2 use cases" in header
+    assert "6 scored output(s) per eval" not in header, (
+        "header multiplied total fixtures by runs across use cases"
+    )

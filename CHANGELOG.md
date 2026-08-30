@@ -336,6 +336,12 @@ a literal string.
   not another — `--set <name>` fails for the use case that lacks it, and nothing
   said so before the command was spent
 - `fieldtest history` says how many older result files it could not read
+- The report header no longer claims a per-eval output count across use cases —
+  it multiplied total fixtures by runs, so a project with 11 resume and 3
+  cover-letter fixtures was told "42 scored output(s) per eval" when no eval
+  had more than 33
+- Evals whose sample size differs from the baseline are named, so a redefined
+  fixture set is not read as a change in the system
 - A baseline that lost judge calls to errors is flagged in both the report and
   `fieldtest diff` — its rates cover only what survived, so the deltas are not
   like-for-like
@@ -359,7 +365,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 482, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 485, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

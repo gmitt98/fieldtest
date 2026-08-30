@@ -192,12 +192,16 @@ def format_report(
     # judge_runs: 3 a run makes three judge calls per output while the header
     # read "3 evaluations per eval" — a third of what the bill showed.
     # `runs` are generator outputs; `judge_runs` are repeat verdicts on each.
-    scored = f"{fixture_count * runs} scored output(s) per eval"
+    # fixture_count is the total across use cases. Multiplying it by runs
+    # claims a per-eval figure that is only true when there is one use case:
+    # a project with 11 resume fixtures and 3 cover-letter ones reported
+    # "42 scored output(s) per eval" when no eval had more than 33.
+    if len(config.use_cases) > 1:
+        scored = f"{fixture_count} fixture(s) across {len(config.use_cases)} use cases"
+    else:
+        scored = f"{fixture_count * runs} scored output(s) per eval"
     if header_judge_runs > 1:
-        scored = (
-            f"{fixture_count * runs} scored output(s) per eval, "
-            f"judged {header_judge_runs}× each"
-        )
+        scored += f", judged {header_judge_runs}× each"
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -239,6 +243,15 @@ def format_report(
 
     # Deltas against a baseline written before judge tracking are still shown —
     # blanking them out on upgrade is worse — but the caveat travels with them.
+    changed = delta.get("sample_changed") or []
+    if delta.get("baseline_run_id") and changed:
+        shown = ", ".join(changed[:4]) + (" …" if len(changed) > 4 else "")
+        lines.append(
+            f"⚠ {len(changed)} eval(s) scored a different number of outputs than "
+            f"the baseline ({shown}) — the deltas include a change of population, "
+            f"not only a change in the system"
+        )
+
     share = delta.get("baseline_error_share") or 0.0
     if delta.get("baseline_run_id") and share >= 0.1:
         lines.append(

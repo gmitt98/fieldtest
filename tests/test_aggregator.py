@@ -1157,3 +1157,48 @@ def test_no_baseline_reports_no_error_share():
     from fieldtest.results.aggregator import build_delta
 
     assert build_delta({}, None)["baseline_error_share"] == 0.0
+
+
+def test_delta_records_the_baseline_fixture_count(tmp_path):
+    """
+    A set can be redefined between runs. Comparing a rate over 14 fixtures
+    against one over 11 is not like-for-like, and the deltas read as a change in
+    the system rather than a change of population.
+    """
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1,
+        "fixture_count": 14,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 42, "error_count": 0}}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 33}}}}, baseline
+    )
+    assert delta["baseline_fixture_count"] == 14
+    assert build_delta({}, None)["baseline_fixture_count"] is None
+
+    # fixture_count alone is not enough: it counts what is on disk and does not
+    # move when a *set* is redefined. The per-eval n does.
+    assert delta["sample_changed"] == ["ev1 42→33"]
+
+
+def test_an_unchanged_sample_reports_nothing(tmp_path):
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1, "fixture_count": 11,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 33, "error_count": 0}}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 33}}}}, baseline
+    )
+    assert delta["sample_changed"] == []
