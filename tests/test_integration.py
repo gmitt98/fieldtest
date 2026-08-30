@@ -1244,3 +1244,41 @@ def test_site_uses_no_unstyled_class_names():
     allowed = {"red", "yellow", "green"}
     undefined = sorted(used - defined - allowed)
     assert not undefined, f"classes used but never styled: {undefined}"
+
+
+def test_docs_quote_the_real_prompt():
+    """
+    The site and the walkthrough both reproduce PROMPT.md. Editing the prompt
+    left both quoting a version that no longer existed — the prompt is an input
+    the judge reads, so a stale copy misdescribes what the evals are scoring.
+
+    Abridgement is fine; invention is not. Every non-empty line quoted must
+    appear in the real file.
+    """
+    root = Path(__file__).resolve().parent.parent
+    prompt = (_dataset_dir("expense-report") / "PROMPT.md").read_text()
+    prompt_lines = {ln.strip() for ln in prompt.splitlines() if ln.strip()}
+
+    quoting = [
+        doc for doc in ("docs/walkthrough.md", "docs/index.html")
+        if "You are an expense assistant" in (root / doc).read_text()
+    ]
+    assert quoting, "no doc reproduces PROMPT.md — did the site section move?"
+
+    for doc in quoting:
+        text = (root / doc).read_text()
+        import re
+
+        start = text.index("You are an expense assistant for Meridian Corp.")
+        # To the end of the enclosing block, whichever syntax the doc uses.
+        ends = [e for e in (text.find("</pre>", start), text.find("```", start)) if e != -1]
+        block = text[start:min(ends)]
+        quoted = [
+            re.sub(r"<[^>]+>", "", ln).strip()
+            for ln in block.splitlines() if ln.strip()
+        ]
+        missing = [ln for ln in quoted if ln and ln not in prompt_lines]
+        assert not missing, f"{doc} quotes lines not in PROMPT.md: {missing}"
+
+    # And the requirement the caps_applied eval depends on is actually stated.
+    assert "Apply the limits and exclusions in the policy" in prompt
