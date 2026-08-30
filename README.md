@@ -455,7 +455,7 @@ Use `--template` to start from a pre-filled config based on one of the demo exam
 ```bash
 fieldtest init --template email       # support email response config
 fieldtest init --template rag         # RAG / Q&A config
-fieldtest init --template extraction  # structured extraction config
+fieldtest init --template chatbot     # conversational assistant config
 ```
 
 Templates include all required sections with realistic evals already written. Swap in your system prompt and fixtures.
@@ -1063,7 +1063,7 @@ Scaffold the eval directory structure in your project. Safe to run in an existin
 fieldtest init                          # creates evals/ in current directory
 fieldtest init --template email         # pre-filled email support template
 fieldtest init --template rag           # pre-filled RAG / Q&A template
-fieldtest init --template extraction    # pre-filled structured extraction template
+fieldtest init --template chatbot       # pre-filled conversational assistant template
 fieldtest init --dir ci/evals           # custom location
 fieldtest init --force                  # overwrite existing files
 ```

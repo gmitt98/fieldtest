@@ -63,7 +63,7 @@ print('All RIGHT evals within threshold.')
 
 ## What the report shows
 
-CI runs produce the same four output files as local runs. Upload the `results/` directory as a build artifact for review. The HTML report is self-contained — reviewers can open it directly from the artifact.
+CI runs produce the same five output files as local runs. Upload the `results/` directory as a build artifact for review. The HTML report is self-contained — reviewers can open it directly from the artifact.
 
 ## Gate on the interval, not the point estimate
 

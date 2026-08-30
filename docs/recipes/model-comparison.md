@@ -39,7 +39,7 @@ fieldtest score --set full
 # Delta section automatically compares to the previous run
 
 # Compare directly
-fieldtest diff 2026-04-01T10-00-00-a1b2 2026-04-01T10-05-00-c3d4
+fieldtest diff 2026-04-01T10-05-00-c3d4 --baseline 2026-04-01T10-00-00-a1b2
 ```
 
 ## What the report shows

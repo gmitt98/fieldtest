@@ -1478,3 +1478,92 @@ def test_the_site_does_not_claim_the_optimize_skill_ships_in_the_package():
     )
     assert "ships with a built-in" not in site
     assert "not part of the pip package" in site
+
+
+def test_documented_template_names_are_real_choices():
+    """
+    README documented `fieldtest init --template extraction` twice. There is no
+    extraction template — extraction is a *demo example*. The documented command
+    exits 2.
+    """
+    import re
+    from pathlib import Path
+
+    from fieldtest.templates import AVAILABLE_TEMPLATES
+
+    root = Path(__file__).resolve().parent.parent
+    for doc in ("README.md", "docs/index.html"):
+        named = set(re.findall(r"--template ([a-z]+)", (root / doc).read_text()))
+        unknown = sorted(named - set(AVAILABLE_TEMPLATES))
+        assert not unknown, f"{doc} documents templates that do not exist: {unknown}"
+
+
+def test_documented_commands_parse():
+    """
+    A recipe documented `fieldtest diff RUN1 RUN2`, which the CLI has never
+    accepted — diff takes one RUN_ID plus --baseline. Every fieldtest command
+    line in the docs is parsed against click without executing it.
+    """
+    import shlex
+    from pathlib import Path
+
+    import click
+
+    from fieldtest.cli import main
+
+    root = Path(__file__).resolve().parent.parent
+    docs = ["README.md", "docs/walkthrough.md"] + [
+        str(p.relative_to(root)) for p in (root / "docs" / "recipes").glob("*.md")
+    ]
+
+    bad = []
+    for doc in docs:
+        in_block = False
+        for raw in (root / doc).read_text().splitlines():
+            if raw.strip().startswith("```"):
+                in_block = not in_block
+                continue
+            if not in_block:
+                continue          # prose starting "fieldtest …" is not a command
+            line = raw.strip().lstrip("$ ").strip()
+            if not line.startswith("fieldtest "):
+                continue
+            line = line.split("#")[0].strip()
+            try:
+                argv = shlex.split(line)[1:]
+            except ValueError:
+                continue
+            if not argv or argv[0].startswith("-"):
+                continue
+            cmd = main.commands.get(argv[0])
+            if cmd is None:
+                bad.append(f"{doc}: unknown command in {line!r}")
+                continue
+            if isinstance(cmd, click.Group):
+                continue
+            # Count positional arguments the command accepts.
+            max_args = sum(
+                1 for p in cmd.params if isinstance(p, click.Argument)
+            )
+            # Drop values that belong to preceding options.
+            cleaned, skip = [], False
+            for i, tok in enumerate(argv[1:]):
+                if skip:
+                    skip = False
+                    continue
+                if tok.startswith("--"):
+                    param = next((p for p in cmd.params if tok in p.opts), None)
+                    if tok == "--help":
+                        continue
+                    if param is not None and not getattr(param, "is_flag", False):
+                        skip = True
+                    elif param is None:
+                        bad.append(f"{doc}: unknown option {tok} in {line!r}")
+                    continue
+                cleaned.append(tok)
+            if len(cleaned) > max_args:
+                bad.append(
+                    f"{doc}: {line!r} passes {len(cleaned)} positionals, "
+                    f"{argv[0]} takes {max_args}"
+                )
+    assert not bad, "documented commands the CLI would reject:\n  " + "\n  ".join(bad)

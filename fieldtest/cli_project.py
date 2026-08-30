@@ -171,9 +171,12 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
 
 @click.command("view")
 @click.argument("run_id", required=False, default=None)
-@click.option("--config", "config_path", default="evals/config.yaml", show_default=True,
-              help="Path to config.yaml (used to locate results dir)")
-def view_cmd(run_id: Optional[str], config_path: str):
+# default=None so this goes through _default_config_path(), which falls back to
+# ./config.yaml when the caller is inside evals/. Hardcoding the default here
+# meant `score` worked from that directory and `view` did not.
+@click.option("--config", "config_path", default=None, type=click.Path(),
+              help="Path to config.yaml (default: evals/config.yaml)")
+def view_cmd(run_id: Optional[str], config_path: Optional[str]):
     """Open the HTML eval report in the default browser."""
     import webbrowser
 
