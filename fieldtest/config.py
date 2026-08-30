@@ -341,7 +341,12 @@ def parse_and_validate(config_path: Path) -> Config:
     except FileNotFoundError:
         raise ConfigError(
             f"Config not found: {config_path}\n"
-            f"  Run 'fieldtest init' to scaffold a new project, or\n"
+            + (
+                f"  There is a config.yaml in {Path.cwd().name}/ — run from the\n"
+                f"  parent directory, or use --config config.yaml\n"
+                if Path("config.yaml").is_file() else ""
+            )
+            + f"  Run 'fieldtest init' to scaffold a new project, or\n"
             f"  use --config to specify a different path."
         )
     except Exception as e:

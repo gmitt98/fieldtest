@@ -42,7 +42,19 @@ def _load_config(config_path: Path):
 
 
 def _default_config_path() -> Path:
-    return Path("evals/config.yaml")
+    """
+    evals/config.yaml, or ./config.yaml when the caller is already inside the
+    evals directory.
+
+    Reading the fixtures and outputs means cd-ing into evals/, and the docs send
+    people there. Running `fieldtest score` from that directory then failed with
+    "Config not found: evals/config.yaml" while config.yaml sat in the working
+    directory.
+    """
+    default = Path("evals/config.yaml")
+    if not default.is_file() and Path("config.yaml").is_file():
+        return Path("config.yaml")
+    return default
 
 
 # Environment variable each built-in provider reads. openai_compatible names

@@ -1164,3 +1164,44 @@ def test_validate_reports_a_registered_provider(tmp_path):
     )
     result = _run_validate(evals_dir)
     assert "registered in evals/providers.py" in result.output
+
+
+def test_score_finds_the_config_when_run_from_inside_evals(tmp_path, monkeypatch):
+    """
+    Reading the fixtures and outputs means cd-ing into evals/, and the docs send
+    people there. Running score from that directory failed with "Config not
+    found: evals/config.yaml" while config.yaml sat right there.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+
+    monkeypatch.chdir(evals_dir)
+    result = CliRunner().invoke(main, ["score", "--set", "full"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+
+def test_evals_config_still_wins_from_the_project_root(tmp_path, monkeypatch):
+    """The fallback must not shadow the normal layout."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    # A decoy in the project root; evals/config.yaml must still be used.
+    (tmp_path / "config.yaml").write_text("not: a valid fieldtest config\n")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["score", "--set", "full"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+
+def test_config_not_found_error_says_you_may_be_inside_evals(tmp_path, monkeypatch):
+    """When neither path resolves, the message should name the likely cause."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import ConfigError
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("schema_version: 1\n")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(Path("evals/config.yaml"))
+    assert "run from the" in str(exc.value)
+    assert "--config config.yaml" in str(exc.value)
