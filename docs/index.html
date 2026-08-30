@@ -593,6 +593,7 @@ hr.divider {
     <div class="nav-links">
       <a class="nav-link" href="#quickstart">Quickstart</a>
       <a class="nav-link" href="#dataset">Dataset</a>
+      <a class="nav-link" href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">Walkthrough</a>
       <a class="nav-link" href="#report">Report</a>
       <a class="nav-link" href="#concepts">Concepts</a>
       <a class="nav-link" href="#judge">Judge</a>
@@ -715,6 +716,8 @@ hr.divider {
     <h2 class="section-title">The demos are finished. A dataset is not.</h2>
     <p class="section-sub">Every eval in the demos is already written, which makes them a poor place to learn to write one. A dataset ships the artifacts and leaves the evals to you.</p>
 
+    <p class="section-sub" style="margin-top:12px;"><strong><a href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">Read the walkthrough →</a></strong> Fifteen minutes, no API key: install, read the artifacts, run the evals that ship with them, write one yourself, and watch it catch a defect the others miss. Every command and every block of output in it is real.</p>
+
     <div class="code-window" style="margin-top:28px;">
       <div class="cw-bar"><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-title">terminal</span></div>
 <pre class="cw-body"><span class="cc">$</span> fieldtest dataset use expense-report
@@ -739,6 +742,13 @@ june-trip run 2: R-1190 (alcohol) reimbursed $47.00</pre>
         <div class="of-body">
           <div class="of-name">Runs before you have a key</div>
           <div class="of-desc">The filled-in evals are <code>rule</code>, <code>regex</code> and <code>reference</code> — all deterministic. Two planted faults are catchable by arithmetic alone. Reach for an LLM judge when the question needs judgment, not when it needs addition.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">✍️</div>
+        <div class="of-body">
+          <div class="of-name">You write the missing one</div>
+          <div class="of-desc">Three evals are left as <code>TODO</code>, each naming the question it has to answer. One output cites a receipt that exists in no source file, and nothing that ships catches it. Write eight lines of Python, re-run, and the report says <code>october-trip run 3: cites R-1049, which is in no source receipt</code>. The <a href="https://github.com/gmitt98/fieldtest/blob/master/docs/walkthrough.md">walkthrough</a> does exactly that, start to finish.</div>
         </div>
       </div>
       <div class="of-card">

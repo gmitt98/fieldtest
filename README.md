@@ -35,6 +35,10 @@ That's it. You just ran a structured eval suite with four eval types (rule, rege
 
 ## Write your first eval against a bundled dataset
 
+**→ [Full walkthrough](docs/walkthrough.md)** — fifteen minutes, no API key:
+install, read the artifacts, run the evals that ship with them, write one
+yourself, watch it catch a defect the others miss.
+
 The demos show you a finished eval suite. A dataset gives you the artifacts and
 leaves the evals to you.
 

@@ -1033,3 +1033,114 @@ def test_uncommenting_the_answer_key_labels_keeps_the_others(name):
             f"{path.name}: uncommenting dropped {set(before) - set(after)}"
         )
         assert len(after) > len(before), f"{path.name}: uncommenting added nothing"
+
+
+# ---------------------------------------------------------------------------
+# The walkthrough (docs/walkthrough.md)
+#
+# It claims every command and every block of output in it is real. That claim
+# rots the first time a message changes, so it is executed rather than trusted:
+# the rule the doc tells a reader to paste is extracted from the doc itself and
+# run, and the figures it quotes are asserted against a real run.
+# ---------------------------------------------------------------------------
+
+def _walkthrough() -> str:
+    return (Path(__file__).resolve().parent.parent / "docs" / "walkthrough.md").read_text()
+
+
+def _score_dataset_copy(tmp_path, monkeypatch, mutate=None):
+    """Copy expense-report, optionally edit it, score it offline."""
+    import shutil
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    dest = tmp_path / "evals"
+    shutil.copytree(_dataset_dir("expense-report"), dest,
+                    ignore=shutil.ignore_patterns("results", "__pycache__"))
+    if mutate:
+        mutate(dest)
+
+    # A fresh registry: rules.py here is a different file with the same name.
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
+    _rule_registry.clear()
+    _loaded_rule_files.clear()
+
+    config_path = dest / "config.yaml"
+    return score(config=parse_and_validate(config_path), config_path=config_path,
+                 set_name="full", write_artifacts=False)[1]
+
+
+def test_walkthrough_step_4_output_is_what_the_command_prints(tmp_path, monkeypatch):
+    """The failure lines quoted in step 4, asserted against a real run."""
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    doc = _walkthrough()
+
+    failures = {(r.fixture_id, r.run, r.eval_id): r.detail
+                for r in rows if r.passed is False}
+
+    assert ("june-trip", 2, "excluded_categories_not_reimbursed") in failures
+    assert ("october-trip", 3, "total_matches_line_items") in failures
+    # The quoted details must appear verbatim in the doc.
+    assert "R-1190 (alcohol) reimbursed $47.00" in doc
+    assert failures[("june-trip", 2, "excluded_categories_not_reimbursed")] == \
+        "R-1190 (alcohol) reimbursed $47.00"
+    assert "line items sum to $897.70, output states $912.70" in doc
+    assert failures[("october-trip", 3, "total_matches_line_items")] == \
+        "line items sum to $897.70, output states $912.70"
+
+    # 9/12 RIGHT, quoted in the Tag Health table.
+    right = [r for r in rows if r.tag == "right" and r.passed is not None]
+    assert (sum(1 for r in right if r.passed), len(right)) == (9, 12)
+    assert "| RIGHT | 75% | 9 / 12 |" in doc
+
+
+def test_walkthrough_step_6_rule_is_runnable_and_catches_r1049(tmp_path, monkeypatch):
+    """
+    The rule the doc tells a reader to paste, extracted from the doc and run.
+    If the snippet stops working, this fails rather than the reader.
+    """
+    import re
+
+    doc = _walkthrough()
+    match = re.search(r"```python\n(@rule\(\"no_invented_receipts\"\).*?)```", doc, re.S)
+    assert match, "the walkthrough no longer contains the rule it tells you to write"
+    snippet = match.group(1)
+
+    def mutate(dest: Path):
+        (dest / "rules.py").write_text((dest / "rules.py").read_text() + "\n\n" + snippet)
+        cfg = dest / "config.yaml"
+        yaml_block = re.search(
+            r"```yaml\n(      - id: no_invented_receipts\n.*?)```", doc, re.S
+        )
+        assert yaml_block, "the walkthrough no longer contains the config block"
+        s = cfg.read_text()
+        todo = "      # TODO one of the outputs cites a receipt that exists in no source file."
+        assert todo in s, "the TODO the walkthrough quotes is gone from config.yaml"
+        cfg.write_text(s.replace(todo, yaml_block.group(1).rstrip() + "\n\n" + todo, 1))
+
+    rows = _score_dataset_copy(tmp_path, monkeypatch, mutate)
+
+    new = [r for r in rows if r.eval_id == "no_invented_receipts"]
+    assert len(new) == 9, "the eval did not run on every output"
+    failed = [r for r in new if r.passed is False]
+    assert [(r.fixture_id, r.run) for r in failed] == [("october-trip", 3)]
+    assert failed[0].detail == "cites R-1049, which is in no source receipt"
+    assert "cites R-1049, which is in no source receipt" in doc
+
+    # 17/21 RIGHT after adding it, quoted in step 7.
+    right = [r for r in rows if r.tag == "right" and r.passed is not None]
+    assert (sum(1 for r in right if r.passed), len(right)) == (17, 21)
+    assert "| RIGHT | 81% | 17 / 21 |" in doc
+
+
+def test_walkthrough_quotes_the_real_receipt_ids():
+    """Step 5's argument rests on R-1049 being absent from the source."""
+    csv_text = (_dataset_dir("expense-report") / "sources" / "receipts-october.csv").read_text()
+    ids = [ln.split(",")[0] for ln in csv_text.splitlines()[1:] if ln.strip()]
+    assert ids == ["R-1041", "R-1042", "R-1043", "R-1044", "R-1045", "R-1046"]
+    assert "R-1049" not in csv_text
+    assert ", ".join(ids).replace(", ", ",") in _walkthrough().replace(" ", "")
