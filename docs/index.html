@@ -1506,6 +1506,27 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       </div>
     </div>
 
+    <h3 style="margin:44px 0 8px;font-size:20px;">Judging the same output twice</h3>
+    <p class="section-sub">Every sample above judges each output once. Set <code>judge_runs</code> above 1 and the report separates two things a single <code>stddev</code> cannot tell apart.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">$ fieldtest score --config reference-evals.yaml --set full</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-bold t-out">### Judge Repeatability (judge_runs: 2)</span>
+<span class="t-out">| eval                        | judge disagreement | system spread | judge spread |
+| follows_requested_structure | <span class="t-green">0.0%</span>               | —             | —            |
+| explanation_clarity         | —                  | <span class="t-yellow">1.633</span>         | <span class="t-green">0.0</span>          |
+| caps_applied                | <span class="t-green">0.0%</span>               | —             | —            |</span></pre>
+      </div>
+    </div>
+
+    <p class="section-sub">The middle row is the whole argument. <code>explanation_clarity</code> is a scored eval, and its two numbers say the outputs genuinely differ from one another (<strong>system spread 1.633</strong>) while the judge scores each one identically every time (<strong>judge spread 0.0</strong>). Without the repetition you get one <code>stddev</code> and no way to tell which of those produced it.</p>
+
+    <p class="section-sub">Judge spread climbing toward system spread is the signal to rewrite the <code>pass_criteria</code>: the judge is disagreeing with itself, which is a fact about the words, not about your system. Binary evals report disagreement instead — the share of outputs where repeated verdicts differed. It costs <code>runs × judge_runs</code> judge calls, so <code>--dry-run</code> first.</p>
+
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>

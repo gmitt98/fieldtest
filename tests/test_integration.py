@@ -1641,3 +1641,90 @@ def test_repeatability_lists_only_evals_a_judge_actually_repeated(tmp_path, monk
     html = _build_judge_tables(summary["uc1"])
     assert "is_helpful" in html
     assert "has_hello" not in html
+
+
+def test_every_artifact_carries_the_judge_repetition_data(tmp_path, monkeypatch):
+    """
+    judge_runs must be visible in all four things a run writes, not just the
+    markdown. The HTML table shipped with only the disagreement column, so a
+    scored eval — where the two spreads are the entire point — rendered as an
+    empty row.
+    """
+    import csv
+    import json
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    scored_eval = (
+        "      - id: clarity\n"
+        "        tag: good\n"
+        "        type: llm\n"
+        "        binary: false\n"
+        "        description: how clear it is\n"
+        "        scale: [1, 5]\n"
+        "        anchors:\n"
+        "          1: unclear\n"
+        "          5: clear\n"
+    )
+    # Only the scored eval: RecordingAdapter serves its score queue to every
+    # call, so a binary eval alongside it would eat the scores.
+    config_path = _project(tmp_path, evals_yaml=scored_eval, runs=3, judge_runs=2)
+    config = parse_and_validate(config_path)
+    class _ByOutput(ProviderAdapter):
+        """
+        Scores from the output's own text, so repetitions of one output always
+        agree and different outputs do not. A scripted queue cannot do this:
+        the judge calls run in a thread pool, so queue order does not map to
+        (output, repetition).
+        """
+
+        def call(self, model, prompt, gen, retry):
+            run = next(n for n in ("1", "2", "3") if f"run {n}" in prompt)
+            return {"score": {"1": 1, "2": 3, "3": 5}[run], "reasoning": "by output"}
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=_ByOutput()):
+        score(config=config, config_path=config_path)
+
+    results = config_path.parent / "results"
+    data = json.loads(next(results.glob("*-data.json")).read_text())
+    rows = list(csv.DictReader(next(results.glob("*-data.csv")).read_text().splitlines()))
+    md = next(results.glob("*-report.md")).read_text()
+    html = next(results.glob("*-report.html")).read_text()
+
+    stats = {
+        eid: st
+        for uc in data["summary"].values()
+        for tag in uc.values()
+        for eid, st in tag.items()
+    }
+    # JSON: the decomposition itself.
+    assert stats["clarity"]["judge_runs"] == 2
+    assert stats["clarity"]["system_stddev"] > 0, "outputs differ, so system spread must"
+    assert stats["clarity"]["judge_stddev"] == 0.0, "the judge repeated itself exactly"
+
+    # CSV: one row per repetition.
+    assert sorted({r["judge_run"] for r in rows}) == ["1", "2"]
+
+    # Both reports: the columns that carry the comparison.
+    #
+    # The HTML embeds the whole result set as JSON, so searching the file finds
+    # every number whether or not it is displayed. This assertion passed with
+    # the table cells deleted until the data blob was stripped first — the same
+    # trap that made the missing judge sections invisible to grep.
+    import re
+
+    rendered = re.sub(r"const RUN_DATA = .*?;\n", "", html, flags=re.S)
+    assert "RUN_DATA = {" not in rendered, "the data blob was not stripped"
+    for artifact, name in ((md, "markdown"), (rendered, "html")):
+        assert "system spread" in artifact, f"{name} lacks the system spread column"
+        assert "judge spread" in artifact, f"{name} lacks the judge spread column"
+        assert str(stats["clarity"]["system_stddev"]) in artifact, (
+            f"{name} does not display the system spread value"
+        )
+        assert str(stats["clarity"]["judge_stddev"]) in artifact, (
+            f"{name} does not display the judge spread value"
+        )

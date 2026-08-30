@@ -671,22 +671,32 @@ def _build_judge_tables(uc_summary: dict) -> str:
         rows = ""
         for eval_id, st in sorted(repeats):
             dis = st.get("judge_disagreement_rate")
+            sys_sd, jdg_sd = st.get("system_stddev"), st.get("judge_stddev")
+            # A binary eval reports disagreement; a scored one reports the two
+            # spreads. Dropping the spread columns — which this table did —
+            # renders a scored eval as an empty row and loses the comparison
+            # that judge_runs exists to make.
             rows += (
                 "<tr><td>" + _esc_py(eval_id) + "</td>"
                 "<td>" + str(st.get("judge_runs")) + "</td>"
-                "<td>" + ("—" if dis is None else "%.1f%%" % (dis * 100)) + "</td></tr>"
+                "<td>" + ("—" if dis is None else "%.1f%%" % (dis * 100)) + "</td>"
+                "<td>" + ("—" if sys_sd is None else str(sys_sd)) + "</td>"
+                "<td>" + ("—" if jdg_sd is None else str(jdg_sd)) + "</td></tr>"
             )
         html += (
             '\n  <div class="judge-block">\n'
             "    <h3>Judge repeatability</h3>\n"
             '    <div class="matrix-wrap"><table class="matrix">\n'
             "      <thead><tr><th>eval</th><th>judge runs</th>"
-            "<th>judge disagreement</th></tr></thead>\n"
+            "<th>judge disagreement</th><th>system spread</th>"
+            "<th>judge spread</th></tr></thead>\n"
             "      <tbody>" + rows + "</tbody>\n"
             "    </table></div>\n"
             '    <p class="judge-note">Disagreement near zero means the judge is repeatable. '
-            "A judge that contradicts itself on the same output has ambiguous criteria, not "
-            "a noisy system.</p>\n"
+            "For a scored eval, compare the two spreads: system spread is your outputs "
+            "differing from each other, judge spread is the judge differing from itself on "
+            "the same output. Judge spread approaching system spread means the criteria are "
+            "ambiguous, not that the system is noisy.</p>\n"
             "  </div>"
         )
 
