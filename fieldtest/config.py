@@ -364,8 +364,24 @@ def parse_and_validate(config_path: Path) -> Config:
         # Raw Pydantic errors must never propagate to callers.
         errors = exc.errors()
         if errors:
-            loc   = " -> ".join(str(p) for p in errors[0]["loc"])
-            msg   = errors[0]["msg"]
+            first = errors[0]
+            loc   = " -> ".join(str(p) for p in first["loc"])
+            msg   = first["msg"]
+
+            # A blank tag is what the templates ship, deliberately — deciding
+            # right/good/safe is the point of the scaffold. The generic Literal
+            # error does not say so, so someone who has just run
+            # `fieldtest init --template` reads a validation failure rather than
+            # an instruction.
+            # loc is empty for model-level validators, so index only when
+            # there is a field to index.
+            field = str(first["loc"][-1]) if first["loc"] else ""
+            if field == "tag" and first.get("input") in ("", None):
+                msg = (
+                    "tag is blank. Templates ship it blank on purpose: choose "
+                    "right (is it correct?), good (is it well-formed?) or safe "
+                    "(what must never happen?) for each eval."
+                )
             raise ConfigError(f"Config error at {loc}: {msg}") from exc
         raise ConfigError(f"Config error at {config_path}: {exc}") from exc
 

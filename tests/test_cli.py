@@ -1358,3 +1358,41 @@ def test_plain_help_still_lists_the_commands():
         assert result.exit_code == 0
         assert "Commands:" in result.output
         assert "calibrate" in result.output
+
+
+def test_a_blank_tag_error_says_it_is_a_template_blank(tmp_path, monkeypatch):
+    """
+    `fieldtest init --template rag` then `fieldtest validate` used to report
+    "Input should be 'right', 'good' or 'safe'" — a validation failure, when it
+    is really the scaffold's instruction. Deciding the tag is the point of the
+    template; the message should say so.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import ConfigError
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "--template", "rag"],
+                                catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(tmp_path / "evals" / "config.yaml")
+    message = str(exc.value)
+    assert "tag is blank" in message
+    assert "Templates ship it blank on purpose" in message
+    assert "right" in message and "good" in message and "safe" in message
+
+
+def test_a_genuinely_wrong_tag_keeps_the_ordinary_error(tmp_path):
+    """A typo is not a template blank and should not be told it is."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import ConfigError
+
+    evals_dir = _setup_project(tmp_path)
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(cfg.read_text().replace("tag: right", "tag: correctness"))
+
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(cfg)
+    assert "tag is blank" not in str(exc.value)
+    assert "should be" in str(exc.value)
