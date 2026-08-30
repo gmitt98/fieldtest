@@ -328,6 +328,10 @@ a literal string.
   `confidence_level`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
 - New: `fieldtest dataset list` / `fieldtest dataset use <name>`
+- Fixed: every Anthropic judge call failed on a fresh install. anthropic 1.2.0
+  removed `temperature` from `messages.create()`, and the drop path did not
+  recognise a client-library `TypeError` as a refusal. It does now — the call
+  completes and the header names the dropped parameter
 - New: `fieldtest --version`
 - New: `fieldtest help [COMMAND]`; `fieldtest --help <command>` now shows that
   command's help instead of the general help
@@ -346,7 +350,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 473, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 475, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 
