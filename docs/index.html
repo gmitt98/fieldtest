@@ -616,8 +616,8 @@ hr.divider {
       <a class="nav-link" href="https://github.com/gmitt98/fieldtest/blob/HEAD/docs/walkthrough.md">Walkthrough</a>
       <a class="nav-link" href="#report">Report</a>
       <a class="nav-link" href="#concepts">Concepts</a>
-      <a class="nav-link" href="#judge">Judge</a>
       <a class="nav-link" href="#config">Config</a>
+      <a class="nav-link" href="#judge">Judge</a>
       <a class="nav-link" href="#philosophy">Philosophy</a>
     </div>
     <span class="nav-pill">v0.3.0</span>
@@ -1602,39 +1602,43 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 
     <hr class="divider">
 
-    <div class="section-label" style="margin-top: 0;">All commands</div>
+    <div class="section-label" style="margin-top: 0;">Common invocations</div>
+    <p class="section-sub" style="margin-bottom:16px;">The full command list is in <a href="#commands">Every command</a> above — this is the shape of a working day.</p>
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div>
         <div class="terminal-dot yellow"></div>
         <div class="terminal-dot green"></div>
-        <span class="terminal-label">fieldtest CLI reference</span>
+        <span class="terminal-label">day to day</span>
       </div>
       <div class="terminal-body">
-<pre><span class="t-comment"># ── Demo and exploration ─────────────────────────────</span>
-<span class="t-cmd">fieldtest demo</span>                   <span class="t-comment"># interactive example picker</span>
-<span class="t-cmd">fieldtest demo --example rag --offline</span>    <span class="t-comment"># offline, instant</span>
-<span class="t-cmd">fieldtest demo --example email</span>   <span class="t-comment"># re-score with rule evals</span>
-<span class="t-cmd">fieldtest view</span>                   <span class="t-comment"># open latest HTML report in browser</span>
-<span class="t-cmd">fieldtest view 20260331-a4b2</span>     <span class="t-comment"># open specific run</span>
+<pre><span class="t-comment"># ── Look before you spend ────────────────────────────</span>
+<span class="t-cmd">fieldtest validate</span>               <span class="t-comment"># config valid? keys set? how many judge calls?</span>
+<span class="t-cmd">fieldtest calibrate --dry-run</span>    <span class="t-comment"># what a judge panel would cost, calling nothing</span>
 
-<span class="t-comment"># ── Start a real project ──────────────────────────────</span>
-<span class="t-cmd">fieldtest init</span>                   <span class="t-comment"># scaffold evals/ directory</span>
-<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># curated template: chatbot, rag, or email</span>
+<span class="t-comment"># ── Explore without a key ────────────────────────────</span>
+<span class="t-cmd">fieldtest demo --example rag --offline</span>  <span class="t-comment"># pre-scored, instant</span>
+<span class="t-cmd">fieldtest dataset use expense-report</span>    <span class="t-comment"># artifacts to write evals against</span>
 
-<span class="t-comment"># ── Evaluate ──────────────────────────────────────────</span>
-<span class="t-cmd">fieldtest score</span>                  <span class="t-comment"># score all outputs in evals/outputs/</span>
-<span class="t-cmd">fieldtest score --set smoke</span>      <span class="t-comment"># score a named fixture subset</span>
-<span class="t-cmd">fieldtest score --concurrency 10</span> <span class="t-comment"># parallel judge calls</span>
+<span class="t-comment"># ── Start a real project ─────────────────────────────</span>
+<span class="t-cmd">fieldtest init</span>                   <span class="t-comment"># scaffold evals/</span>
+<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># chatbot, email or rag</span>
 
-<span class="t-comment"># ── Inspect and clean ─────────────────────────────────</span>
-<span class="t-cmd">fieldtest list</span>                   <span class="t-comment"># list all scored runs with summary</span>
-<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete all results (keeps outputs)</span></pre>
+<span class="t-comment"># ── Evaluate ─────────────────────────────────────────</span>
+<span class="t-cmd">fieldtest score</span>                  <span class="t-comment"># score everything in evals/outputs/</span>
+<span class="t-cmd">fieldtest score --set smoke</span>      <span class="t-comment"># one named fixture set</span>
+<span class="t-cmd">fieldtest calibrate</span>              <span class="t-comment"># run the judge panel, report agreement</span>
+
+<span class="t-comment"># ── Read and compare ─────────────────────────────────</span>
+<span class="t-cmd">fieldtest view</span>                   <span class="t-comment"># open the latest HTML report</span>
+<span class="t-cmd">fieldtest history</span>                <span class="t-comment"># past runs, newest first, with judge fingerprint</span>
+<span class="t-cmd">fieldtest diff</span>                   <span class="t-comment"># most recent against the one before</span>
+<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete results, keep outputs</span></pre>
       </div>
     </div>
 
     <div class="callout tip" style="margin-top: 24px;">
-      <strong>Claude Code users:</strong> fieldtest ships with a built-in <code>/optimize</code> skill. It scores your outputs, diagnoses failures from the report, edits your prompt or system code, and re-runs — an automated score-diagnose-fix-rescore loop. Type <code>/optimize</code> in Claude Code inside any fieldtest project.
+      <strong>Claude Code users:</strong> the fieldtest repository includes an <code>/optimize</code> command in <code>.claude/commands/</code>. It is not part of the pip package — clone the repo, or copy that one file into your own project. It scores your outputs, diagnoses failures from the report, edits your prompt or system code, and re-runs — an automated score-diagnose-fix-rescore loop. Type <code>/optimize</code> in Claude Code inside any fieldtest project.
     </div>
   </div>
 </section>

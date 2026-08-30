@@ -1423,3 +1423,58 @@ def test_site_github_links_point_at_files_that_exist():
             f"link pins the branch name '{ref}'; use HEAD so a rename cannot break it"
         )
         assert (root / path).is_file(), f"site links {path}, which is not in the repo"
+
+
+def test_the_website_never_names_a_command_that_does_not_exist():
+    """
+    The inverse of the coverage check, and the direction that was missing. A
+    block titled "All commands" listed `fieldtest list`, which has never been a
+    command — the real one is `history`. Checking that every real command is
+    mentioned could not catch it.
+
+    Reads only invocations in command styling, so prose like "fieldtest ships
+    with…" is not mistaken for a command.
+    """
+    import re
+    from pathlib import Path
+
+    from fieldtest.cli import main
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    invoked = set(
+        re.findall(r'<span class="t-cmd">fieldtest ([a-z][a-z-]*)', site)
+    ) | set(re.findall(r"<code>fieldtest ([a-z][a-z-]*)", site))
+
+    unknown = sorted(invoked - set(main.commands))
+    assert not unknown, f"the website invokes commands that do not exist: {unknown}"
+
+
+def test_the_nav_follows_the_order_of_the_page():
+    """
+    The nav listed Judge before Config while the page has Config first, so
+    clicking through it jumped backwards.
+    """
+    import re
+    from pathlib import Path
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    nav = re.findall(r'class="nav-link" href="#([a-z]+)"', site)
+    dom = re.findall(r'<section[^>]*id="([a-z]+)"', site)
+    assert nav == dom, f"nav order {nav} does not match section order {dom}"
+
+
+def test_the_site_does_not_claim_the_optimize_skill_ships_in_the_package():
+    """
+    `/optimize` is tracked in .claude/commands/ and is not in the wheel, so a
+    pip user typing it gets nothing. The site said fieldtest "ships with" it.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    site = (root / "docs" / "index.html").read_text()
+
+    assert (root / ".claude" / "commands" / "optimize.md").is_file(), (
+        "the optimize command is gone; the site still describes it"
+    )
+    assert "ships with a built-in" not in site
+    assert "not part of the pip package" in site
