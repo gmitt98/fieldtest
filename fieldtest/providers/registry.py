@@ -60,9 +60,8 @@ def register_provider(name: str, adapter: ProviderAdapter) -> None:
 class _FunctionAdapter(ProviderAdapter):
     """Wraps a @provider-decorated function in the adapter interface."""
 
-    def __init__(self, fn: Callable, name: str):
+    def __init__(self, fn: Callable):
         self._fn = fn
-        self._name = name
 
     def call(
         self,
@@ -81,7 +80,7 @@ def get_registered_provider(name: str) -> Optional[ProviderAdapter]:
         return None
     if isinstance(entry, ProviderAdapter):
         return entry
-    return _FunctionAdapter(entry, name)
+    return _FunctionAdapter(entry)
 
 
 def registered_provider_names() -> set[str]:

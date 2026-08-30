@@ -82,7 +82,7 @@ def history(config_path: Optional[str]):
         def _tag_rate(tag: str) -> str:
             rates = []
             for uc_stats in summary.values():
-                for ev_id, stats in uc_stats.get(tag, {}).items():
+                for stats in uc_stats.get(tag, {}).values():
                     fr = stats.get("failure_rate")
                     if fr is not None:
                         rates.append(fr)

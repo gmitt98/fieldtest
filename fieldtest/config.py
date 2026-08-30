@@ -26,18 +26,6 @@ from fieldtest.providers.settings import (
 # Enums (as str subclasses so they serialise cleanly)
 # ---------------------------------------------------------------------------
 
-class EvalTag(str):
-    pass
-
-
-class EvalType(str):
-    pass
-
-
-VALID_TAGS  = {"right", "good", "safe"}
-VALID_TYPES = {"rule", "regex", "llm", "reference"}
-
-
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -396,7 +384,7 @@ from fieldtest.resolve import (  # noqa: E402
 
 __all__ = [
     "BinaryJudgeOutput", "CalibrationConfig", "Config", "Defaults", "Eval",
-    "EvalTag", "EvalType", "FixturesConfig", "LLMExample", "PanelJudge",
+    "FixturesConfig", "LLMExample", "PanelJudge",
     "ProviderSettings", "ResultRow", "ScoredJudgeOutput", "SystemConfig",
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
     "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",

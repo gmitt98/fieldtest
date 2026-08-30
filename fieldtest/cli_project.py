@@ -19,6 +19,7 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
+from fieldtest.templates import AVAILABLE_TEMPLATES
 
 
 @click.command()
@@ -91,7 +92,7 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
               help="Directory to scaffold (default: ./evals)")
 @click.option("--force", is_flag=True, default=False,
               help="Overwrite if directory already exists")
-@click.option("--template", type=click.Choice(["chatbot", "rag", "email"]), default=None,
+@click.option("--template", type=click.Choice(AVAILABLE_TEMPLATES), default=None,
               help="Start from a curated template: chatbot, rag, or email")
 def init_cmd(target_dir: str, force: bool, template: Optional[str]):
     """Scaffold evals/ directory structure in current project.

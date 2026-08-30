@@ -729,3 +729,35 @@ def test_reloading_the_same_project_keeps_its_providers(tmp_path):
     """))
     assert parse_and_validate(cfg).defaults.provider == "stable-service"
     assert parse_and_validate(cfg).defaults.provider == "stable-service"
+
+
+def test_no_dead_module_level_constants():
+    """
+    Every UPPER_CASE module constant must be referenced somewhere other than
+    the line defining it.
+
+    VALID_TAGS and VALID_TYPES sat in config.py duplicating the Literal[...]
+    on the Eval model, and AVAILABLE_TEMPLATES duplicated a click.Choice list —
+    all three dead, all three a second copy of a fact that could drift.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    pkg = root / "fieldtest"
+    sources = {
+        p: p.read_text()
+        for p in pkg.rglob("*.py")
+        if "datasets" not in p.parts and "demo" not in p.parts
+    }
+    corpus = "\n".join(sources.values()) + (root / "tests").joinpath("..").as_posix()
+    tests = "\n".join(p.read_text() for p in (root / "tests").glob("test_*.py"))
+
+    dead = []
+    for path, text in sources.items():
+        for m in re.finditer(r"^([A-Z][A-Z0-9_]{2,})\s*[:=]", text, re.M):
+            name = m.group(1)
+            uses = len(re.findall(rf"\b{name}\b", corpus)) + len(re.findall(rf"\b{name}\b", tests))
+            if uses <= 1:
+                dead.append(f"{path.relative_to(root)}: {name}")
+    assert not dead, f"module constants defined but never used: {dead}"
