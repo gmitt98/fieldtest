@@ -1264,3 +1264,39 @@ def _rows_for_two_evals():
                 fixture_id="f1", run=run, passed=run != 3, detail="", type="regex",
             ))
     return rows
+
+
+def test_floor_hits_are_counted_per_output_not_per_judge_call():
+    """
+    n moved to outputs when judge_runs landed; floor_hits did not follow it, so
+    two tainted outputs judged three times each read as 6 floor hits out of an
+    n of 8 — a floor rate of 75% where the true one is 25%.
+    """
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=3)
+    rows = []
+    for fixture, at_floor in (("fx-a", True), ("fx-b", False)):
+        for jr in (1, 2, 3):
+            rows.append(_row(
+                passed=None, score=1 if at_floor else 4, eval_id="ev1",
+                tag="good", ev_type="llm", fixture_id=fixture, judge_run=jr,
+            ))
+
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+    assert stats["total_runs"] == 2, "n should count outputs"
+    assert stats["floor_hits"] == 1, "one of the two outputs sat at the floor"
+    assert stats["floor_hit_calls"] == 3, "three of the six judge calls did"
+
+
+def test_a_split_verdict_on_the_floor_collapses_the_way_a_binary_one_does():
+    """Ties go to the floor, matching how a split pass/fail collapses to fail."""
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=2)
+    rows = [
+        _row(passed=None, score=1, eval_id="ev1", tag="good", ev_type="llm",
+             fixture_id="fx-a", judge_run=1),
+        _row(passed=None, score=5, eval_id="ev1", tag="good", ev_type="llm",
+             fixture_id="fx-a", judge_run=2),
+    ]
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+    assert stats["floor_hits"] == 1

@@ -326,6 +326,27 @@ def build_summary(
                         # means one thing across both eval types.
                         total_runs = len(by_output)
 
+                        # floor_hits has to move with it. Left counting raw
+                        # scores it sat beside an n of outputs, so two tainted
+                        # outputs judged three times each read as 6 floor hits
+                        # out of 8 — a floor rate of 75% where the true one is
+                        # 25%. Collapsed by majority, ties to floor, matching
+                        # how a binary verdict collapses.
+                        floor_hits = 0
+                        for reps in by_output.values():
+                            rep_scores = [r.score for r in reps if r.score is not None]
+                            if not rep_scores:
+                                continue
+                            at_floor = sum(1 for x in rep_scores if x == scale_min)
+                            if at_floor * 2 >= len(rep_scores):
+                                floor_hits += 1
+                        # The raw count is kept only where it differs from the
+                        # collapsed one, so a single-judge-run summary keeps the
+                        # shape it has always had.
+                        judge_fields["floor_hit_calls"] = sum(
+                            1 for x in scores if scale_min is not None and x == scale_min
+                        )
+
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate": None,
                         "mean":         round(mean, 4) if mean is not None else None,
@@ -618,23 +639,68 @@ def find_baseline(
 
     Returns None if no matching baseline found.
     """
+    path, _ = find_baseline_with_reason(
+        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint
+    )
+    return path
+
+
+def find_baseline_with_reason(
+    results_dir: Path,
+    current_run_id: str,
+    set_name: str,
+    dataset_version: Optional[str] = None,
+    judge_fingerprint: Optional[str] = None,
+) -> tuple[Optional[Path], Optional[str]]:
+    """
+    find_baseline(), plus why the newest rejected candidate was rejected.
+
+    Every `vs prior` going to `—` looks identical whether this is a first run or
+    the judge model changed, and only one of those is the user's doing. The
+    reason describes the most recent run that was otherwise usable, so it names
+    the thing that actually differs.
+    """
     if not results_dir.exists():
-        return None
-    candidates = sorted(results_dir.glob("*-data.json"), reverse=True)
-    for p in candidates:
+        return None, None
+
+    reason: Optional[str] = None
+
+    def note(text: str) -> None:
+        nonlocal reason
+        if reason is None:      # newest candidate wins; candidates are newest-first
+            reason = text
+
+    for p in sorted(results_dir.glob("*-data.json"), reverse=True):
         if p.stem.removesuffix("-data") == current_run_id:
             continue
         try:
             data = json.loads(p.read_text())
-            if data.get("set") != set_name:
-                continue
-            if dataset_version is not None and data.get("dataset_version") != dataset_version:
-                continue
-            if judge_fingerprint is not None:
-                candidate_judge = data.get("judge")
-                if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
-                    continue
-            return p
         except Exception:
             continue
-    return None
+
+        if data.get("set") != set_name:
+            note(f"the last run scored the '{data.get('set')}' set, not '{set_name}'")
+            continue
+        if dataset_version is not None and data.get("dataset_version") != dataset_version:
+            note(
+                f"the last run used dataset version "
+                f"{data.get('dataset_version') or 'none'}, this one uses {dataset_version}"
+            )
+            continue
+        if judge_fingerprint is not None:
+            candidate_judge = data.get("judge") or {}
+            if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
+                was = " ".join(
+                    str(candidate_judge.get(k)) for k in ("provider", "model")
+                    if candidate_judge.get(k)
+                )
+                note(
+                    "the judge changed since the last run"
+                    + (f" (was {was})" if was else "")
+                    + " — rescoring the same outputs with a different judge is "
+                    "not a measurement of the system"
+                )
+                continue
+        return p, None
+
+    return None, reason

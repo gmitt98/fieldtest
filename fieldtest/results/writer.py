@@ -50,7 +50,9 @@ def write_results(
     html_path        = output_dir / f"{run_id}-report.html"
 
     # Build all content before writing — fail fast before any file is created
-    json_content        = _build_json(rows, summary, delta, config, run_id, set_name)
+    json_content        = _build_json(
+        rows, summary, delta, config, run_id, set_name, partial, partial_details,
+    )
 
     # Raw rows are what -data.json and -data.csv carry; the human-facing views
     # read one row per judged output so their counts match the headline rates.
@@ -83,6 +85,8 @@ def _build_json(
     config: Config,
     run_id: str,
     set_name: str,
+    partial: bool = False,
+    partial_details: Optional[list[str]] = None,
 ) -> str:
     """Serialize result data to JSON string."""
     fixture_ids = {r.fixture_id for r in rows if not r.skipped}
@@ -109,6 +113,11 @@ def _build_json(
         "fixture_count":   len(fixture_ids),
         "runs":            runs,
         "judge_runs":      judge_runs,
+        # A run with outputs missing reported runs and fixture_count as though
+        # it were complete, so nothing reading this file — the README's own jq
+        # gates included — could tell the rates were over a smaller population.
+        "partial":         partial,
+        "partial_details": partial_details or [],
         "rows":            [r.model_dump() for r in rows],
         "summary":         summary,
         "delta":           delta,

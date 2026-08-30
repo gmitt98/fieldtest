@@ -49,6 +49,23 @@ def _build_html(run_data: dict, config) -> str:
     else:
         judge_error_banner = ""
 
+    # A partial run reports its rates over fewer outputs than the header's
+    # "Runs/fixture" implies. The markdown said so and this page did not, so a
+    # reader comparing the two saw the same numbers with only one caveat.
+    if run_data.get("partial"):
+        details = run_data.get("partial_details") or []
+        shown   = ", ".join(details[:6])
+        more    = f" (+{len(details) - 6} more)" if len(details) > 6 else ""
+        partial_banner = (
+            '<div class="partial-run">'
+            f"⚠ partial run: {len(details)} output(s) missing and skipped"
+            + (f" — {shown}{more}" if details else "")
+            + ". Rates below are over the outputs that were found."
+            "</div>"
+        )
+    else:
+        partial_banner = ""
+
     # Extract timestamp from run_id: 2026-03-22T14-30-00-a3f9
     try:
         ts_part    = run_id[:19].replace("T", " ").replace("-", ":")
@@ -313,6 +330,11 @@ def _build_html(run_data: dict, config) -> str:
   .delta-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
   .delta-table th {{ text-align: left; padding: 6px 10px; font-weight: 600; color: #888; font-size: 12px; border-bottom: 1px solid #eee; }}
   .delta-table td {{ padding: 6px 10px; border-bottom: 1px solid #f5f5f5; }}
+  .partial-run {{ background: #fdf6e3; border-bottom: 1px solid #e8d9a8;
+                  color: #8a6d1f; font-size: 13px; padding: 10px 24px; }}
+  .delta-caveat {{ font-size: 12px; color: #8a6d1f; background: #fdf6e3;
+                   border-left: 3px solid #d9a441; padding: 8px 10px;
+                   margin: 0 0 10px; line-height: 1.5; }}
   .delta-up   {{ color: #2e7d32; font-weight: 600; }}
   .delta-down {{ color: #c62828; font-weight: 600; }}
   .no-change  {{ color: #888; }}
@@ -332,6 +354,7 @@ def _build_html(run_data: dict, config) -> str:
 </div>
 
 {judge_error_banner}
+{partial_banner}
 
 <div class="container">
 
@@ -720,8 +743,41 @@ def _build_delta_html(delta: dict) -> str:
     decreased   = delta.get("decreased", [])
     unchanged   = delta.get("unchanged", [])
 
+    # The markdown carries three reasons not to trust a delta, and a reason a
+    # baseline is missing. None of them reached the HTML, so this page showed
+    # movement with none of the caveats attached to it — or, with no baseline,
+    # showed nothing and left the reader to guess why.
+    caveats = []
+    if delta.get("baseline_error_share", 0) >= 0.1:
+        caveats.append(
+            f"The baseline lost {delta['baseline_error_share'] * 100:.0f}% of its "
+            f"judge calls to errors, so its rates are over whatever survived. "
+            f"These are not a like-for-like comparison."
+        )
+    if delta.get("baseline_pre_judge"):
+        caveats.append(
+            "The baseline predates judge tracking, so the judge that produced it "
+            "is unknown and these deltas may reflect an instrument change."
+        )
+    changed = delta.get("sample_changed") or []
+    if changed:
+        caveats.append(
+            f"{len(changed)} eval(s) scored a different number of outputs than the "
+            f"baseline ({', '.join(changed[:4])}), so the deltas include a change "
+            f"of population, not only a change in the system."
+        )
+    caveat_html = "".join(f'<p class="delta-caveat">⚠ {c}</p>' for c in caveats)
+
     if not baseline_id:
-        return ""
+        reason = delta.get("no_baseline_reason")
+        if not reason:
+            return ""
+        return f"""
+<div class="delta-section">
+  <h2>No baseline</h2>
+  <p class="delta-caveat">{reason[0].upper() + reason[1:]}. Every eval reads
+  &#8212; against prior for that reason, not because nothing moved.</p>
+</div>"""
 
     rows_html = ""
     for item in increased:
@@ -749,6 +805,7 @@ def _build_delta_html(delta: dict) -> str:
     return f"""
 <div class="delta-section">
   <h2>Delta vs prior run ({baseline_id})</h2>
+  {caveat_html}
   <table class="delta-table">
     <thead><tr><th>eval</th><th>change</th><th>before</th><th>after</th></tr></thead>
     <tbody>{rows_html}</tbody>

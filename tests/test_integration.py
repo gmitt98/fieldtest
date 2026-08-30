@@ -2130,3 +2130,159 @@ def test_every_shipped_fixture_has_a_readable_expected_block():
             load_fixture(fx)   # raises if the block is malformed
             checked += 1
     assert checked >= 20, f"only {checked} shipped fixtures found — did they move?"
+
+
+# ---------------------------------------------------------------------------
+# What the HTML report leaves out (Track E)
+#
+# The markdown carries four reasons not to trust a number: the run was partial,
+# the baseline lost calls to errors, the baseline predates judge tracking, and
+# the sample changed. None reached the HTML — the file `fieldtest view` opens —
+# so the same run read as trustworthy in one artifact and caveated in the other.
+# ---------------------------------------------------------------------------
+
+def _html_and_json(tmp_path, monkeypatch, *, delta=None, partial=False):
+    """Render the HTML report directly from a run_data dict."""
+    from fieldtest.results.html import write_html
+    from fieldtest.config import parse_and_validate
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    config = parse_and_validate(config_path)
+    run_data = {
+        "run_id": "2026-01-01T00-00-00-abcd",
+        "set": "full",
+        "fixture_count": 2,
+        "runs": 3,
+        "judge_runs": 1,
+        "rows": [],
+        "summary": {},
+        "delta": delta or {},
+        "partial": partial,
+        "partial_details": ["fx-b run 3"] if partial else [],
+        "judge": {"provider": "anthropic", "model": "m", "fingerprint": "aaaa1111"},
+    }
+    out = tmp_path / "r.html"
+    write_html(run_data, config, out)
+    return out.read_text()
+
+
+def test_a_partial_run_says_so_in_the_html(tmp_path, monkeypatch):
+    """It showed 'Runs/fixture: 3' with no sign an output was missing."""
+    html = _html_and_json(tmp_path, monkeypatch, partial=True)
+    assert "partial run" in html
+    assert "fx-b run 3" in html
+    assert "over the outputs that were found" in html
+
+
+def test_a_complete_run_carries_no_partial_banner(tmp_path, monkeypatch):
+    html = _html_and_json(tmp_path, monkeypatch, partial=False)
+    assert "partial run" not in html
+
+
+def test_the_html_says_why_there_is_no_baseline(tmp_path, monkeypatch):
+    """Every 'vs prior' reading '—' looked the same as a first run."""
+    html = _html_and_json(tmp_path, monkeypatch, delta={
+        "baseline_run_id": None,
+        "no_baseline_reason": "the judge changed since the last run (was anthropic old-model)",
+    })
+    assert "No baseline" in html
+    assert "The judge changed since the last run" in html, "sentence should be capitalised"
+    assert "old-model" in html
+
+
+def test_no_baseline_and_no_reason_renders_nothing(tmp_path, monkeypatch):
+    """A genuine first run has nothing to explain."""
+    html = _html_and_json(tmp_path, monkeypatch, delta={"baseline_run_id": None})
+    assert "No baseline" not in html
+
+
+@pytest.mark.parametrize("delta_extra,expected", [
+    ({"baseline_error_share": 0.41}, "lost 41% of its"),
+    ({"baseline_pre_judge": True}, "predates judge tracking"),
+    ({"sample_changed": ["ev1 9→6"]}, "different number of outputs"),
+])
+def test_every_baseline_caveat_in_the_markdown_reaches_the_html(
+    tmp_path, monkeypatch, delta_extra, expected
+):
+    html = _html_and_json(tmp_path, monkeypatch, delta={
+        "baseline_run_id": "2025-12-31T00-00-00-prev",
+        "increased": [], "decreased": [], "unchanged": ["ev1"],
+        **delta_extra,
+    })
+    assert "Delta vs prior run" in html
+    assert expected in html
+
+
+def test_the_json_records_that_a_run_was_partial(tmp_path, monkeypatch):
+    """
+    -data.json reported runs and fixture_count as though the run were complete,
+    so nothing reading it — the README's own jq gates included — could tell the
+    rates were over a smaller population.
+    """
+    import json
+
+    from fieldtest.results.writer import write_results
+    from fieldtest.config import parse_and_validate
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    config = parse_and_validate(config_path)
+    out = tmp_path / "out"
+    write_results(
+        rows=[], summary={}, delta={}, config=config, run_id="run-1",
+        output_dir=out, set_name="full",
+        partial=True, partial_details=["fx-b run 3"],
+    )
+    data = json.loads((out / "run-1-data.json").read_text())
+    assert data["partial"] is True
+    assert data["partial_details"] == ["fx-b run 3"]
+
+    write_results(
+        rows=[], summary={}, delta={}, config=config, run_id="run-2",
+        output_dir=out, set_name="full",
+    )
+    complete = json.loads((out / "run-2-data.json").read_text())
+    assert complete["partial"] is False
+    assert complete["partial_details"] == []
+
+
+def test_changing_the_judge_produces_the_reason_through_the_real_run_path(tmp_path, monkeypatch):
+    """
+    _html_and_json builds run_data by hand. This runs score() twice with the
+    judge model changed in between, so the reason has to survive find_baseline,
+    the runner, build_delta, the JSON and both reports.
+    """
+    import json
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    adapter = RecordingAdapter()
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path)
+
+        text = config_path.read_text()
+        assert "defaults:\n  runs: 3" in text, "the scaffold's defaults block moved"
+        config_path.write_text(text.replace(
+            "defaults:\n  runs: 3",
+            "defaults:\n  runs: 3\n  model: a-different-judge-model"))
+
+        run_id, _ = score(config=parse_and_validate(config_path), config_path=config_path)
+
+    results = config_path.parent / "results"
+    data = json.loads((results / f"{run_id}-data.json").read_text())
+    assert data["delta"]["baseline_run_id"] is None
+    reason = data["delta"]["no_baseline_reason"]
+    assert "judge changed" in reason
+    assert "claude-haiku-4-5" in reason, "the reason should name the judge that was used"
+
+    md = (results / f"{run_id}-report.md").read_text()
+    assert "no baseline: the judge changed" in md
+
+    html = (results / f"{run_id}-report.html").read_text()
+    assert "No baseline" in html
+    assert "The judge changed" in html

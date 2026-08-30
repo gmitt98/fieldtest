@@ -252,6 +252,13 @@ def format_report(
             f"not only a change in the system"
         )
 
+    if not delta.get("baseline_run_id") and delta.get("no_baseline_reason"):
+        lines.append(
+            f"no baseline: {delta['no_baseline_reason']}. "
+            f"Every 'vs prior' below reads '—' for that reason, not because "
+            f"nothing moved."
+        )
+
     share = delta.get("baseline_error_share") or 0.0
     if delta.get("baseline_run_id") and share >= 0.1:
         lines.append(
