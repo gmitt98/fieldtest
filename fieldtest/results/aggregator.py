@@ -19,7 +19,7 @@ from fieldtest.config import Config, ResultRow, resolve_judge_runs
 # ---------------------------------------------------------------------------
 
 def wilson_interval(
-    failures: int, total: int, confidence: float = 0.95
+    failures: int, total: int, confidence_level: float = 0.95
 ) -> Optional[tuple[float, float]]:
     """
     Two-sided Wilson score interval for a failure rate.
@@ -33,7 +33,7 @@ def wilson_interval(
     if total <= 0:
         return None
 
-    z = NormalDist().inv_cdf(1 - (1 - confidence) / 2)
+    z = NormalDist().inv_cdf(1 - (1 - confidence_level) / 2)
     p = failures / total
 
     denominator = 1 + z**2 / total
@@ -238,16 +238,42 @@ def build_summary(
         tag = uc.setdefault(row.tag, {})
         tag.setdefault(row.eval_id, []).append(row)
 
+    # Reinsert each tag's evals in config declaration order. Rows arrive from
+    # as_completed(), so insertion order is judge-completion order and two
+    # identical runs produced tables in different orders — in the markdown, the
+    # HTML and the JSON alike. Config order rather than alphabetical, to match
+    # the fixture matrix and the order the user reads in config.yaml.
+    declared = {
+        uc.id: {ev.id: i for i, ev in enumerate(uc.evals)} for uc in config.use_cases
+    }
+    for uc_id, tags in groups.items():
+        order = declared.get(uc_id, {})
+        for tag, evals in tags.items():
+            tags[tag] = {
+                k: evals[k]
+                for k in sorted(evals, key=lambda e: (order.get(e, len(order)), e))
+            }
+
     summary: dict = {}
     for uc_id, tags in groups.items():
-        uc_model   = uc_by_id.get(uc_id)
-        judge_runs = resolve_judge_runs(config, uc_model) if uc_model else 1
+        uc_model      = uc_by_id.get(uc_id)
+        configured_jr = resolve_judge_runs(config, uc_model) if uc_model else 1
         summary[uc_id] = {}
         for tag, evals in tags.items():
             summary[uc_id][tag] = {}
             for eval_id, eval_rows in evals.items():
                 meta      = eval_meta.get(eval_id, {"is_scored": False, "scale_min": None})
                 is_scored = meta["is_scored"]
+
+                # What this eval was actually judged, not what the config asked
+                # for. judge_runs applies to llm evals; a rule or regex eval is
+                # evaluated once however high the setting goes. Reporting the
+                # configured value put every rule eval in the repeatability
+                # table at "0.0% disagreement", implying a judge had been
+                # consulted twice and agreed, when none was consulted at all.
+                judge_runs = len({r.judge_run for r in eval_rows}) or 1
+                if judge_runs > configured_jr:
+                    judge_runs = configured_jr
                 scale_min = meta["scale_min"]
 
                 error_rows   = [r for r in eval_rows if r.error is not None]
@@ -300,6 +326,27 @@ def build_summary(
                         # means one thing across both eval types.
                         total_runs = len(by_output)
 
+                        # floor_hits has to move with it. Left counting raw
+                        # scores it sat beside an n of outputs, so two tainted
+                        # outputs judged three times each read as 6 floor hits
+                        # out of 8 — a floor rate of 75% where the true one is
+                        # 25%. Collapsed by majority, ties to floor, matching
+                        # how a binary verdict collapses.
+                        floor_hits = 0
+                        for reps in by_output.values():
+                            rep_scores = [r.score for r in reps if r.score is not None]
+                            if not rep_scores:
+                                continue
+                            at_floor = sum(1 for x in rep_scores if x == scale_min)
+                            if at_floor * 2 >= len(rep_scores):
+                                floor_hits += 1
+                        # The raw count is kept only where it differs from the
+                        # collapsed one, so a single-judge-run summary keeps the
+                        # shape it has always had.
+                        judge_fields["floor_hit_calls"] = sum(
+                            1 for x in scores if scale_min is not None and x == scale_min
+                        )
+
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate": None,
                         "mean":         round(mean, 4) if mean is not None else None,
@@ -344,15 +391,15 @@ def build_summary(
                     failure_rate  = (
                         round(failed_count / total_runs, 6) if total_runs > 0 else None
                     )
-                    confidence = config.defaults.confidence
+                    confidence_level = config.defaults.confidence_level
                     interval   = (
-                        wilson_interval(failed_count, total_runs, confidence)
+                        wilson_interval(failed_count, total_runs, confidence_level)
                         if failure_rate is not None else None
                     )
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate":    failure_rate,
                         "failure_rate_ci": list(interval) if interval else None,
-                        "confidence":      confidence,
+                        "confidence_level": confidence_level,
                         "floor_hits":      0,
                         "total_runs":      total_runs,
                         "error_count":     error_count,
@@ -444,6 +491,9 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged":           [],
         "baseline_pre_judge":  False,
         "baseline_judge_runs": None,
+        "baseline_error_share": 0.0,
+        "baseline_fixture_count": None,
+        "sample_changed": [],
     }
 
     if baseline_path is None or not baseline_path.exists():
@@ -463,6 +513,38 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # the judge spread fields do not. Keep the comparison, carry the caveat.
     baseline_judge_runs = baseline_data.get("judge_runs", 1)
 
+    # A baseline whose judge calls largely failed is a rate over whatever
+    # survived. One real run lost 140 of 237 calls to an exhausted balance and
+    # silently became the baseline for the next, which then reported a 26-point
+    # "drop" against a third of the evidence. Keep the comparison and say so.
+    baseline_errors = sum(
+        st.get("error_count", 0)
+        for tags in baseline_summary.values()
+        for evals in tags.values()
+        for st in evals.values()
+    )
+    baseline_scored = sum(
+        st.get("total_runs", 0)
+        for tags in baseline_summary.values()
+        for evals in tags.values()
+        for st in evals.values()
+    )
+    # A set can be redefined between runs. Comparing a rate over 14 fixtures
+    # against one over 11 is not like-for-like even though both runs are
+    # nominally the same set, and the deltas read as a change in the system.
+    baseline_fixture_count = baseline_data.get("fixture_count")
+
+    # fixture_count counts what is on disk and does not move when a set is
+    # redefined. Per-eval n does: one project's `full` went from 14 fixtures to
+    # 11 while fixture_count stayed 14, and every rate moved for that reason
+    # alone. Collected per eval and reported once.
+    sample_changed: list[str] = []
+
+    baseline_error_share = (
+        baseline_errors / (baseline_errors + baseline_scored)
+        if (baseline_errors + baseline_scored) else 0.0
+    )
+
     increased: list[dict] = []
     decreased: list[dict] = []
     unchanged: list[str]  = []
@@ -475,6 +557,10 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                 prev_stats = prev_evals.get(eval_id)
                 if prev_stats is None:
                     continue  # new eval — not in baseline
+
+                cur_n, prev_n = stats.get("total_runs"), prev_stats.get("total_runs")
+                if cur_n and prev_n and cur_n != prev_n:
+                    sample_changed.append(f"{eval_id} {prev_n}→{cur_n}")
 
                 # Determine which metric to compare
                 is_scored = stats.get("mean") is not None
@@ -516,6 +602,9 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged":         unchanged,
         "baseline_pre_judge": baseline_pre_judge,
         "baseline_judge_runs": baseline_judge_runs,
+        "baseline_error_share": round(baseline_error_share, 4),
+        "baseline_fixture_count": baseline_fixture_count,
+        "sample_changed": sorted(set(sample_changed)),
     }
 
 
@@ -550,23 +639,68 @@ def find_baseline(
 
     Returns None if no matching baseline found.
     """
+    path, _ = find_baseline_with_reason(
+        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint
+    )
+    return path
+
+
+def find_baseline_with_reason(
+    results_dir: Path,
+    current_run_id: str,
+    set_name: str,
+    dataset_version: Optional[str] = None,
+    judge_fingerprint: Optional[str] = None,
+) -> tuple[Optional[Path], Optional[str]]:
+    """
+    find_baseline(), plus why the newest rejected candidate was rejected.
+
+    Every `vs prior` going to `—` looks identical whether this is a first run or
+    the judge model changed, and only one of those is the user's doing. The
+    reason describes the most recent run that was otherwise usable, so it names
+    the thing that actually differs.
+    """
     if not results_dir.exists():
-        return None
-    candidates = sorted(results_dir.glob("*-data.json"), reverse=True)
-    for p in candidates:
+        return None, None
+
+    reason: Optional[str] = None
+
+    def note(text: str) -> None:
+        nonlocal reason
+        if reason is None:      # newest candidate wins; candidates are newest-first
+            reason = text
+
+    for p in sorted(results_dir.glob("*-data.json"), reverse=True):
         if p.stem.removesuffix("-data") == current_run_id:
             continue
         try:
             data = json.loads(p.read_text())
-            if data.get("set") != set_name:
-                continue
-            if dataset_version is not None and data.get("dataset_version") != dataset_version:
-                continue
-            if judge_fingerprint is not None:
-                candidate_judge = data.get("judge")
-                if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
-                    continue
-            return p
         except Exception:
             continue
-    return None
+
+        if data.get("set") != set_name:
+            note(f"the last run scored the '{data.get('set')}' set, not '{set_name}'")
+            continue
+        if dataset_version is not None and data.get("dataset_version") != dataset_version:
+            note(
+                f"the last run used dataset version "
+                f"{data.get('dataset_version') or 'none'}, this one uses {dataset_version}"
+            )
+            continue
+        if judge_fingerprint is not None:
+            candidate_judge = data.get("judge") or {}
+            if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
+                was = " ".join(
+                    str(candidate_judge.get(k)) for k in ("provider", "model")
+                    if candidate_judge.get(k)
+                )
+                note(
+                    "the judge changed since the last run"
+                    + (f" (was {was})" if was else "")
+                    + " — rescoring the same outputs with a different judge is "
+                    "not a measurement of the system"
+                )
+                continue
+        return p, None
+
+    return None, reason

@@ -44,7 +44,7 @@ fieldtest score --set full --baseline evals/results/2026-04-01T09-00-00-a1b2-dat
 Or compare any two runs after the fact:
 
 ```bash
-fieldtest diff 2026-04-01T09-00-00-a1b2 2026-04-01T10-00-00-c3d4
+fieldtest diff 2026-04-01T10-00-00-c3d4 --baseline 2026-04-01T09-00-00-a1b2
 ```
 
 ## Tips

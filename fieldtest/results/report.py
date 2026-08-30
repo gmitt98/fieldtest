@@ -181,10 +181,27 @@ def format_report(
     fixture_count = len(fixture_ids)
 
     # Determine runs from config (use first use_case as representative)
-    from fieldtest.config import resolve_runs
+    from fieldtest.config import resolve_judge_runs, resolve_runs
     runs = config.defaults.runs
+    header_judge_runs = 1
     if config.use_cases:
         runs = resolve_runs(config, config.use_cases[0])
+        header_judge_runs = resolve_judge_runs(config, config.use_cases[0])
+
+    # Two different numbers, and the header said only one of them. With
+    # judge_runs: 3 a run makes three judge calls per output while the header
+    # read "3 evaluations per eval" — a third of what the bill showed.
+    # `runs` are generator outputs; `judge_runs` are repeat verdicts on each.
+    # fixture_count is the total across use cases. Multiplying it by runs
+    # claims a per-eval figure that is only true when there is one use case:
+    # a project with 11 resume fixtures and 3 cover-letter ones reported
+    # "42 scored output(s) per eval" when no eval had more than 33.
+    if len(config.use_cases) > 1:
+        scored = f"{fixture_count} fixture(s) across {len(config.use_cases)} use cases"
+    else:
+        scored = f"{fixture_count * runs} scored output(s) per eval"
+    if header_judge_runs > 1:
+        scored += f", judged {header_judge_runs}× each"
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -207,7 +224,7 @@ def format_report(
     else:
         lines.append(
             f"{ts} | set: {set_name} | {fixture_count} fixtures × {runs} runs = "
-            f"{fixture_count * runs} evaluations per eval"
+            f"{scored}"
         )
 
     # Only when an LLM judge is actually configured — a rules-only project has
@@ -226,6 +243,30 @@ def format_report(
 
     # Deltas against a baseline written before judge tracking are still shown —
     # blanking them out on upgrade is worse — but the caveat travels with them.
+    changed = delta.get("sample_changed") or []
+    if delta.get("baseline_run_id") and changed:
+        shown = ", ".join(changed[:4]) + (" …" if len(changed) > 4 else "")
+        lines.append(
+            f"⚠ {len(changed)} eval(s) scored a different number of outputs than "
+            f"the baseline ({shown}) — the deltas include a change of population, "
+            f"not only a change in the system"
+        )
+
+    if not delta.get("baseline_run_id") and delta.get("no_baseline_reason"):
+        lines.append(
+            f"no baseline: {delta['no_baseline_reason']}. "
+            f"Every 'vs prior' below reads '—' for that reason, not because "
+            f"nothing moved."
+        )
+
+    share = delta.get("baseline_error_share") or 0.0
+    if delta.get("baseline_run_id") and share >= 0.1:
+        lines.append(
+            f"⚠ baseline lost {share * 100:.0f}% of its judge calls to errors — "
+            f"its rates are over whatever survived, so these deltas are not a "
+            f"like-for-like comparison"
+        )
+
     if delta.get("baseline_run_id") and delta.get("baseline_pre_judge"):
         lines.append(
             "⚠ baseline predates judge tracking — the judge that produced it is "
@@ -464,10 +505,30 @@ def format_report(
                     f"⚠ judge errors — {count} calls failed for {eval_id}; "
                     f"excluded from pass rate"
                 )
-            lines.append(
-                "  re-run with --concurrency 1 to isolate; "
-                "check your API key (ANTHROPIC_API_KEY or OPENAI_API_KEY) if errors persist"
+            # Providers say why. Repeating generic advice over a specific
+            # message sends people to check a key that is working: a run that
+            # died on an exhausted balance was told to check its credentials.
+            causes = {
+                "credit balance": "the account is out of credit",
+                "quota": "the account is over quota",
+                "rate limit": "rate limited beyond the retry policy",
+                "authentication": "the API key was rejected",
+                "not found": "the model id was not recognised",
+                "permission": "the key lacks access to that model",
+            }
+            reason = next(
+                (text for marker, text in causes.items()
+                 if any(marker in (r.error or "").lower()
+                        for r in rows if r.use_case == uc.id and r.error)),
+                None,
             )
+            if reason:
+                lines.append(f"  every failure says the same thing: {reason}")
+            else:
+                lines.append(
+                    "  re-run with --concurrency 1 to isolate; "
+                    "check your API key if errors persist"
+                )
             lines.append("")
 
         # --- Fixture × Eval Matrix ----------------------------------------

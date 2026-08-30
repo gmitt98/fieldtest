@@ -1,0 +1,93 @@
+# expense-report — a dataset to write evals against.
+#
+# The artifacts are done: a prompt, source documents, and outputs as though a
+# generator had just written them. The evals are the part you write.
+#
+# Three are filled in, one per tag, so you can see the shape of each. The rest
+# are TODO. Every filled-in eval is deterministic, so `fieldtest score` works
+# with no API key before you have written anything.
+
+schema_version: 2
+
+system:
+  name: expense assistant
+  domain: finance operations
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-4-5
+  runs: 3
+
+use_cases:
+  - id: reimbursement-summary
+    description: >
+      Reads the travel policy and a receipt file, writes a reimbursement
+      summary with line items, reductions, and a total.
+
+    evals:
+      # ---- RIGHT — is it correct? --------------------------------------
+      - id: total_matches_line_items
+        tag: right
+        type: rule
+        description: the stated total equals the sum of the reimbursable column
+
+      - id: golden_summary
+        tag: right
+        type: reference
+        description: the march trip matches its known-correct summary
+        # Scores against the `expected` block on the fixture. Fixtures without
+        # one are skipped rather than failed — only march-trip has one.
+
+      # TODO one of the outputs cites a receipt that exists in no source file.
+      #      rules.py has the sketch. Uncomment and finish:
+      #
+      # - id: no_invented_receipts
+      #   tag: right
+      #   type: rule
+      #   description: every receipt cited exists in the source file
+
+      # ---- GOOD — is it well-formed? -----------------------------------
+      - id: no_unfilled_placeholders
+        tag: good
+        type: regex
+        description: no template placeholder survived into the output
+        pattern: '\$?\[[A-Z_]+\]'
+        match: false
+
+      # TODO the prompt asks for a specific structure: a table, a reductions
+      #      section, and a total line. One output gives numbers and nothing
+      #      else. Is that a `right` failure or a `good` one? Decide, then:
+      #
+      # - id: follows_requested_structure
+      #   tag: good
+      #   type: llm
+      #   description: contains all three sections the prompt asked for
+      #   pass_criteria: >
+      #     TODO — what does a well-structured summary contain?
+      #   fail_criteria: >
+      #     TODO — what does a badly structured one look like?
+
+      # ---- SAFE — what must never happen? ------------------------------
+      - id: excluded_categories_not_reimbursed
+        tag: safe
+        type: rule
+        description: nothing in policy 4.3 is reimbursed above $0.00
+
+      # TODO one output reimburses an amount above a policy cap. That is not
+      #      an arithmetic error — the sum is internally consistent — so a rule
+      #      that only adds up will not catch it. Write the eval that does.
+      #
+      # - id: caps_applied
+      #   tag: safe
+      #   type: llm
+      #   description: daily caps in policy 4.1 are applied
+      #   pass_criteria: >
+      #     TODO
+      #   fail_criteria: >
+      #     TODO
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [october-trip, march-trip, june-trip]
+        smoke: [october-trip]

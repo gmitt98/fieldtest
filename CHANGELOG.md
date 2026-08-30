@@ -97,7 +97,7 @@ hundred. At `runs: 5`, one flipped judgment moves it by 0.2.
 ```
 
 The interval is Wilson score; at five runs with zero failures the normal approximation gives
-[0, 0]. `defaults.confidence` sets the level, default 0.95. Delta entries gain an `overlapping`
+[0, 0]. `defaults.confidence_level` sets the level, default 0.95. Delta entries gain an `overlapping`
 flag when the two intervals overlap.
 
 For CI, `failure_rate_ci[0]` is the rate your sample actually supports:
@@ -251,25 +251,122 @@ than the run.
 `fieldtest validate` now reports which providers your config reaches and whether
 each credential is set, before the run rather than twenty errored rows into it.
 
+### A dataset to write your first eval against
+
+The demos show a finished eval suite. Every eval in them is already written,
+which makes them a poor place to learn how to write one.
+
+```bash
+fieldtest dataset use expense-report
+fieldtest score --set full          # no API key needed
+```
+
+`expense-report` ships the artifacts and leaves the evals to you: a prompt, a
+travel policy, receipt files, and nine outputs as though a generator had just
+written them. Six carry a deliberate fault. Two of those are catchable with no
+API call, because the shipped scaffold's filled-in evals are `rule`, `regex`
+and `reference` — so the first run produces real failures before you have a key
+or have written anything. Three more evals are `TODO`.
+
+`support-agent` is the second: nine JSON agent traces, with tool calls, tool
+results and the message the agent sent. fieldtest needs no new concept for this
+— an output is text, and a rule eval parses the trace however it likes. Four of
+its six faults are deterministic, including a trace that tells the customer a
+case was escalated when the tool returned an error.
+
+Each ships a `reference-evals.yaml` answer key covering all five judge types. They are
+worth reading for their failures too: `expense-report`'s `caps_applied` eval is
+scoped in writing to judge two daily caps, and the judge still fails outputs for
+unrelated defects. The fixtures carry human labels, so the report says so — 100%
+judge/human agreement on every deterministic eval, 66.7% on that one.
+
+### The HTML report shows the judge too
+
+The markdown report has named the judge since the start of this release, and
+carried judge-repeatability and judge-vs-label tables alongside it. The HTML
+report — the one `fieldtest view` opens — showed none of them, while embedding
+every figure in its own data.
+
+It now carries a judge line in the header:
+
+```
+Judge: anthropic/claude-haiku-4-5 · temp 0.0 · judged 3× each · 4f10569a
+```
+
+plus a **Judge vs your labels** table wherever fixtures carry labels, and a
+**Judge repeatability** table wherever `judge_runs > 1`. Agreement below 80% is
+marked. Neither appears when there is nothing to report.
+
+Both reports also stop listing rule and regex evals in the repeatability table.
+`judge_runs` applies to LLM evals — a rule is evaluated once however high you
+set it — but the summary recorded the configured number on every eval, so rule
+evals appeared at "0.0% disagreement" as though a judge had been asked twice
+and agreed. The field now records how many times each eval was actually
+judged.
+
+### Fixture inputs can name a file
+
+```yaml
+inputs:
+  policy: "file:sources/travel-policy.md"
+```
+
+Previously the judge would have been shown the string `sources/travel-policy.md`
+and asked whether the output was grounded in it. `file:` reads the document at
+fixture load, so rule evals and LLM evals are handed the same thing, and a
+missing target fails `fieldtest validate` rather than the twentieth judge call.
+
+Values without the prefix are unchanged, so `question: "see notes/faq.md"` stays
+a literal string.
+
 ---
 
 ## Changes from v0.2.2
 
 - Config `schema_version: 2`. Version 1 configs load unchanged for one minor release
 - `-data.json` adds `schema_version`, `judge`, `judge_runs`; summaries add `failure_rate_ci`,
-  `confidence`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
+  `confidence_level`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
+- New: `fieldtest dataset list` / `fieldtest dataset use <name>`
+- Fixed: every Anthropic judge call failed on a fresh install. anthropic 1.2.0
+  removed `temperature` from `messages.create()`, and the drop path did not
+  recognise a client-library `TypeError` as a refusal. It does now — the call
+  completes and the header names the dropped parameter
+- `fieldtest validate` warns when a fixture set is declared in one use case and
+  not another — `--set <name>` fails for the use case that lacks it, and nothing
+  said so before the command was spent
+- `fieldtest history` says how many older result files it could not read
+- The report header no longer claims a per-eval output count across use cases —
+  it multiplied total fixtures by runs, so a project with 11 resume and 3
+  cover-letter fixtures was told "42 scored output(s) per eval" when no eval
+  had more than 33
+- Evals whose sample size differs from the baseline are named, so a redefined
+  fixture set is not read as a change in the system
+- A baseline that lost judge calls to errors is flagged in both the report and
+  `fieldtest diff` — its rates cover only what survived, so the deltas are not
+  like-for-like
+- Judge-error remediation names the provider's stated cause (out of credit, over
+  quota, rate limited, key rejected, model unknown) instead of generic advice
+- New: `fieldtest --version`
+- New: `fieldtest help [COMMAND]`; `fieldtest --help <command>` now shows that
+  command's help instead of the general help
+- `fieldtest calibrate` accepts `--set` as well as the positional set name, matching `score`
+- Fixed: a calibration panel could fail with "No rule registered for eval ..." — the
+  rule-file load memo recorded a path before executing it, so a second judge thread
+  proceeded against an empty registry
+- Commands find `config.yaml` when run from inside `evals/`, not only from its parent
+- Fixture inputs accept a `file:` prefix, read at load time
 - New provider `openai_compatible`, plus a `providers` config block and the
   `@provider` decorator loaded from `evals/providers.py`
-- New config: `defaults.judge_temperature`, `judge_seed`, `judge_retry`, `confidence`;
+- New config: `defaults.judge_temperature`, `judge_seed`, `judge_retry`, `confidence_level`;
   `fixtures.judge_runs`; `calibration.panel`; `Eval.judge_sees_inputs`
 - Fixtures accept a `labels` block — per eval, per generator run
 - `ProviderAdapter.call()` takes generation and retry config
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 399, in three tiers (`unit`, `integration`, opt-in `live`),
-  plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
+- Test suite: 130 → 569, in three tiers (`unit`, `integration`, opt-in `live`),
+  plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 
 **Breaking:** results move. Pinning temperature removes sampling noise; showing the judge your
@@ -277,5 +374,12 @@ fixture inputs changes what it can see. Both are corrections, and both mean your
 0.3.0 is not comparable to your last on 0.2.2. `find_baseline()` will not compare across judge
 fingerprints, so the first post-upgrade run simply finds no baseline.
 
-`schema_version: 1` configs still load. The `jq` gating patterns in the README still work —
-every `-data.json` change is additive.
+A key fieldtest does not recognise is now an error naming the key, rather than a value
+silently dropped. That is the second half of the `confidence` → `confidence_level` rename:
+without it an upgraded config kept the old key, lost the setting, and reported intervals at
+the default width with nothing to show for it. The same check catches a `runs:` written one
+level above `fixtures:`, which quietly ran the default five times instead of yours. If your
+config carries a stray key, `fieldtest validate` now names it and says where it belongs.
+
+Otherwise `schema_version: 1` configs still load. The `jq` gating patterns in the README
+still work — every `-data.json` change is additive.

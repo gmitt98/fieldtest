@@ -39,6 +39,15 @@ def history(config_path: Optional[str]):
         return
 
     result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
+
+    # Runs written before the -data.json naming are invisible to that glob.
+    # A long-lived project can have most of its history in the old layout —
+    # one had 24 of 32 — and listing the rest without a word reads as
+    # "that is all there is".
+    legacy = [
+        f for f in results_dir.glob("*.json")
+        if not f.name.endswith("-data.json")
+    ]
     if not result_files:
         click.echo(
             f"No results found at {results_dir}.\n"
@@ -82,7 +91,7 @@ def history(config_path: Optional[str]):
         def _tag_rate(tag: str) -> str:
             rates = []
             for uc_stats in summary.values():
-                for ev_id, stats in uc_stats.get(tag, {}).items():
+                for stats in uc_stats.get(tag, {}).values():
                     fr = stats.get("failure_rate")
                     if fr is not None:
                         rates.append(fr)
@@ -99,6 +108,14 @@ def history(config_path: Optional[str]):
             f"{run_id:<26}  {ts_display:<18}  {set_name:<12}  "
             f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
         )
+
+    if legacy:
+        click.echo(
+            f"\n  {len(legacy)} older result file(s) in this directory are not "
+            f"listed — they predate the current naming and carry no summary "
+            f"fieldtest can read."
+        )
+
 
 @click.command()
 @click.argument("run_id", default=None, required=False)
@@ -217,6 +234,27 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     elif cur_judge and base_run_id and base_judge is None:
         click.echo(
             "⚠ Baseline predates judge tracking — the judge that produced it is unknown."
+        )
+        click.echo("")
+
+    # A baseline that lost most of its judge calls is a rate over whatever
+    # survived. Comparing against it is not like-for-like, and `diff` is where
+    # someone reads these numbers most closely.
+    changed = delta.get("sample_changed") or []
+    if base_run_id and changed:
+        shown = ", ".join(changed[:4]) + (" …" if len(changed) > 4 else "")
+        click.echo(
+            f"⚠ {len(changed)} eval(s) scored a different number of outputs than "
+            f"the baseline ({shown}) — these deltas include a change of population."
+        )
+        click.echo("")
+
+    share = delta.get("baseline_error_share") or 0.0
+    if base_run_id and share >= 0.1:
+        click.echo(
+            f"⚠ Baseline lost {share * 100:.0f}% of its judge calls to errors — "
+            f"its rates cover only what survived, so these deltas are not "
+            f"like-for-like."
         )
         click.echo("")
 

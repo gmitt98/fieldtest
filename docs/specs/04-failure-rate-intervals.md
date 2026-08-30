@@ -45,7 +45,7 @@ Binary eval summary entry gains:
 {
   "failure_rate": 0.2,
   "failure_rate_ci": [0.0362, 0.6245],
-  "confidence": 0.95,
+  "confidence_level": 0.95,
   "total_runs": 5,
   "error_count": 0,
   "floor_hits": 0
@@ -73,7 +73,11 @@ Delta entries gain a boolean:
 }
 ```
 
-`config.Defaults` gains `confidence: float = 0.95`, validated to the open interval (0, 1).
+`config.Defaults` gains `confidence_level: float = 0.95`, validated to the open interval (0, 1).
+Named `confidence_level` rather than `confidence`: in a tool whose other settings configure LLM
+judges, a bare `confidence` reads as a model reporting how sure it is of its own answer. It is a
+Wilson interval computed from pass and fail counts, no judge is consulted, and self-reported
+model confidence is exactly the kind of unvalidated number this project argues against.
 
 ## §4 Compatibility
 

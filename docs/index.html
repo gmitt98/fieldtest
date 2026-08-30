@@ -156,6 +156,12 @@ hr.divider {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Tabular output (aligned columns) must not wrap — scroll it instead. */
+.terminal-body pre.tabular {
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
 .t-prompt { color: #7ec8e3; }
 .t-cmd { color: #ffffff; font-weight: 500; }
 .t-comment { color: #666; }
@@ -532,7 +538,15 @@ hr.divider {
   height: 52px;
 }
 .nav-brand { font-size: 16px; font-weight: 800; letter-spacing: -0.5px; color: var(--ink); }
-.nav-links { display: flex; gap: 24px; }
+.nav-links {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-link { white-space: nowrap; }
 .nav-link { font-size: 13px; color: var(--ink3); font-weight: 500; }
 .nav-link:hover { color: var(--ink); }
 .nav-pill {
@@ -565,6 +579,11 @@ hr.divider {
   .types-grid { grid-template-columns: 1fr; }
   .output-files { grid-template-columns: 1fr; }
   .principle { grid-template-columns: 1fr; gap: 4px; }
+
+  /* The nav ran off the side on a phone: eight links at a fixed 24px gap in a
+     375px viewport. Scroll them within the bar rather than widening the page. */
+  .nav-inner { min-width: 0; }
+  .nav-links { gap: 18px; }
 }
 </style>
 
@@ -592,10 +611,13 @@ hr.divider {
     <div class="nav-brand">fieldtest</div>
     <div class="nav-links">
       <a class="nav-link" href="#quickstart">Quickstart</a>
+      <a class="nav-link" href="#commands">Commands</a>
+      <a class="nav-link" href="#dataset">Dataset</a>
+      <a class="nav-link" href="https://github.com/gmitt98/fieldtest/blob/HEAD/docs/walkthrough.md">Walkthrough</a>
       <a class="nav-link" href="#report">Report</a>
       <a class="nav-link" href="#concepts">Concepts</a>
-      <a class="nav-link" href="#judge">Judge</a>
       <a class="nav-link" href="#config">Config</a>
+      <a class="nav-link" href="#judge">Judge</a>
       <a class="nav-link" href="#philosophy">Philosophy</a>
     </div>
     <span class="nav-pill">v0.3.0</span>
@@ -707,12 +729,403 @@ hr.divider {
   </div>
 </section>
 
+<!-- ── Commands ── -->
+<section id="commands">
+  <div class="container">
+    <div class="section-label">Every command</div>
+    <h2 class="section-title">Eleven commands, and you need three.</h2>
+    <p class="section-sub"><code>init</code> to scaffold, <code>score</code> to measure, <code>view</code> to read the report. The rest are there when you need them.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">$ fieldtest --help</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-out">Commands:
+  <span class="t-cmd">calibrate</span>  Run a panel of judges over the same outputs and report how...
+  <span class="t-cmd">clean</span>      Clean up accumulated run artifacts.
+  <span class="t-cmd">dataset</span>    Sample datasets to write evals against.
+  <span class="t-cmd">demo</span>       Two steps from install to a live eval report.
+  <span class="t-cmd">diff</span>       Compare two runs — default: most recent vs prior.
+  <span class="t-cmd">help</span>       Show help for a command: fieldtest help calibrate
+  <span class="t-cmd">history</span>    List past result files, newest first.
+  <span class="t-cmd">init</span>       Scaffold evals/ directory structure in current project.
+  <span class="t-cmd">score</span>      Score outputs for a given fixture set.
+  <span class="t-cmd">validate</span>   Check config.yaml is valid.
+  <span class="t-cmd">view</span>       Open the HTML eval report in the default browser.</span></pre>
+      </div>
+    </div>
+
+    <div class="output-files" style="margin-top:24px;">
+      <div class="of-card">
+        <div class="of-icon">✅</div>
+        <div class="of-body">
+          <div class="of-name">validate before you spend</div>
+          <div class="of-desc"><code>fieldtest validate</code> checks the config, reports which providers it reaches and whether each credential is set, and projects the judge calls a full run will make. Cost is multiplicative — <code>runs × judge_runs × llm evals × fixtures</code> — so it is worth reading before the bill, not after.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">📉</div>
+        <div class="of-body">
+          <div class="of-name">history and diff</div>
+          <div class="of-desc">Every run writes a timestamped result set. <code>fieldtest history</code> lists them with their judge fingerprint; <code>fieldtest diff</code> compares two, defaulting to the most recent against the prior one. Runs judged by different models are not compared silently — the diff names what changed about the judge first.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Dataset ── -->
+<section id="dataset">
+  <div class="container">
+    <div class="section-label">Write one yourself</div>
+    <h2 class="section-title">The demos are finished. A dataset is not.</h2>
+    <p class="section-sub">Every eval in the demos is already written, which makes them a poor place to learn to write one. A dataset ships the artifacts — a prompt, source documents, and outputs as though a generator had just written them — and leaves the evals to you.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">Terminal</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset list</span>
+<span class="t-out">Bundled datasets:
+  expense-report — A dataset to write evals against.
+  support-agent — A dataset of agent traces to write evals against.</span>
+
+<span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset use expense-report</span>
+<span class="t-out">Copied 'expense-report' to evals/
+  evals/README.md   what is in it and what to write
+  evals/config.yaml your evals — three are TODO</span>
+
+<span class="t-green">Run it now (no API key needed):  fieldtest score --set full</span></pre>
+      </div>
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">What the assistant was given</h3>
+    <p class="section-sub">Three inputs, named on the fixture with <code>file:</code> so the judge receives the documents rather than their paths.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/PROMPT.md</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="t-out">You are an expense assistant for Meridian Corp.
+
+You will be given the company travel policy and a CSV of receipts for one trip.
+
+Apply the limits and exclusions in the policy: where an amount exceeds a daily
+limit, reimburse up to the limit; where the policy excludes a category,
+reimburse nothing for it.
+
+Produce a reimbursement summary containing, in this order:
+
+1. A table with one row per receipt: receipt ID, date, category, claimed
+   amount, and reimbursable amount.
+2. A short section listing every amount that was reduced or excluded, naming
+   the policy section that required it.
+3. A final line in exactly this form:
+
+   Total reimbursable: $N.NN
+
+Use only the receipts you are given. Do not invent receipts, merchants, or
+amounts. If a receipt is fully reimbursable, the claimed and reimbursable
+amounts are the same.</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/sources/travel-policy.md — excerpt</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="t-bold t-out">## 4.1 Daily limits</span>
+
+<span class="t-out">- <span class="t-yellow">Meals</span> are reimbursed up to <span class="t-yellow">$75 per day</span>. Amounts above the cap are the
+  employee's responsibility; the rest of the receipt is still reimbursed.
+- <span class="t-yellow">Lodging</span> is reimbursed up to <span class="t-yellow">$250 per night</span>, excluding taxes and fees.
+- Ground transport (taxi, rideshare, rail, parking) has no daily cap.</span>
+
+<span class="t-bold t-out">## 4.3 Exclusions</span>
+
+<span class="t-out">Never reimbursable, regardless of amount or approval:
+  <span class="t-red">Alcohol</span> · In-room entertainment · Fines and citations · Personal items</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/sources/receipts-october.csv</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-dim">receipt_id,date,category,merchant,amount</span>
+<span class="t-out">R-1041,2026-10-03,airfare,United Airlines,412.60
+R-1042,2026-10-03,ground,Uber,38.20
+<span class="t-red">R-1043,2026-10-03,lodging,Hyatt Regency,268.00</span>   <span class="t-comment">← over the $250 cap</span>
+R-1044,2026-10-04,meals,Blue Fig Cafe,52.75
+<span class="t-red">R-1045,2026-10-04,meals,Harbor Grill,91.40</span>    <span class="t-comment">← over the $75 cap</span>
+R-1046,2026-10-05,ground,Uber,41.15</span>
+
+<span class="t-comment">claimed $904.10 · correctly reimbursable $869.70</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/fixtures/october-trip.yaml</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cy">id:</span> <span class="cs">october-trip</span>
+<span class="cy">description:</span> <span class="cs">Reimbursement summary for Dana Okafor</span>
+
+<span class="cy">inputs:</span>
+  <span class="cy">prompt:</span>   <span class="cs">"file:PROMPT.md"</span>
+  <span class="cy">policy:</span>   <span class="cs">"file:sources/travel-policy.md"</span>
+  <span class="cy">receipts:</span> <span class="cs">"file:sources/receipts-october.csv"</span>
+  <span class="cy">employee:</span> <span class="cs">"Dana Okafor"</span>
+
+<span class="cy">labels:</span>                          <span class="cc"># your verdicts, per run</span>
+  <span class="cy">total_matches_line_items:</span>
+    <span class="cy">1:</span> <span class="cv">pass</span>
+    <span class="cy">2:</span> <span class="cv">pass</span>      <span class="cc"># consistent, and still wrong about the cap</span>
+    <span class="cy">3:</span> <span class="cv">fail</span></pre>
+      </div>
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">What it produced</h3>
+    <p class="section-sub">Two runs for the same trip. The second reimburses R-1045 at <strong>$91.40</strong> against a $75 cap — and its total adds up perfectly against its own column, so no arithmetic check catches it.</p>
+
+    <div class="types-grid">
+      <div class="terminal" style="margin:0;">
+        <div class="terminal-bar">
+          <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+          <span class="terminal-label">run-1.txt — clean</span>
+        </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-dim">receipt  category   claimed  reimb.</span>
+<span class="t-out">R-1041   airfare    412.60   412.60
+R-1042   ground      38.20    38.20
+R-1043   lodging    268.00   <span class="t-green">250.00</span>
+R-1044   meals       52.75    52.75
+R-1045   meals       91.40    <span class="t-green">75.00</span>
+R-1046   ground      41.15    41.15
+
+### Reductions
+- R-1043 reduced $18.00 (policy 4.1)
+- R-1045 reduced $16.40 (policy 4.1)
+
+Total reimbursable: <span class="t-green">$869.70</span></span></pre>
+        </div>
+      </div>
+
+      <div class="terminal" style="margin:0;">
+        <div class="terminal-bar">
+          <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+          <span class="terminal-label">run-2.txt — meal cap missed</span>
+        </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-dim">receipt  category   claimed  reimb.</span>
+<span class="t-out">R-1041   airfare    412.60   412.60
+R-1042   ground      38.20    38.20
+R-1043   lodging    268.00   250.00
+R-1044   meals       52.75    52.75
+R-1045   meals       91.40   <span class="t-red">  91.40</span>
+R-1046   ground      41.15    41.15
+
+### Reductions
+- R-1043 reduced $18.00 (policy 4.1)
+
+
+Total reimbursable: <span class="t-red">$886.10</span></span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:20px;">
+      <strong>$886.10 is arithmetically correct.</strong> Catching this one means reading the policy, not adding up — which is the difference between a rule and a judge, and the eval the dataset leaves for you to write.
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">The evals that ship</h3>
+    <p class="section-sub">Four written, three <code>TODO</code>. Every written one is deterministic, so the first run works before you have a key.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/config.yaml — abridged</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cc"># ---- RIGHT — is it correct? ----</span>
+<span class="cy">- id:</span> <span class="cs">total_matches_line_items</span>
+  <span class="cy">tag:</span> <span class="ct">right</span>
+  <span class="cy">type:</span> <span class="cv">rule</span>
+  <span class="cy">description:</span> <span class="cs">the stated total equals the sum of the reimbursable column</span>
+
+<span class="cy">- id:</span> <span class="cs">golden_summary</span>
+  <span class="cy">tag:</span> <span class="ct">right</span>
+  <span class="cy">type:</span> <span class="cv">reference</span>
+
+<span class="t-red"># TODO one of the outputs cites a receipt that exists in no source file.</span>
+<span class="cc">#      rules.py has the sketch. Uncomment and finish.</span>
+
+<span class="cc"># ---- GOOD — is it well-formed? ----</span>
+<span class="cy">- id:</span> <span class="cs">no_unfilled_placeholders</span>
+  <span class="cy">tag:</span> <span class="ct">good</span>
+  <span class="cy">type:</span> <span class="cv">regex</span>
+  <span class="cy">pattern:</span> <span class="cs">'\$?\[[A-Z_]+\]'</span>
+  <span class="cy">match:</span> <span class="cv">false</span>
+
+<span class="t-red"># TODO one output gives numbers and no reductions section. Is that a</span>
+<span class="cc">#      `right` failure or a `good` one? Decide, then write it.</span>
+
+<span class="cc"># ---- SAFE — what must never happen? ----</span>
+<span class="cy">- id:</span> <span class="cs">excluded_categories_not_reimbursed</span>
+  <span class="cy">tag:</span> <span class="ct">safe</span>
+  <span class="cy">type:</span> <span class="cv">rule</span>
+
+<span class="t-red"># TODO one output reimburses above a policy cap. The sum is internally</span>
+<span class="cc">#      consistent, so a rule that only adds up will not catch it.</span></pre>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/rules.py</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cc">@rule(<span class="cs">"total_matches_line_items"</span>)</span>
+<span class="t-out">def total_matches_line_items(output: str, inputs: dict) -&gt; dict:
+    <span class="cs">"""
+    The stated total must equal the sum of the reimbursable column.
+
+    This is the eval an LLM judge is worst at and a rule is best at. A judge
+    reading a plausible-looking table tends to accept the total printed under
+    it; addition either works or it does not.
+    """</span>
+    rows = ROW.findall(output)
+    stated = TOTAL.search(output)
+    line_sum = sum(_money(amount) for _, amount in rows)
+    claimed  = _money(stated.group(<span class="cv">1</span>))
+    ok = abs(line_sum - claimed) &lt; <span class="cv">0.005</span>
+    return {
+        <span class="cs">"passed"</span>: ok,
+        <span class="cs">"detail"</span>: <span class="cs">f"line items sum to ${line_sum:.2f}, output states ${claimed:.2f}"</span>,
+    }</span></pre>
+      </div>
+    </div>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">A scored eval, for comparison</h3>
+    <p class="section-sub">Not everything is a verdict. The answer key uses one of these for explanation quality — a 1–5 scale with <code>anchors</code> saying what each point means.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/reference-evals.yaml</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cy">- id:</span> <span class="cs">explanation_clarity</span>
+  <span class="cy">tag:</span> <span class="ct">good</span>
+  <span class="cy">type:</span> <span class="cv">llm</span>
+  <span class="cy">binary:</span> <span class="cv">false</span>                 <span class="cc"># a number, not a verdict</span>
+  <span class="cy">description:</span> <span class="cs">how clearly the reductions are explained</span>
+  <span class="cy">scale:</span> [<span class="cv">1</span>, <span class="cv">5</span>]
+  <span class="cy">anchors:</span>
+    <span class="cy">1:</span> <span class="cs">No explanation, or one that does not say why an amount changed.</span>
+    <span class="cy">3:</span> <span class="cs">States what was reduced and cites the policy, but the employee
+       would still have to reread the policy to understand the number.</span>
+    <span class="cy">5:</span> <span class="cs">States what was reduced, by how much, and why, so the employee
+       can check it without opening the policy.</span></pre>
+      </div>
+    </div>
+
+    <p class="section-sub">It reports as <code>3.1111/5</code> with a <code>stddev</code> and a count of floor hits, rather than a pass rate. Two outputs scored 1 and are named in the report so you can go read them.</p>
+
+    <h3 style="margin:44px 0 8px;font-size:20px;">The run</h3>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">$ fieldtest score --set full</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-bold t-out"># Eval Report</span>
+<span class="t-dim">2026-08-29 21:36 | set: full | 3 fixtures × 3 runs = 9 evaluations per eval</span>
+
+<span class="t-bold t-out">### Tag Health</span>
+<span class="t-out">| tag   | pass rate | passed / total |
+| <span class="t-yellow">RIGHT</span> | 75%       | 9 / 12         |
+| <span class="t-yellow">GOOD</span>  | 89%       | 8 / 9          |
+| <span class="t-yellow">SAFE</span>  | 89%       | 8 / 9          |</span>
+
+<span class="t-bold t-out">### Judge vs Human Labels</span>
+<span class="t-out">| eval                               | labeled runs | agreement |
+| golden_summary                     | 3            | <span class="t-green">100.0%</span>    |
+| total_matches_line_items           | 9            | <span class="t-green">100.0%</span>    |
+| no_unfilled_placeholders           | 9            | <span class="t-green">100.0%</span>    |
+| excluded_categories_not_reimbursed | 9            | <span class="t-green">100.0%</span>    |</span>
+
+<span class="t-bold t-out">### Failure Details</span>
+
+<span class="t-out"><span class="t-bold">excluded_categories_not_reimbursed</span>
+- `june-trip` run 2: <span class="t-red">R-1190 (alcohol) reimbursed $47.00</span>
+
+<span class="t-bold">golden_summary</span>
+- `march-trip` run 2: <span class="t-red">missing: Total reimbursable: $98.30</span>
+
+<span class="t-bold">no_unfilled_placeholders</span>
+- `march-trip` run 2: <span class="t-red">pattern '\$?\[[A-Z_]+\]' found</span>
+
+<span class="t-bold">total_matches_line_items</span>
+- `march-trip` run 2: <span class="t-red">no 'Total reimbursable: $N.NN' line</span>
+- `october-trip` run 3: <span class="t-red">line items sum to $897.70, output states $912.70</span></span></pre>
+      </div>
+    </div>
+
+    <p class="section-sub" style="margin-top:20px;">Five failures across three of the nine outputs. Three faulty outputs go unflagged — those are the three <code>TODO</code> evals, and two of them need a judge.</p>
+
+    <div class="output-files" style="margin-top:28px;">
+      <div class="of-card">
+        <div class="of-icon">📄</div>
+        <div class="of-body">
+          <div class="of-name">Artifacts, not answers</div>
+          <div class="of-desc">Six of the nine outputs carry a deliberate fault; three are clean. The prompt is a fixture input, so <em>did it do what was asked</em> is an eval you can write. A second dataset, <code>support-agent</code>, ships nine JSON agent traces — tool calls, tool results, and the message the agent sent.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">🔌</div>
+        <div class="of-body">
+          <div class="of-name">Runs before you have a key</div>
+          <div class="of-desc">The filled-in evals are <code>rule</code>, <code>regex</code> and <code>reference</code> — all deterministic. Two planted faults are catchable by arithmetic alone. Reach for an LLM judge when the question needs judgment, not when it needs addition.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">✍️</div>
+        <div class="of-body">
+          <div class="of-name">You write the missing one</div>
+          <div class="of-desc">One output cites receipt <code>R-1049</code>, which exists in no source file, and nothing that ships catches it on its own. Write eight lines of Python, re-run, and the report says <code>october-trip run 3: cites R-1049, which is in no source receipt</code>.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">🗝️</div>
+        <div class="of-body">
+          <div class="of-name">An answer key that is wrong on purpose</div>
+          <div class="of-desc"><code>reference-evals.yaml</code> covers all five judge types. Its <code>caps_applied</code> eval says in writing to judge two daily caps and ignore everything else, and the judge still flags unrelated defects. Human labels ship alongside, so the report scores the judge: 100% agreement on every rule and regex eval, 66.7% on that one.</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="section-sub" style="margin-top:24px;"><strong><a href="https://github.com/gmitt98/fieldtest/blob/HEAD/docs/walkthrough.md">Read the full walkthrough →</a></strong> The same path end to end, including writing the missing eval and watching it fire.</p>
+  </div>
+</section>
+
 <!-- ── Report ── -->
 <section class="alt" id="report">
   <div class="container">
     <div class="section-label">HTML Report</div>
     <h2 class="section-title">Everything in one file.</h2>
-    <p class="section-sub">Every scored run generates a self-contained HTML report. No server, no dashboard, no dependencies. <code>fieldtest view</code> opens it in your browser. Below: the RAG demo report.</p>
+    <p class="section-sub">Every scored run generates a self-contained HTML report. No server, no dashboard, no dependencies. <code>fieldtest view</code> opens it in your browser. It names the judge that produced the numbers — provider, model, temperature, fingerprint — and, where you have them, how often that judge agreed with your labels and with itself. Below: the RAG demo report.</p>
 
     <div class="report-preview">
       <!-- Header -->
@@ -1012,6 +1425,12 @@ hr.divider {
         <div class="type-note">Most flexible. Per-eval model overrides supported — use Haiku for most, Sonnet for subtle judgments.</div>
       </div>
       <div class="type-card">
+        <div class="type-badge">llm · scored</div>
+        <div class="type-title">Scored LLM judge</div>
+        <div class="type-desc">Set <code>binary: false</code> and the judge returns a number on a <code>scale</code> instead of a verdict. <code>anchors</code> describe what each point means, so the scale measures the same thing run to run.</div>
+        <div class="type-note">Reported as mean and <code>stddev</code>, not a pass rate — the distribution is the answer. Any run at the bottom of the scale is flagged as a floor hit.</div>
+      </div>
+      <div class="type-card">
         <div class="type-badge">reference</div>
         <div class="type-title">Reference comparison</div>
         <div class="type-desc">Compares output against an <code>expected</code> block in the fixture. Checks <code>contains</code> (required strings) and <code>not_contains</code> (forbidden strings).</div>
@@ -1034,6 +1453,13 @@ hr.divider {
         <div class="of-body">
           <div class="of-name">Pinned by default</div>
           <div class="of-desc">Judges run at temperature 0.0, not the provider default. Score the same outputs twice, get the same answer twice. If a model refuses the parameter, the run completes and the report header names it.</div>
+        </div>
+      </div>
+      <div class="of-card">
+        <div class="of-icon">👁️</div>
+        <div class="of-body">
+          <div class="of-name">The judge sees the question</div>
+          <div class="of-desc">Judges used to receive the output and nothing else, so a grounding eval asking whether every claim traces to the source was answering without the source. Fixture <code>inputs</code> now go to the judge alongside the output. Set <code>judge_sees_inputs: false</code> on an eval that should read the output alone, or to keep a large retrieved context out of every call.</div>
         </div>
       </div>
       <div class="of-card">
@@ -1068,7 +1494,7 @@ hr.divider {
         <div class="of-icon">⚖️</div>
         <div class="of-body">
           <div class="of-name">fieldtest calibrate</div>
-          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first.</div>
+          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first, and <code>calibration.kappa_threshold</code> sets the point below which a judge pair is flagged as agreeing no better than chance.</div>
         </div>
       </div>
       <div class="of-card">
@@ -1080,11 +1506,39 @@ hr.divider {
       </div>
     </div>
 
-    <div class="code-window" style="margin-top:28px;">
-      <div class="cw-bar"><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-dot"></span><span class="cw-title">evals/config.yaml</span></div>
-<pre class="cw-body"><span class="cy">defaults:</span>
+    <h3 style="margin:44px 0 8px;font-size:20px;">Judging the same output twice</h3>
+    <p class="section-sub">Every sample above judges each output once. Set <code>judge_runs</code> above 1 and the report separates two things a single <code>stddev</code> cannot tell apart.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">$ fieldtest score --config reference-evals.yaml --set full</span>
+      </div>
+<div class="terminal-body">
+<pre class="tabular"><span class="t-bold t-out">### Judge Repeatability (judge_runs: 2)</span>
+<span class="t-out">| eval                        | judge disagreement | system spread | judge spread |
+| follows_requested_structure | <span class="t-green">0.0%</span>               | —             | —            |
+| explanation_clarity         | —                  | <span class="t-yellow">1.633</span>         | <span class="t-green">0.0</span>          |
+| caps_applied                | <span class="t-green">0.0%</span>               | —             | —            |</span></pre>
+      </div>
+    </div>
+
+    <p class="section-sub">The middle row is the whole argument. <code>explanation_clarity</code> is a scored eval, and its two numbers say the outputs genuinely differ from one another (<strong>system spread 1.633</strong>) while the judge scores each one identically every time (<strong>judge spread 0.0</strong>). Without the repetition you get one <code>stddev</code> and no way to tell which of those produced it.</p>
+
+    <p class="section-sub">Judge spread climbing toward system spread is the signal to rewrite the <code>pass_criteria</code>: the judge is disagreeing with itself, which is a fact about the words, not about your system. Binary evals report disagreement instead — the share of outputs where repeated verdicts differed. It costs <code>runs × judge_runs</code> judge calls, so <code>--dry-run</code> first.</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
+        <span class="terminal-label">evals/config.yaml</span>
+      </div>
+<div class="terminal-body">
+<pre><span class="cy">defaults:</span>
   <span class="cy">judge_temperature:</span> <span class="cs">0.0</span>          <span class="cc"># the instrument, held still</span>
-  <span class="cy">confidence:</span> <span class="cs">0.95</span>               <span class="cc"># interval on every binary rate</span>
+  <span class="cy">judge_seed:</span> <span class="cs">null</span>                <span class="cc"># where the provider supports one</span>
+  <span class="cy">judge_retry:</span>                     <span class="cc"># 5/10/20/40/60/60s by default</span>
+    <span class="cy">max_attempts:</span> <span class="cs">6</span>
+  <span class="cy">confidence_level:</span> <span class="cs">0.95</span>         <span class="cc"># Wilson interval width, not a model's self-report</span>
 
 <span class="cy">providers:</span>
   <span class="cy">openai_compatible:</span>
@@ -1096,6 +1550,7 @@ hr.divider {
     - { <span class="cy">provider:</span> <span class="cs">anthropic</span>, <span class="cy">model:</span> <span class="cs">claude-haiku-4-5</span> }
     - { <span class="cy">provider:</span> <span class="cs">openai</span>, <span class="cy">model:</span> <span class="cs">gpt-5</span> }
     - { <span class="cy">provider:</span> <span class="cs">openai_compatible</span>, <span class="cy">model:</span> <span class="cs">meta-llama/llama-3.3-70b-instruct</span> }</pre>
+      </div>
     </div>
   </div>
 </section>
@@ -1105,7 +1560,7 @@ hr.divider {
   <div class="container">
     <div class="section-label">Output files</div>
     <h2 class="section-title">Every scored run writes five files.</h2>
-    <p class="section-sub">All outputs land in <code>evals/results/[run-id]/</code>. No database. No server. Files you can diff, commit, open in Excel, or drop in a bug report.</p>
+    <p class="section-sub">All outputs land in <code>evals/results/</code>, five files per run sharing a <code>[run-id]</code> prefix. No database. No server. Files you can diff, commit, open in Excel, or drop in a bug report.</p>
 
     <div class="output-files">
       <div class="of-card">
@@ -1147,39 +1602,43 @@ hr.divider {
 
     <hr class="divider">
 
-    <div class="section-label" style="margin-top: 0;">All commands</div>
+    <div class="section-label" style="margin-top: 0;">Common invocations</div>
+    <p class="section-sub" style="margin-bottom:16px;">The full command list is in <a href="#commands">Every command</a> above — this is the shape of a working day.</p>
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div>
         <div class="terminal-dot yellow"></div>
         <div class="terminal-dot green"></div>
-        <span class="terminal-label">fieldtest CLI reference</span>
+        <span class="terminal-label">day to day</span>
       </div>
       <div class="terminal-body">
-<pre><span class="t-comment"># ── Demo and exploration ─────────────────────────────</span>
-<span class="t-cmd">fieldtest demo</span>                   <span class="t-comment"># interactive example picker</span>
-<span class="t-cmd">fieldtest demo --example rag --offline</span>    <span class="t-comment"># offline, instant</span>
-<span class="t-cmd">fieldtest demo --example email</span>   <span class="t-comment"># re-score with rule evals</span>
-<span class="t-cmd">fieldtest view</span>                   <span class="t-comment"># open latest HTML report in browser</span>
-<span class="t-cmd">fieldtest view 20260331-a4b2</span>     <span class="t-comment"># open specific run</span>
+<pre><span class="t-comment"># ── Look before you spend ────────────────────────────</span>
+<span class="t-cmd">fieldtest validate</span>               <span class="t-comment"># config valid? keys set? how many judge calls?</span>
+<span class="t-cmd">fieldtest calibrate --dry-run</span>    <span class="t-comment"># what a judge panel would cost, calling nothing</span>
 
-<span class="t-comment"># ── Start a real project ──────────────────────────────</span>
-<span class="t-cmd">fieldtest init</span>                   <span class="t-comment"># scaffold evals/ directory</span>
-<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># curated template: chatbot, rag, or email</span>
+<span class="t-comment"># ── Explore without a key ────────────────────────────</span>
+<span class="t-cmd">fieldtest demo --example rag --offline</span>  <span class="t-comment"># pre-scored, instant</span>
+<span class="t-cmd">fieldtest dataset use expense-report</span>    <span class="t-comment"># artifacts to write evals against</span>
 
-<span class="t-comment"># ── Evaluate ──────────────────────────────────────────</span>
-<span class="t-cmd">fieldtest score</span>                  <span class="t-comment"># score all outputs in evals/outputs/</span>
-<span class="t-cmd">fieldtest score --set smoke</span>      <span class="t-comment"># score a named fixture subset</span>
-<span class="t-cmd">fieldtest score --concurrency 10</span> <span class="t-comment"># parallel judge calls</span>
+<span class="t-comment"># ── Start a real project ─────────────────────────────</span>
+<span class="t-cmd">fieldtest init</span>                   <span class="t-comment"># scaffold evals/</span>
+<span class="t-cmd">fieldtest init --template rag</span>    <span class="t-comment"># chatbot, email or rag</span>
 
-<span class="t-comment"># ── Inspect and clean ─────────────────────────────────</span>
-<span class="t-cmd">fieldtest list</span>                   <span class="t-comment"># list all scored runs with summary</span>
-<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete all results (keeps outputs)</span></pre>
+<span class="t-comment"># ── Evaluate ─────────────────────────────────────────</span>
+<span class="t-cmd">fieldtest score</span>                  <span class="t-comment"># score everything in evals/outputs/</span>
+<span class="t-cmd">fieldtest score --set smoke</span>      <span class="t-comment"># one named fixture set</span>
+<span class="t-cmd">fieldtest calibrate</span>              <span class="t-comment"># run the judge panel, report agreement</span>
+
+<span class="t-comment"># ── Read and compare ─────────────────────────────────</span>
+<span class="t-cmd">fieldtest view</span>                   <span class="t-comment"># open the latest HTML report</span>
+<span class="t-cmd">fieldtest history</span>                <span class="t-comment"># past runs, newest first, with judge fingerprint</span>
+<span class="t-cmd">fieldtest diff</span>                   <span class="t-comment"># most recent against the one before</span>
+<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete results, keep outputs</span></pre>
       </div>
     </div>
 
     <div class="callout tip" style="margin-top: 24px;">
-      <strong>Claude Code users:</strong> fieldtest ships with a built-in <code>/optimize</code> skill. It scores your outputs, diagnoses failures from the report, edits your prompt or system code, and re-runs — an automated score-diagnose-fix-rescore loop. Type <code>/optimize</code> in Claude Code inside any fieldtest project.
+      <strong>Claude Code users:</strong> the fieldtest repository includes an <code>/optimize</code> command in <code>.claude/commands/</code>. It is not part of the pip package — clone the repo, or copy that one file into your own project. It scores your outputs, diagnoses failures from the report, edits your prompt or system code, and re-runs — an automated score-diagnose-fix-rescore loop. Type <code>/optimize</code> in Claude Code inside any fieldtest project.
     </div>
   </div>
 </section>

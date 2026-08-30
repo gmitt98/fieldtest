@@ -33,6 +33,37 @@ That's it. You just ran a structured eval suite with four eval types (rule, rege
 
 ---
 
+## Write your first eval against a bundled dataset
+
+**→ [Full walkthrough](docs/walkthrough.md)** — fifteen minutes, no API key:
+install, read the artifacts, run the evals that ship with them, write one
+yourself, watch it catch a defect the others miss.
+
+The demos show you a finished eval suite. A dataset gives you the artifacts and
+leaves the evals to you.
+
+```bash
+fieldtest dataset list
+fieldtest dataset use expense-report
+fieldtest score --set full            # works with no API key
+```
+
+`expense-report` ships a prompt, a travel policy, receipt files, and nine
+outputs as though a generator had just written them. Four evals are filled in —
+one `rule`, one `regex`, one `reference`, one more `rule` — and all four are
+deterministic, so the first run works before you have a key. Three more are
+`TODO` with the question each has to answer.
+
+Six of the nine outputs carry a deliberate fault. Two are catchable by
+arithmetic alone; the rest need a judge. Working out which is which is the
+exercise.
+
+`support-agent` is the other one: nine JSON agent traces — tool calls, tool
+results, and the message the agent sent. An output is text, so a rule eval
+parses the trace however it likes, and four of its six faults need no API call.
+One trace tells the customer a case was escalated when the tool returned an
+error.
+
 ## Three demo modes
 
 ### Mode 1 — Offline (no API key, instant)
@@ -114,6 +145,35 @@ And the corresponding API key:
 export OPENAI_API_KEY=sk-...          # for openai provider
 export GEMINI_API_KEY=...             # for gemini provider
 ```
+
+### Interval width — `confidence_level`
+
+Every binary eval reports a Wilson score interval beside its rate:
+
+```
+| total_matches_line_items | 78% [45–94%] | 9 |
+```
+
+Seven of nine passed. The bracket says the true rate is somewhere between 45%
+and 94%, because nine runs is not much evidence. `defaults.confidence_level`
+sets the level, default `0.95`:
+
+```yaml
+defaults:
+  confidence_level: 0.95   # 0.80 narrows the bracket, 0.99 widens it
+```
+
+**This has nothing to do with asking a model how confident it is.** No judge is
+consulted. The interval is arithmetic on the pass and fail counts — the same
+calculation you would run on a coin. A model's self-reported confidence is
+poorly calibrated and fieldtest never asks for it; a judge returns a verdict,
+and the uncertainty comes from how few verdicts you have.
+
+Wilson rather than the textbook normal approximation because small `n` is the
+normal case here: at `runs: 5` with zero failures the normal interval collapses
+to `[0, 0]`, claiming certainty five samples cannot support.
+
+Scored evals get no interval — `stddev` already conveys their spread.
 
 ### Any OpenAI-compatible endpoint
 
@@ -395,7 +455,7 @@ Use `--template` to start from a pre-filled config based on one of the demo exam
 ```bash
 fieldtest init --template email       # support email response config
 fieldtest init --template rag         # RAG / Q&A config
-fieldtest init --template extraction  # structured extraction config
+fieldtest init --template chatbot     # conversational assistant config
 ```
 
 Templates include all required sections with realistic evals already written. Swap in your system prompt and fixtures.
@@ -531,11 +591,16 @@ description: >
   Baseline fixture; should score well across all evals.
 
 inputs:
-  resume: fixtures/resumes/experienced-swe.txt
-  job:    fixtures/jobs/senior-swe.txt
+  resume: "file:fixtures/resumes/experienced-swe.txt"
+  job:    "file:fixtures/jobs/senior-swe.txt"
   is_recent_grad: false
   expected_name:  "Alex Rivera"
   expected_email: "alex.rivera@email.com"
+
+# `file:` reads the file and passes its contents. Without the prefix the value
+# is a literal string, which is what your generator may want — but an LLM judge
+# would then be shown the path rather than the resume, and a grounding eval
+# would be scoring a filename. Paths are relative to evals/.
 
 # The expected block makes this a "golden" fixture.
 # These are deterministic string checks — no API cost.
@@ -796,6 +861,18 @@ Error: eval 'no_fabrication' (type: llm) missing required field: pass_criteria
 
 ---
 
+### `fieldtest dataset`
+
+```bash
+fieldtest dataset list                              # what is bundled
+fieldtest dataset use expense-report                # copy into ./evals
+fieldtest dataset use expense-report --dest sandbox # copy elsewhere
+```
+
+Copies rather than references, because the point is to edit it. Refuses to
+overwrite a non-empty destination unless you pass `--force`; `results/` is not
+copied, since results belong to whoever runs it.
+
 ### `fieldtest score`
 
 Score all fixtures in the `full` set (the default).
@@ -863,6 +940,40 @@ fieldtest score --concurrency 1
 When a judge is erroring (API failure, malformed response), `--concurrency 1` shows you exactly which fixture and run is triggering it. With parallel execution the errors surface only in the final report, mixed with everything else.
 
 ---
+
+### `fieldtest help`
+
+```bash
+fieldtest help              # the command list
+fieldtest help calibrate    # one command's options
+fieldtest calibrate --help  # the same thing
+fieldtest --help calibrate  # also the same thing
+```
+
+All three forms for a single command are equivalent. `fieldtest --help calibrate` used to print the general help and drop the command name without saying so, which is worse than an error because it looks like an answer. An unrecognised name now exits 2 and lists what exists.
+
+### `fieldtest calibrate`
+
+Score the same outputs with several judges and report how much they agree.
+
+```bash
+fieldtest calibrate                 # the panel in config, over the 'full' set
+fieldtest calibrate smoke           # a named set
+fieldtest calibrate --dry-run       # projected call count, calls nothing
+fieldtest calibrate --concurrency 1 # serialise the judge calls
+```
+
+```
+--config PATH          Path to config.yaml (default: evals/config.yaml)
+--dry-run              Print the projected call count and exit without calling anything
+--concurrency INTEGER  Max parallel judge calls (default: 5)
+```
+
+Needs a `calibration.panel` in config with at least two distinct judges. Rescoring an existing `outputs/` directory costs one extra pass per judge and no generation, so `--dry-run` first is a habit worth having — the bill is `judges × runs × judge_runs × llm evals × fixtures`.
+
+Panel results are not written as a baseline: a panel member's pass is a measurement of the judge, not of your system, so it must never reach `find_baseline()`.
+
+See [Measuring the judge itself](#measuring-the-judge-itself--fieldtest-calibrate) for what the report contains.
 
 ### `fieldtest history`
 
@@ -952,7 +1063,7 @@ Scaffold the eval directory structure in your project. Safe to run in an existin
 fieldtest init                          # creates evals/ in current directory
 fieldtest init --template email         # pre-filled email support template
 fieldtest init --template rag           # pre-filled RAG / Q&A template
-fieldtest init --template extraction    # pre-filled structured extraction template
+fieldtest init --template chatbot       # pre-filled conversational assistant template
 fieldtest init --dir ci/evals           # custom location
 fieldtest init --force                  # overwrite existing files
 ```
@@ -1078,6 +1189,13 @@ Gate only on `safe` evals (looser thresholds for `right`/`good`):
 jq '[.summary[].safe[].failure_rate | select(. != null)] | max // 0' "$DATA"
 ```
 
+Refuse a run that did not score everything, before reading any rate off it:
+
+```bash
+jq -e '.partial != true' "$DATA" \
+  || { echo "partial run: $(jq -r '.partial_details | join(", ")' "$DATA")"; exit 1; }
+```
+
 ### `data.json` summary schema
 
 The fields most commonly used for CI gating:
@@ -1088,6 +1206,8 @@ The fields most commonly used for CI gating:
   "run_id": "2026-03-22T14-30-00-a3f9",
   "set": "regression",
   "dataset_version": "v2",
+  "partial": false,
+  "partial_details": [],
   "judge": {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
@@ -1104,7 +1224,7 @@ The fields most commonly used for CI gating:
         "<eval_id>": {
           "failure_rate": 0.10,
           "failure_rate_ci": [0.0347, 0.2653],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "total_runs": 30,
           "error_count": 0,
           "judge_calls": 30,
@@ -1122,9 +1242,24 @@ The fields most commonly used for CI gating:
 ```
 
 - `failure_rate` is `null` for scored evals; use `mean` instead.
-- `failure_rate_ci` is a two-sided Wilson score interval at `confidence`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
+- One row per **fixture × eval × generator run × judge repetition**. `run` is which
+  output of that fixture — `outputs/<fixture>/run-N.txt` — and `judge_run` is which
+  verdict on that same output. With `runs: 3` and `judge_runs: 3` an llm eval produces
+  nine rows across three outputs.
+- `total_runs` counts scored **outputs**; `judge_calls` counts judge invocations. They
+  differ exactly when `judge_runs > 1`.
+- `failure_rate` is per output, not per row: the repetitions are collapsed to one verdict
+  by majority, ties resolved to fail. Rates therefore stay comparable across `judge_runs`
+  settings — turning repetition on measures the judge without moving the number it reports
+  about your system.
+- `failure_rate_ci` is a two-sided Wilson score interval at `confidence_level`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `judge_calls` is judge calls attempted and `outputs_attempted` is outputs attempted. At `judge_runs: 1` they are equal and both equal `total_runs + error_count`; above 1 they diverge, and `failure_rate`'s denominator is `total_runs` in outputs, not calls.
+- `partial` is true when `--allow-partial` skipped a missing output. The rates are then
+  over a smaller population than `fixture_count × runs` implies, and `partial_details`
+  names what was missing. Gate on it: a run that silently lost half its outputs otherwise
+  reports whatever the survivors did. Absent in runs from before v0.3, so test `!= true`
+  rather than `== false` if your gate may still meet an older file.
 - `dataset_version` is optional; absent in older runs.
 - `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3.
 - `schema_version` is `2`. Runs written before v0.3 have no such key; treat a missing key as `1`.

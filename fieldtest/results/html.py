@@ -29,6 +29,8 @@ def _build_html(run_data: dict, config) -> str:
     rows          = run_data.get("rows", [])
     summary       = run_data.get("summary", {})
     delta         = run_data.get("delta", {})
+    judge         = run_data.get("judge") or {}
+    judge_runs    = run_data.get("judge_runs", 1)
 
     # Judge errors shrink the sample instead of failing the run — say so up top.
     from fieldtest.results.aggregator import summarize_judge_errors
@@ -46,6 +48,23 @@ def _build_html(run_data: dict, config) -> str:
         )
     else:
         judge_error_banner = ""
+
+    # A partial run reports its rates over fewer outputs than the header's
+    # "Runs/fixture" implies. The markdown said so and this page did not, so a
+    # reader comparing the two saw the same numbers with only one caveat.
+    if run_data.get("partial"):
+        details = run_data.get("partial_details") or []
+        shown   = ", ".join(details[:6])
+        more    = f" (+{len(details) - 6} more)" if len(details) > 6 else ""
+        partial_banner = (
+            '<div class="partial-run">'
+            f"⚠ partial run: {len(details)} output(s) missing and skipped"
+            + (f" — {shown}{more}" if details else "")
+            + ". Rates below are over the outputs that were found."
+            "</div>"
+        )
+    else:
+        partial_banner = ""
 
     # Extract timestamp from run_id: 2026-03-22T14-30-00-a3f9
     try:
@@ -100,6 +119,29 @@ def _build_html(run_data: dict, config) -> str:
         }
 
     # Build delta section HTML
+    n_uc = len(config.use_cases)
+    uc_note = f" across {n_uc} use cases" if n_uc > 1 else ""
+    scope_note = (
+        '<p style="font-size:12px;color:#888;margin-bottom:8px;">'
+        f"Rates below cover all {n_uc} use cases. Each use case reports its own "
+        "below.</p>"
+        if n_uc > 1 else ""
+    )
+
+    judge_meta = ""
+    if judge:
+        temp = judge.get("temperature")
+        bits = [f"{judge.get('provider', '?')}/{judge.get('model', '?')}"]
+        if temp is not None:
+            bits.append(f"temp {temp}")
+        if judge_runs > 1:
+            bits.append(f"judged {judge_runs}× each")
+        if judge.get("fingerprint"):
+            bits.append(judge["fingerprint"])
+        judge_meta = (
+            '<div class="meta">Judge: <span>' + " · ".join(bits) + "</span></div>"
+        )
+
     delta_html = _build_delta_html(delta)
 
     # Build use_case sections HTML
@@ -206,6 +248,13 @@ def _build_html(run_data: dict, config) -> str:
     color: #fff;
     border-color: #1a1a1a;
   }}
+  .judge-block {{ margin-top: 24px; }}
+  .judge-block h3 {{
+    font-size: 14px; font-weight: 600; color: #1a1a1a;
+    margin-bottom: 8px; letter-spacing: -0.2px;
+  }}
+  .judge-note {{ font-size: 12px; color: #666; margin-top: 8px; }}
+  .judge-low {{ color: #c0392b; font-weight: 600; }}
   .matrix-wrap {{
     overflow-x: auto;
     padding: 0 0 4px 0;
@@ -281,6 +330,11 @@ def _build_html(run_data: dict, config) -> str:
   .delta-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
   .delta-table th {{ text-align: left; padding: 6px 10px; font-weight: 600; color: #888; font-size: 12px; border-bottom: 1px solid #eee; }}
   .delta-table td {{ padding: 6px 10px; border-bottom: 1px solid #f5f5f5; }}
+  .partial-run {{ background: #fdf6e3; border-bottom: 1px solid #e8d9a8;
+                  color: #8a6d1f; font-size: 13px; padding: 10px 24px; }}
+  .delta-caveat {{ font-size: 12px; color: #8a6d1f; background: #fdf6e3;
+                   border-left: 3px solid #d9a441; padding: 8px 10px;
+                   margin: 0 0 10px; line-height: 1.5; }}
   .delta-up   {{ color: #2e7d32; font-weight: 600; }}
   .delta-down {{ color: #c62828; font-weight: 600; }}
   .no-change  {{ color: #888; }}
@@ -294,14 +348,17 @@ def _build_html(run_data: dict, config) -> str:
   <div class="meta">Run: <span>{run_id}</span></div>
   <div class="meta">Time: <span>{timestamp}</span></div>
   <div class="meta">Set: <span>{set_name}</span></div>
-  <div class="meta">Fixtures: <span>{fixture_count}</span></div>
+  <div class="meta">Fixtures: <span>{fixture_count}</span>{uc_note}</div>
   <div class="meta">Runs/fixture: <span>{runs}</span></div>
+  {judge_meta}
 </div>
 
 {judge_error_banner}
+{partial_banner}
 
 <div class="container">
 
+  {scope_note}
   <div class="tag-health">
     <div class="tag-box right">
       <div class="tag-name">RIGHT</div>
@@ -581,6 +638,8 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
     </table>
   </div>"""
 
+    judge_tables_html = _build_judge_tables(uc_summary)
+
     return f"""
 <div class="uc-section" data-uc="{uc_id}">
   <div class="uc-header">
@@ -589,7 +648,92 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
   </div>
   {label_bar_html}
   {matrix_html}
+  {judge_tables_html}
 </div>"""
+
+
+def _esc_py(text) -> str:
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _build_judge_tables(uc_summary: dict) -> str:
+    """
+    Judge-vs-human agreement and judge repeatability, per eval.
+
+    The markdown report has carried both since specs 07 and 06. The HTML did
+    not, so the file `fieldtest view` opens said nothing about the judge that
+    produced its numbers — while embedding every figure needed to say it.
+    """
+    labelled, repeats = [], []
+    for tag_stats in uc_summary.values():
+        for eval_id, st in tag_stats.items():
+            if st.get("labeled_runs"):
+                labelled.append((eval_id, st))
+            if (st.get("judge_runs") or 1) > 1:
+                repeats.append((eval_id, st))
+
+    html = ""
+
+    if labelled:
+        rows = ""
+        for eval_id, st in sorted(labelled):
+            agreement = st.get("judge_agreement")
+            pct = "—" if agreement is None else "%.1f%%" % (agreement * 100)
+            cls = "judge-low" if (agreement is not None and agreement < 0.8) else ""
+            rows += (
+                "<tr><td>" + _esc_py(eval_id) + "</td>"
+                "<td>" + str(st.get("labeled_runs", 0)) + "</td>"
+                '<td class="' + cls + '">' + pct + "</td>"
+                "<td>" + str(st.get("judge_false_pass", 0)) + " false pass, "
+                + str(st.get("judge_false_fail", 0)) + " false fail</td></tr>"
+            )
+        html += (
+            '\n  <div class="judge-block">\n'
+            "    <h3>Judge vs your labels</h3>\n"
+            '    <div class="matrix-wrap"><table class="matrix">\n'
+            "      <thead><tr><th>eval</th><th>labelled runs</th>"
+            "<th>agreement</th><th>errors</th></tr></thead>\n"
+            "      <tbody>" + rows + "</tbody>\n"
+            "    </table></div>\n"
+            '    <p class="judge-note">A false pass is an output you failed and the judge '
+            "passed. On a <strong>safe</strong> eval that is the error that matters.</p>\n"
+            "  </div>"
+        )
+
+    if repeats:
+        rows = ""
+        for eval_id, st in sorted(repeats):
+            dis = st.get("judge_disagreement_rate")
+            sys_sd, jdg_sd = st.get("system_stddev"), st.get("judge_stddev")
+            # A binary eval reports disagreement; a scored one reports the two
+            # spreads. Dropping the spread columns — which this table did —
+            # renders a scored eval as an empty row and loses the comparison
+            # that judge_runs exists to make.
+            rows += (
+                "<tr><td>" + _esc_py(eval_id) + "</td>"
+                "<td>" + str(st.get("judge_runs")) + "</td>"
+                "<td>" + ("—" if dis is None else "%.1f%%" % (dis * 100)) + "</td>"
+                "<td>" + ("—" if sys_sd is None else str(sys_sd)) + "</td>"
+                "<td>" + ("—" if jdg_sd is None else str(jdg_sd)) + "</td></tr>"
+            )
+        html += (
+            '\n  <div class="judge-block">\n'
+            "    <h3>Judge repeatability</h3>\n"
+            '    <div class="matrix-wrap"><table class="matrix">\n'
+            "      <thead><tr><th>eval</th><th>judge runs</th>"
+            "<th>judge disagreement</th><th>system spread</th>"
+            "<th>judge spread</th></tr></thead>\n"
+            "      <tbody>" + rows + "</tbody>\n"
+            "    </table></div>\n"
+            '    <p class="judge-note">Disagreement near zero means the judge is repeatable. '
+            "For a scored eval, compare the two spreads: system spread is your outputs "
+            "differing from each other, judge spread is the judge differing from itself on "
+            "the same output. Judge spread approaching system spread means the criteria are "
+            "ambiguous, not that the system is noisy.</p>\n"
+            "  </div>"
+        )
+
+    return html
 
 
 def _build_delta_html(delta: dict) -> str:
@@ -599,8 +743,41 @@ def _build_delta_html(delta: dict) -> str:
     decreased   = delta.get("decreased", [])
     unchanged   = delta.get("unchanged", [])
 
+    # The markdown carries three reasons not to trust a delta, and a reason a
+    # baseline is missing. None of them reached the HTML, so this page showed
+    # movement with none of the caveats attached to it — or, with no baseline,
+    # showed nothing and left the reader to guess why.
+    caveats = []
+    if delta.get("baseline_error_share", 0) >= 0.1:
+        caveats.append(
+            f"The baseline lost {delta['baseline_error_share'] * 100:.0f}% of its "
+            f"judge calls to errors, so its rates are over whatever survived. "
+            f"These are not a like-for-like comparison."
+        )
+    if delta.get("baseline_pre_judge"):
+        caveats.append(
+            "The baseline predates judge tracking, so the judge that produced it "
+            "is unknown and these deltas may reflect an instrument change."
+        )
+    changed = delta.get("sample_changed") or []
+    if changed:
+        caveats.append(
+            f"{len(changed)} eval(s) scored a different number of outputs than the "
+            f"baseline ({', '.join(changed[:4])}), so the deltas include a change "
+            f"of population, not only a change in the system."
+        )
+    caveat_html = "".join(f'<p class="delta-caveat">⚠ {c}</p>' for c in caveats)
+
     if not baseline_id:
-        return ""
+        reason = delta.get("no_baseline_reason")
+        if not reason:
+            return ""
+        return f"""
+<div class="delta-section">
+  <h2>No baseline</h2>
+  <p class="delta-caveat">{reason[0].upper() + reason[1:]}. Every eval reads
+  &#8212; against prior for that reason, not because nothing moved.</p>
+</div>"""
 
     rows_html = ""
     for item in increased:
@@ -628,6 +805,7 @@ def _build_delta_html(delta: dict) -> str:
     return f"""
 <div class="delta-section">
   <h2>Delta vs prior run ({baseline_id})</h2>
+  {caveat_html}
   <table class="delta-table">
     <thead><tr><th>eval</th><th>change</th><th>before</th><th>after</th></tr></thead>
     <tbody>{rows_html}</tbody>

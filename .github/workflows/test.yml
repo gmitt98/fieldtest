@@ -23,7 +23,37 @@ on:
 jobs:
   default:
     # unit + integration. No network, no keys.
-    name: unit + integration
+    #
+    # pyproject says requires-python >= 3.10, and only 3.14 was ever run. Every
+    # version in that range is now exercised, because claiming support for four
+    # untested interpreters is the same promise the tool exists to stop people
+    # making. macOS on the ends of the range only: the failures worth catching
+    # there are pathlib and encoding, which do not vary by minor version.
+    name: unit + integration (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python: "3.10"
+          - os: macos-latest
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[openai,gemini,dev]"
+      - run: pytest -q
+
+  verify:
+    # Reintroduces five defects that actually shipped and checks each is caught.
+    # A green suite that cannot catch its own bugs is decoration. Once, not per
+    # matrix cell: it reruns the whole suite five times over.
+    name: verification tiers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,11 +61,7 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -e ".[openai,gemini,dev]"
-      - run: pytest -q
-      - name: verify the tiers still catch what they were built for
-        # Reintroduces four defects that actually shipped and checks each is
-        # caught. A green suite that cannot catch its own bugs is decoration.
-        run: python scripts/verify_tiers.py
+      - run: python scripts/verify_tiers.py
 
   live:
     # Real providers. Scheduled and manual only — never on a push, so a

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import ConfigDict, BaseModel, Field, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
 from fieldtest.providers.base import RetryPolicy
@@ -26,29 +26,21 @@ from fieldtest.providers.settings import (
 # Enums (as str subclasses so they serialise cleanly)
 # ---------------------------------------------------------------------------
 
-class EvalTag(str):
-    pass
-
-
-class EvalType(str):
-    pass
-
-
-VALID_TAGS  = {"right", "good", "safe"}
-VALID_TYPES = {"rule", "regex", "llm", "reference"}
-
-
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
 class LLMExample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     output:    str
     label:     Literal["pass", "fail"]
     reasoning: str
 
 
 class Eval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id:          str
     tag:         Literal["right", "good", "safe"]
     labels:      list[str] = []   # optional free-form analytics labels; multiple allowed
@@ -75,21 +67,20 @@ class Eval(BaseModel):
     model:    Optional[str] = None
     provider: Optional[str] = None
 
-    @field_validator("pattern")
-    @classmethod
-    def pattern_required_for_regex(cls, v, info):
-        if info.data.get("type") == "regex" and v is None:
-            raise ValueError("pattern is required for type: regex")
-        return v
-
-    @field_validator("match")
-    @classmethod
-    def match_required_for_regex(cls, v, info):
-        if info.data.get("type") == "regex" and v is None:
-            raise ValueError(
-                "match is required for type: regex (true = must match, false = must not match)"
-            )
-        return v
+    @model_validator(mode="after")
+    def regex_type_required_fields(self) -> "Eval":
+        # A model validator, not a field validator on `pattern`/`match`: pydantic
+        # skips a field validator when the field is absent, so the omitted case —
+        # the one a user actually writes — sailed through, and `score` then died
+        # with a TypeError from re.search(None, ...) and a "please file a bug".
+        if self.type == "regex":
+            if self.pattern is None:
+                raise ValueError("pattern is required for type: regex")
+            if self.match is None:
+                raise ValueError(
+                    "match is required for type: regex (true = must match, false = must not match)"
+                )
+        return self
 
     @model_validator(mode="after")
     def llm_type_required_fields(self) -> "Eval":
@@ -108,6 +99,8 @@ class Eval(BaseModel):
 
 
 class FixturesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     directory: str           = "fixtures/"
     sets:      dict[str, Union[list[str], str]]  # set_name → [ids] | "dir/*" | "all"
     runs:      Optional[int] = None
@@ -124,6 +117,8 @@ class FixturesConfig(BaseModel):
 
 
 class UseCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id:          str
     description: str
     evals:       list[Eval]
@@ -131,11 +126,15 @@ class UseCase(BaseModel):
 
 
 class SystemConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name:   str
     domain: str
 
 
 class Defaults(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     provider: str = "anthropic"
     # Haiku 4.5 rather than a 5-series model: sampling parameters were removed
     # on Sonnet 5 / Opus 5, so defaults.judge_temperature cannot be honoured
@@ -154,15 +153,23 @@ class Defaults(BaseModel):
     # CI run want different patience, so this is configurable rather than fixed.
     judge_retry: RetryPolicy = RetryPolicy()
 
-    # Confidence level for the interval on a binary eval's failure_rate.
-    confidence: float = 0.95
+    # Confidence level for the Wilson score interval on a binary eval's
+    # failure_rate — a statistic computed from pass and fail counts.
+    #
+    # Named confidence_level rather than confidence because in a tool full of
+    # LLM judges, "confidence" reads as a model reporting how sure it is of its
+    # own answer. It is not that, and it must never become that: self-reported
+    # confidence is poorly calibrated, and treating it as a measurement is the
+    # error this whole project exists to argue against. No judge is asked
+    # anything here; the interval comes from arithmetic on the verdicts.
+    confidence_level: float = 0.95
 
-    @field_validator("confidence")
+    @field_validator("confidence_level")
     @classmethod
-    def confidence_in_open_unit_interval(cls, v: float) -> float:
+    def confidence_level_in_open_unit_interval(cls, v: float) -> float:
         if not (0.0 < v < 1.0):
             raise ValueError(
-                f"defaults.confidence must be between 0 and 1 (exclusive), got {v}."
+                f"defaults.confidence_level must be between 0 and 1 (exclusive), got {v}."
             )
         return v
 
@@ -174,6 +181,8 @@ class Defaults(BaseModel):
 
 class PanelJudge(BaseModel):
     """One judge in a calibration panel."""
+    model_config = ConfigDict(extra="forbid")
+
     provider: str
     model:    str
 
@@ -188,6 +197,8 @@ class CalibrationConfig(BaseModel):
     The judge panel, declared in config and versioned with everything else
     rather than passed as ad hoc CLI flags.
     """
+    model_config = ConfigDict(extra="forbid")
+
     panel: list[PanelJudge]
     # Below this, a judge pair is flagged as agreeing no better than chance.
     # 0.6 is the conventional "substantial agreement" floor.
@@ -230,6 +241,8 @@ class CalibrationConfig(BaseModel):
 
 
 class Config(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     schema_version: Literal[1, 2]
     system:         SystemConfig
     use_cases:      list[UseCase]
@@ -334,6 +347,33 @@ class ScoredJudgeOutput(BaseModel):
 # Public API
 # ---------------------------------------------------------------------------
 
+# Where a key belongs, for the keys most often written one level off. Listed by
+# hand because the message names a YAML path, not a model; a test checks every
+# entry is still a real field on the model it points at.
+_WHERE_KEYS_BELONG = {
+    "runs":             "use_cases[].fixtures, or defaults",
+    "judge_runs":       "use_cases[].fixtures",
+    "version":          "use_cases[].fixtures",
+    "directory":        "use_cases[].fixtures",
+    "sets":             "use_cases[].fixtures",
+    "provider":         "defaults",
+    "model":            "defaults",
+    "judge_temperature": "defaults",
+    "judge_seed":       "defaults",
+    "judge_retry":      "defaults",
+    "confidence_level": "defaults",
+    "evals":            "use_cases[]",
+    "fixtures":         "use_cases[]",
+    "panel":            "calibration",
+    "kappa_threshold":  "calibration",
+}
+
+# Keys an older config may still carry.
+_RENAMED_KEYS = {
+    "confidence": "confidence_level",
+}
+
+
 def parse_and_validate(config_path: Path) -> Config:
     """Load and validate config.yaml. Raises ConfigError (never raw ValidationError)."""
     try:
@@ -341,8 +381,13 @@ def parse_and_validate(config_path: Path) -> Config:
     except FileNotFoundError:
         raise ConfigError(
             f"Config not found: {config_path}\n"
-            f"  Run 'fieldtest init' to scaffold a new project, or\n"
-            f"  use --config to specify a different path."
+            + (
+                f"  There is a config.yaml in {Path.cwd().name}/ — run from the\n"
+                f"  parent directory, or use --config config.yaml\n"
+                if Path("config.yaml").is_file() else ""
+            )
+            + "  Run 'fieldtest init' to scaffold a new project, or\n"
+            "  use --config to specify a different path."
         )
     except Exception as e:
         raise ConfigError(f"Config error at {config_path}: {e}") from e
@@ -363,8 +408,37 @@ def parse_and_validate(config_path: Path) -> Config:
         # Raw Pydantic errors must never propagate to callers.
         errors = exc.errors()
         if errors:
-            loc   = " -> ".join(str(p) for p in errors[0]["loc"])
-            msg   = errors[0]["msg"]
+            first = errors[0]
+            loc   = " -> ".join(str(p) for p in first["loc"])
+            msg   = first["msg"]
+
+            # A blank tag is what the templates ship, deliberately — deciding
+            # right/good/safe is the point of the scaffold. The generic Literal
+            # error does not say so, so someone who has just run
+            # `fieldtest init --template` reads a validation failure rather than
+            # an instruction.
+            # loc is empty for model-level validators, so index only when
+            # there is a field to index.
+            field = str(first["loc"][-1]) if first["loc"] else ""
+            if field == "tag" and first.get("input") in ("", None):
+                msg = (
+                    "tag is blank. Templates ship it blank on purpose: choose "
+                    "right (is it correct?), good (is it well-formed?) or safe "
+                    "(what must never happen?) for each eval."
+                )
+            # An unrecognised key used to be dropped in silence, so a `runs:`
+            # one level too high, or the `confidence:` that 0.3.0 renamed, ran
+            # with the default and reported a number the user never asked for.
+            # Pydantic's own wording does not say which key or where it belongs.
+            if first["type"] == "extra_forbidden":
+                msg = f"unrecognised key '{field}'."
+                belongs = _WHERE_KEYS_BELONG.get(field)
+                if belongs:
+                    msg += f" It belongs under {belongs}."
+                renamed = _RENAMED_KEYS.get(field)
+                if renamed:
+                    msg += f" It was renamed to '{renamed}'."
+
             raise ConfigError(f"Config error at {loc}: {msg}") from exc
         raise ConfigError(f"Config error at {config_path}: {exc}") from exc
 
@@ -378,6 +452,7 @@ def parse_and_validate(config_path: Path) -> Config:
 from fieldtest.fixtures import (  # noqa: E402
     extract_labels,
     load_fixture,
+    summarize_file_inputs,
     validate_fixture_labels,
 )
 from fieldtest.resolve import (  # noqa: E402
@@ -390,10 +465,11 @@ from fieldtest.resolve import (  # noqa: E402
 
 __all__ = [
     "BinaryJudgeOutput", "CalibrationConfig", "Config", "Defaults", "Eval",
-    "EvalTag", "EvalType", "FixturesConfig", "LLMExample", "PanelJudge",
+    "FixturesConfig", "LLMExample", "PanelJudge",
     "ProviderSettings", "ResultRow", "ScoredJudgeOutput", "SystemConfig",
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
-    "extract_labels", "load_fixture", "parse_and_validate", "validate_fixture_labels",
+    "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
+    "validate_fixture_labels",
     "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
     "use_cases_with_fixtures",
 ]

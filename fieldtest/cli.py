@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import sys
+
 import click
 
 from fieldtest.cli_common import (
@@ -20,16 +22,75 @@ from fieldtest.cli_common import (
     _load_config,
     _provider_report,
 )
-from fieldtest.cli_project import clean, demo_cmd, init_cmd, view_cmd
+from fieldtest.cli_project import clean, dataset, demo_cmd, init_cmd, view_cmd
 from fieldtest.cli_reports import diff, history
 
 
 
 
-@click.group()
+class _HelpFriendlyGroup(click.Group):
+    """
+    Accepts the two help forms people type out of habit.
+
+    `fieldtest --help calibrate` printed the top-level help and dropped the
+    command name without saying so — the worst kind of wrong answer, because it
+    looks like an answer. git accepts that form, so people type it.
+    """
+
+    def parse_args(self, ctx, args):
+        if "--help" in args:
+            rest = [a for a in args if a != "--help"]
+            if len(rest) == 1:
+                if rest[0] in self.commands:
+                    args = [rest[0], "--help"]
+                else:
+                    # Same reasoning: printing the general help here would
+                    # answer a question the user did not ask.
+                    known = ", ".join(sorted(c for c in self.commands if c != "help"))
+                    click.echo(
+                        f"No such command '{rest[0]}'. Available: {known}", err=True
+                    )
+                    ctx.exit(2)
+        return super().parse_args(ctx, args)
+
+
+def _version() -> str:
+    """Installed version, or a marker when running from an uninstalled tree."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("fieldtest")
+    except PackageNotFoundError:      # running from a source checkout
+        return "unknown (not installed)"
+
+
+@click.group(cls=_HelpFriendlyGroup)
+@click.version_option(version=_version(), prog_name="fieldtest")
 def main():
     """fieldtest — structured AI eval practice for any project."""
     pass
+
+
+@main.command("help")
+@click.argument("command", required=False)
+@click.pass_context
+def help_cmd(ctx, command: Optional[str]):
+    """Show help for a command: fieldtest help calibrate"""
+    if command is None:
+        click.echo(main.get_help(ctx.parent or ctx))
+        return
+    cmd = main.commands.get(command)
+    if cmd is None:
+        known = ", ".join(sorted(c for c in main.commands if c != "help"))
+        click.echo(f"No such command '{command}'. Available: {known}", err=True)
+        sys.exit(2)
+    # parent=None: with this command's context as the parent, click prefixes
+    # the usage line with "fieldtest help [COMMAND]". The program name comes
+    # from the actual invocation rather than a hardcoded "fieldtest", so the
+    # usage line stays true under an alias or `python -m`.
+    prog = ctx.find_root().info_name or "fieldtest"
+    with click.Context(cmd, info_name=f"{prog} {command}") as sub:
+        click.echo(cmd.get_help(sub))
 
 
 
@@ -51,7 +112,7 @@ def validate(config_path: Optional[str]):
     # Coverage summary
     total_evals   = sum(len(uc.evals) for uc in config.use_cases)
     tag_counts    = {"right": 0, "good": 0, "safe": 0}
-    fixture_count = 0
+    listed_fixtures: set = set()
     warnings      = []
 
     for uc in config.use_cases:
@@ -83,10 +144,12 @@ def validate(config_path: Optional[str]):
                         f"type:rule but no @rule('{ev.id}') registered in evals/rules.py"
                     )
 
-        # Count fixtures referenced in sets
+        # Count fixtures referenced in sets. Distinct ids, not set entries: a
+        # fixture named by both `full` and `smoke` is one fixture, and summing
+        # set lengths reported 4 for a three-fixture dataset.
         for set_val in uc.fixtures.sets.values():
             if isinstance(set_val, list):
-                fixture_count += len(set_val)
+                listed_fixtures.update(set_val)
                 # Warn: fixtures referenced but not on disk
                 for fid in set_val:
                     fixture_file = base_dir / uc.fixtures.directory / f"{fid}.yaml"
@@ -96,18 +159,42 @@ def validate(config_path: Optional[str]):
                             f"but not found at {fixture_file}"
                         )
 
+    # A set declared in one use case and not another cannot be scored at all:
+    # resolve_set raises for the use case that lacks it. The config looks fine
+    # until you spend the command.
+    if len(config.use_cases) > 1:
+        by_uc = {uc.id: set(uc.fixtures.sets) for uc in config.use_cases}
+        everywhere = set.intersection(*by_uc.values()) if by_uc else set()
+        for uc_id, names in by_uc.items():
+            for missing in sorted(names - everywhere):
+                absent = sorted(o for o, s in by_uc.items() if missing not in s)
+                warnings.append(
+                    f"  ⚠ set '{missing}' is declared in '{uc_id}' but not in "
+                    f"{', '.join(repr(a) for a in absent)} — "
+                    f"`--set {missing}` will fail"
+                )
+
     click.echo(f"✓ config valid: {path}")
     click.echo(f"  {len(config.use_cases)} use case(s), {total_evals} eval(s)")
     click.echo(
         f"  by tag — right: {tag_counts['right']}, "
         f"good: {tag_counts['good']}, safe: {tag_counts['safe']}"
     )
-    click.echo(f"  {fixture_count} explicitly listed fixture(s)")
+    click.echo(f"  {len(listed_fixtures)} explicitly listed fixture(s)")
 
     # Which providers this config reaches, and whether the credential each one
     # names is present. Before the run, not twenty errored rows into it.
     for line in _provider_report(config):
         click.echo(line)
+
+    from fieldtest.config import summarize_file_inputs
+    resolved = summarize_file_inputs(config, base_dir)
+    if resolved:
+        total = sum(len(keys) for keys in resolved.values())
+        click.echo(
+            f"  {total} file input(s) resolved across "
+            f"{len(resolved)} fixture(s) — the judge sees the document, not the path"
+        )
 
     # Cost is multiplicative: runs × judge_runs × llm evals × fixtures. Say it
     # before the bill, not after — judge_runs: 3 is a 3x charge.
@@ -169,14 +256,19 @@ def validate(config_path: Optional[str]):
 
 @main.command()
 @click.argument("set_name", default="full", metavar="[SET]")
+# --set as well as the positional, because `score` accepts both and someone who
+# learned it there should not meet "No such option: --set" here.
+@click.option("--set", "set_name_opt", default=None, help="Fixture set to calibrate")
 @click.option("--config", "config_path", default=None, type=click.Path(),
               help="Path to config.yaml (default: evals/config.yaml)")
 @click.option("--dry-run", is_flag=True, default=False,
               help="Print the projected call count and exit without calling anything")
 @click.option("--concurrency", default=5, type=int,
               help="Max parallel judge calls (default: 5)")
-def calibrate(set_name: str, config_path: Optional[str], dry_run: bool, concurrency: int):
+def calibrate(set_name: str, set_name_opt: Optional[str], config_path: Optional[str],
+              dry_run: bool, concurrency: int):
     """Run a panel of judges over the same outputs and report how much they agree."""
+    set_name = set_name_opt or set_name
     from fieldtest.calibrate import (
         project_calls,
         require_panel,
@@ -343,5 +435,5 @@ if __name__ == "__main__":
 # Registered rather than decorated in place: defining them here would put every
 # command back in one file, and decorating them in their own modules would make
 # those modules import this one, which imports them.
-for _command in (history, diff, clean, init_cmd, view_cmd, demo_cmd):
+for _command in (history, diff, clean, init_cmd, view_cmd, demo_cmd, dataset):
     main.add_command(_command)

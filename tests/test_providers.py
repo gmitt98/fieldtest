@@ -1539,7 +1539,7 @@ def test_documented_defaults_are_the_ones_the_config_uses():
     assert d.runs == 5
     assert d.judge_temperature == 0.0          # "pinned to 0.0 unless you say otherwise"
     assert d.judge_seed is None
-    assert d.confidence == 0.95                # "defaults.confidence sets the level"
+    assert d.confidence_level == 0.95          # "defaults.confidence_level sets the level"
 
 
 def test_documented_judge_fingerprint_matches_the_bundled_demos():
@@ -1557,3 +1557,51 @@ def test_documented_judge_fingerprint_matches_the_bundled_demos():
     for demo in ("rag", "email", "extraction"):
         judge = build_judge_block(parse_and_validate(root / demo / "config.yaml"))
         assert judge["fingerprint"] == "4f10569a", demo
+
+
+def test_a_client_library_that_dropped_the_parameter_is_treated_as_a_refusal():
+    """
+    anthropic 1.2.0 removed `temperature` from messages.create(). fieldtest
+    pins `anthropic>=0.20.0` with no upper bound, so a fresh install got the
+    new SDK and every Anthropic judge call failed with a TypeError — on the
+    default provider, with the default model.
+
+    A library that has dropped a parameter from its own signature is refusing
+    it, just earlier and with a TypeError instead of a 400. The drop path
+    handles it like any other refusal.
+    """
+    from fieldtest.providers.base import rejects_parameter
+
+    sdk_error = TypeError(
+        "Messages.create() got an unexpected keyword argument 'temperature'"
+    )
+    assert rejects_parameter(sdk_error, "temperature")
+
+    # Still narrow: the parameter must be named and the message must read as a
+    # support complaint, so an unrelated TypeError is not swallowed.
+    assert not rejects_parameter(TypeError("bad thing happened"), "temperature")
+    assert not rejects_parameter(sdk_error, "seed")
+
+
+def test_the_drop_path_recovers_from_an_sdk_signature_mismatch():
+    """End to end: the call succeeds and names what it dropped."""
+    from fieldtest.providers.base import call_dropping_unsupported
+
+    calls = []
+
+    def invoke(kwargs):
+        calls.append(dict(kwargs))
+        if "temperature" in kwargs:
+            raise TypeError(
+                "Messages.create() got an unexpected keyword argument 'temperature'"
+            )
+        return {"ok": True}
+
+    unsupported: list = []
+    result = call_dropping_unsupported(
+        invoke, {"model": "m", "temperature": 0.0, "max_tokens": 8}, unsupported
+    )
+    assert result == {"ok": True}
+    assert unsupported == ["temperature"]
+    assert "temperature" not in calls[-1]
+    assert calls[-1]["max_tokens"] == 8

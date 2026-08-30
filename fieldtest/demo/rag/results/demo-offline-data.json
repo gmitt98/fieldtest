@@ -1394,7 +1394,7 @@
             0.0632,
             0.5474
           ],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
@@ -1407,7 +1407,7 @@
             0.0889,
             0.5323
           ],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,
@@ -1422,7 +1422,7 @@
             0.0,
             0.2425
           ],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,
@@ -1435,7 +1435,7 @@
             0.0149,
             0.3539
           ],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,
@@ -1450,7 +1450,7 @@
             0.0889,
             0.5323
           ],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,
@@ -1463,7 +1463,7 @@
             0.047,
             0.448
           ],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,

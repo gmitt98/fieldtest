@@ -488,7 +488,7 @@ def test_wilson_interval_computed_for_binary_eval():
 
     assert stats["failure_rate"] == 0.2
     assert stats["failure_rate_ci"] == [0.0362, 0.6245]
-    assert stats["confidence"] == 0.95
+    assert stats["confidence_level"] == 0.95
     assert stats["total_runs"] == 5
 
 
@@ -528,12 +528,12 @@ def test_failure_rate_ci_null_when_rate_null():
 def test_confidence_level_configurable():
     evals = [_make_eval_def("ev1", is_scored=False)]
     config = _make_config(evals)
-    config.defaults.confidence = 0.80
+    config.defaults.confidence_level = 0.80
 
     rows = [_row(passed=True) for _ in range(4)] + [_row(passed=False)]
     stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
 
-    assert stats["confidence"] == 0.80
+    assert stats["confidence_level"] == 0.80
     # A less demanding level is a narrower interval.
     wide = build_summary(rows, _make_config(evals))["uc1"]["right"]["ev1"]
     assert (stats["failure_rate_ci"][1] - stats["failure_rate_ci"][0]) < (
@@ -557,7 +557,7 @@ def test_scored_eval_summary_unchanged():
         "judge_calls", "outputs_attempted",
     }
     assert "failure_rate_ci" not in stats
-    assert "confidence" not in stats
+    assert "confidence_level" not in stats
 
 
 def test_delta_flags_overlapping_intervals(tmp_path):
@@ -1106,3 +1106,197 @@ def test_fingerprint_unchanged_for_configs_without_endpoints():
     }
     canonical = json.dumps(before, sort_keys=True, separators=(",", ":"))
     assert judge_fingerprint(judge) == hashlib.sha256(canonical.encode()).hexdigest()[:8]
+
+
+def test_delta_records_how_much_of_the_baseline_errored(tmp_path):
+    """
+    A baseline whose judge calls largely failed is a rate over whatever
+    survived. One real run lost 140 of 237 calls to an exhausted balance,
+    silently became the next run's baseline, and produced a 26-point "drop"
+    against a third of the evidence.
+    """
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 10, "error_count": 30,
+        }}}},
+    }))
+    current = {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 40,
+                                         "error_count": 0}}}}
+
+    delta = build_delta(current, baseline)
+    assert delta["baseline_error_share"] == 0.75
+    # The comparison is kept — the caveat is the point, not suppression.
+    assert delta["decreased"] or delta["increased"]
+
+
+def test_a_clean_baseline_reports_no_error_share(tmp_path):
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 40, "error_count": 0,
+        }}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 40}}}}, baseline
+    )
+    assert delta["baseline_error_share"] == 0.0
+
+
+def test_no_baseline_reports_no_error_share():
+    from fieldtest.results.aggregator import build_delta
+
+    assert build_delta({}, None)["baseline_error_share"] == 0.0
+
+
+def test_delta_records_the_baseline_fixture_count(tmp_path):
+    """
+    A set can be redefined between runs. Comparing a rate over 14 fixtures
+    against one over 11 is not like-for-like, and the deltas read as a change in
+    the system rather than a change of population.
+    """
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1,
+        "fixture_count": 14,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 42, "error_count": 0}}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 33}}}}, baseline
+    )
+    assert delta["baseline_fixture_count"] == 14
+    assert build_delta({}, None)["baseline_fixture_count"] is None
+
+    # fixture_count alone is not enough: it counts what is on disk and does not
+    # move when a *set* is redefined. The per-eval n does.
+    assert delta["sample_changed"] == ["ev1 42→33"]
+
+
+def test_an_unchanged_sample_reports_nothing(tmp_path):
+    import json
+
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "judge": {"model": "m"}, "judge_runs": 1, "fixture_count": 11,
+        "summary": {"uc1": {"right": {"ev1": {
+            "failure_rate": 0.5, "total_runs": 33, "error_count": 0}}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"ev1": {"failure_rate": 0.2, "total_runs": 33}}}}, baseline
+    )
+    assert delta["sample_changed"] == []
+
+
+def test_summary_eval_order_does_not_depend_on_row_arrival_order():
+    """
+    Rows arrive from as_completed(), so judge latency decided table order and
+    two identical runs produced different reports — in markdown, HTML and JSON.
+    """
+    import random
+
+    rows = _rows_for_two_evals()
+    config = _config_for_two_evals()
+
+    baseline = _eval_order(build_summary(rows, config))
+    for seed in range(6):
+        shuffled = rows[:]
+        random.Random(seed).shuffle(shuffled)
+        assert _eval_order(build_summary(shuffled, config)) == baseline, (
+            f"row order changed the table order (seed {seed})"
+        )
+
+    # And that order is the order the evals are declared in, not alphabetical.
+    declared = [ev.id for ev in config.use_cases[0].evals]
+    assert baseline == declared, f"expected config order {declared}, got {baseline}"
+
+
+def _eval_order(summary: dict) -> list[str]:
+    out = []
+    for uc in summary.values():
+        for tag_evals in uc.values():
+            if isinstance(tag_evals, dict):
+                out.extend(k for k in tag_evals if isinstance(tag_evals[k], dict))
+    return out
+
+
+def _config_for_two_evals():
+    return Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "s", "domain": "d"},
+        "use_cases": [{
+            "id": "uc1",
+            "description": "d",
+            # Declared zebra-first so config order and alphabetical differ.
+            "evals": [
+                {"id": "zebra_check", "tag": "right", "type": "regex",
+                 "description": "d", "pattern": "z", "match": True},
+                {"id": "alpha_check", "tag": "right", "type": "regex",
+                 "description": "d", "pattern": "a", "match": True},
+            ],
+            "fixtures": {"directory": "fixtures/", "sets": {"full": ["f1"]}},
+        }],
+    })
+
+
+def _rows_for_two_evals():
+    rows = []
+    for eval_id in ("zebra_check", "alpha_check"):
+        for run in (1, 2, 3):
+            rows.append(ResultRow(
+                use_case="uc1", eval_id=eval_id, tag="right",
+                fixture_id="f1", run=run, passed=run != 3, detail="", type="regex",
+            ))
+    return rows
+
+
+def test_floor_hits_are_counted_per_output_not_per_judge_call():
+    """
+    n moved to outputs when judge_runs landed; floor_hits did not follow it, so
+    two tainted outputs judged three times each read as 6 floor hits out of an
+    n of 8 — a floor rate of 75% where the true one is 25%.
+    """
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=3)
+    rows = []
+    for fixture, at_floor in (("fx-a", True), ("fx-b", False)):
+        for jr in (1, 2, 3):
+            rows.append(_row(
+                passed=None, score=1 if at_floor else 4, eval_id="ev1",
+                tag="good", ev_type="llm", fixture_id=fixture, judge_run=jr,
+            ))
+
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+    assert stats["total_runs"] == 2, "n should count outputs"
+    assert stats["floor_hits"] == 1, "one of the two outputs sat at the floor"
+    assert stats["floor_hit_calls"] == 3, "three of the six judge calls did"
+
+
+def test_a_split_verdict_on_the_floor_collapses_the_way_a_binary_one_does():
+    """Ties go to the floor, matching how a split pass/fail collapses to fail."""
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=2)
+    rows = [
+        _row(passed=None, score=1, eval_id="ev1", tag="good", ev_type="llm",
+             fixture_id="fx-a", judge_run=1),
+        _row(passed=None, score=5, eval_id="ev1", tag="good", ev_type="llm",
+             fixture_id="fx-a", judge_run=2),
+    ]
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+    assert stats["floor_hits"] == 1

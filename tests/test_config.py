@@ -80,7 +80,7 @@ def test_v1_config_still_accepted(tmp_path):
     """v1 configs load unchanged for one minor release, with v2 defaults filled in."""
     cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
     assert cfg.schema_version == 1
-    assert cfg.defaults.confidence == 0.95
+    assert cfg.defaults.confidence_level == 0.95
 
 
 def test_eval_tag_invalid(tmp_path):
@@ -729,3 +729,200 @@ def test_reloading_the_same_project_keeps_its_providers(tmp_path):
     """))
     assert parse_and_validate(cfg).defaults.provider == "stable-service"
     assert parse_and_validate(cfg).defaults.provider == "stable-service"
+
+
+def test_no_dead_module_level_constants():
+    """
+    Every UPPER_CASE module constant must be referenced somewhere other than
+    the line defining it.
+
+    VALID_TAGS and VALID_TYPES sat in config.py duplicating the Literal[...]
+    on the Eval model, and AVAILABLE_TEMPLATES duplicated a click.Choice list —
+    all three dead, all three a second copy of a fact that could drift.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    pkg = root / "fieldtest"
+    sources = {
+        p: p.read_text()
+        for p in pkg.rglob("*.py")
+        if "datasets" not in p.parts and "demo" not in p.parts
+    }
+    corpus = "\n".join(sources.values()) + (root / "tests").joinpath("..").as_posix()
+    tests = "\n".join(p.read_text() for p in (root / "tests").glob("test_*.py"))
+
+    dead = []
+    for path, text in sources.items():
+        for m in re.finditer(r"^([A-Z][A-Z0-9_]{2,})\s*[:=]", text, re.M):
+            name = m.group(1)
+            uses = len(re.findall(rf"\b{name}\b", corpus)) + len(re.findall(rf"\b{name}\b", tests))
+            if uses <= 1:
+                dead.append(f"{path.relative_to(root)}: {name}")
+    assert not dead, f"module constants defined but never used: {dead}"
+
+
+# ---------------------------------------------------------------------------
+# Validators that no test reached (Track D)
+#
+# Each of these fires on a config a user can plausibly write, and each was
+# unreached by the suite — so the message a user meets had never been read
+# back by anything.
+# ---------------------------------------------------------------------------
+
+def test_regex_eval_without_a_pattern_is_rejected(tmp_path):
+    yaml = MINIMAL_VALID.replace('            pattern: "foo"\n', "")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "pattern is required for type: regex" in str(exc.value)
+
+
+def test_regex_eval_without_match_says_what_match_means(tmp_path):
+    yaml = MINIMAL_VALID.replace("            match: true\n", "")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "match is required for type: regex" in msg
+    # The distinction is the whole point of the field; a user who omitted it
+    # does not know which way round it goes.
+    assert "must match" in msg and "must not match" in msg
+
+
+@pytest.mark.parametrize("value", ["0", "1", "95", "-0.5"])
+def test_confidence_level_outside_the_unit_interval_is_rejected(tmp_path, value):
+    """95 is the plausible mistake: the field reads as a percentage."""
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", f"    defaults:\n      confidence_level: {value}\n    use_cases:"
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "confidence_level must be between 0 and 1" in str(exc.value)
+
+
+def test_kappa_threshold_outside_minus_one_to_one_is_rejected(tmp_path):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:",
+        "    calibration:\n"
+        "      kappa_threshold: 60\n"
+        "      panel:\n"
+        "        - provider: anthropic\n"
+        "          model: a\n"
+        "        - provider: anthropic\n"
+        "          model: b\n"
+        "    use_cases:",
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "kappa_threshold must be between -1 and 1" in msg
+    assert "not a percentage" in msg
+
+
+def test_a_panel_listing_the_same_judge_twice_is_rejected(tmp_path):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:",
+        "    calibration:\n"
+        "      panel:\n"
+        "        - provider: anthropic\n"
+        "          model: claude-haiku-4-5-20251001\n"
+        "        - provider: anthropic\n"
+        "          model: claude-haiku-4-5-20251001\n"
+        "    use_cases:",
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "twice" in msg
+    assert "agrees with itself" in msg
+
+
+def test_a_config_that_is_not_a_mapping_says_what_it_got(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("- one\n- two\n")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(p)
+    assert "expected a YAML mapping, got list" in str(exc.value)
+
+
+def test_unparseable_yaml_is_a_config_error_not_a_traceback(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("schema_version: 1\nsystem: [unclosed\n")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(p)
+    assert str(p) in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Unknown keys (Track C)
+# ---------------------------------------------------------------------------
+
+def test_a_key_at_the_wrong_level_says_where_it_belongs(tmp_path):
+    """`runs` under the use case ran 5 runs instead of 3, and said nothing."""
+    yaml = MINIMAL_VALID.replace(
+        "        evals:", "        runs: 3\n        evals:", 1)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "unrecognised key 'runs'" in msg
+    assert "use_cases[].fixtures" in msg
+
+
+def test_the_key_renamed_in_0_3_0_says_what_it_became(tmp_path):
+    """An upgrader's `confidence:` was dropped and the default used instead."""
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", "    defaults:\n      confidence: 0.95\n    use_cases:", 1)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "unrecognised key 'confidence'" in msg
+    assert "renamed to 'confidence_level'" in msg
+
+
+def test_a_misspelled_key_is_rejected_rather_than_ignored(tmp_path):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", "    defaults:\n      judge_temprature: 0.0\n    use_cases:", 1)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "unrecognised key 'judge_temprature'" in str(exc.value)
+
+
+def test_every_key_in_the_where_it_belongs_table_is_a_real_field():
+    """The table names YAML paths, so nothing else stops it going stale."""
+    from fieldtest.config import (
+        _WHERE_KEYS_BELONG, _RENAMED_KEYS,
+        CalibrationConfig, Defaults, FixturesConfig, UseCase,
+    )
+
+    models = {
+        "use_cases[].fixtures": FixturesConfig,
+        "defaults": Defaults,
+        "use_cases[]": UseCase,
+        "calibration": CalibrationConfig,
+    }
+    for key, where in _WHERE_KEYS_BELONG.items():
+        targets = [w.strip() for w in where.rstrip(".").split(", or ")]
+        for target in targets:
+            model = models.get(target)
+            assert model is not None, f"'{where}' names an unknown location {target!r}"
+            assert key in model.model_fields, \
+                f"'{key}' is not a field on {model.__name__} ({target})"
+
+    for old, new in _RENAMED_KEYS.items():
+        assert any(new in m.model_fields for m in models.values()), \
+            f"'{old}' is said to have been renamed to '{new}', which exists nowhere"
+
+
+def test_shipped_configs_still_load_with_unknown_keys_forbidden():
+    """extra=forbid is only safe if nothing fieldtest ships carries a stray key."""
+    import fieldtest
+
+    pkg = Path(fieldtest.__file__).parent
+    checked = 0
+    for sub in ("demo", "datasets"):
+        for cfg in sorted((pkg / sub).rglob("*.yaml")):
+            if "schema_version" not in cfg.read_text():
+                continue
+            parse_and_validate(cfg)   # raises if a shipped config has a stray key
+            checked += 1
+    assert checked >= 5, f"only {checked} shipped configs found — did they move?"

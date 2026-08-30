@@ -105,6 +105,12 @@ _REJECTION_MARKERS = (
     "not permitted",
     "cannot be used",
     "does not support",
+    # A client library that has dropped the parameter from its own signature is
+    # refusing it too, just earlier and with a TypeError instead of a 400.
+    # anthropic 1.2.0 removed `temperature` from messages.create(), so without
+    # this every Anthropic judge call failed on a fresh install rather than
+    # dropping the parameter and completing.
+    "unexpected keyword argument",
 )
 
 

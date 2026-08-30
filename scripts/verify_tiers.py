@@ -64,6 +64,22 @@ MUTATIONS = [
         new="build_binary_judge_prompt(eval, output)",
         shipped_in="every release before 0.3.0; grounding evals judged blind",
     ),
+    Mutation(
+        name="user-file load memo records the path before executing it",
+        path="fieldtest/loader.py",
+        old="""    resolved = str(path.resolve())
+    with _load_lock:
+        if resolved in loaded:
+            return None
+""",
+        new="""    resolved = str(path.resolve())
+    if True:
+        if resolved in loaded:
+            return None
+        loaded.add(resolved)
+""",
+        shipped_in="0.3.0 until found by running calibrate on the bundled dataset",
+    ),
 ]
 
 
@@ -107,7 +123,22 @@ def find_vacuous_tests() -> list[str]:
                 if isinstance(n, ast.Assert)
             ]
             if guarded and not unguarded:
-                vacuous.append(f"{f.name}:{fn.lineno} {fn.name}")
+                vacuous.append(f"{f.name}:{fn.lineno} {fn.name} (all assertions conditional)")
+
+            # An assertion that cannot fail. `assert x or True` slipped past the
+            # check above, because it is unguarded — it is just always true.
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Assert):
+                    continue
+                t = node.test
+                if isinstance(t, ast.Constant) and t.value:
+                    vacuous.append(f"{f.name}:{node.lineno} {fn.name} (assert of a constant)")
+                elif (
+                    isinstance(t, ast.BoolOp)
+                    and isinstance(t.op, ast.Or)
+                    and any(isinstance(v, ast.Constant) and v.value for v in t.values)
+                ):
+                    vacuous.append(f"{f.name}:{node.lineno} {fn.name} (assert ... or True)")
     return vacuous
 
 
@@ -160,9 +191,26 @@ def check_documented_test_count() -> list[str]:
     if not found:
         return []
     actual = int(found.group(1))
+    out = []
     if claimed != actual:
-        return [f"CHANGELOG claims {claimed} tests; the suite has {actual}"]
-    return []
+        out.append(f"CHANGELOG claims {claimed} tests; the suite has {actual}")
+
+    # The same line states how many defects this script reintroduces, and that
+    # number drifted the moment a fifth was added.
+    words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
+    d = re.search(r"reintroduces (\w+) defects", changelog)
+    if not d:
+        out.append("CHANGELOG no longer states how many defects are reintroduced")
+    else:
+        stated = words.get(d.group(1).lower())
+        if stated is None:
+            out.append(f"CHANGELOG states an unreadable defect count: {d.group(1)!r}")
+        elif stated != len(MUTATIONS):
+            out.append(
+                f"CHANGELOG says this script reintroduces {stated} defects; "
+                f"it reintroduces {len(MUTATIONS)}"
+            )
+    return out
 
 
 def main() -> int:

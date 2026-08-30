@@ -1,0 +1,5 @@
+order_id,customer,order_date,amount,status
+ORD-4417,c_881,2026-10-02,49.00,delivered
+ORD-4418,c_881,2026-10-02,49.00,delivered
+ORD-5120,c_204,2026-06-14,89.50,delivered
+ORD-5390,c_733,2026-10-11,342.00,delivered

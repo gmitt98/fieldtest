@@ -25,7 +25,11 @@ from fieldtest.config import (
 from fieldtest.errors import OutputError
 from fieldtest.judges.dispatch import dispatch_judge
 from fieldtest.judges.llm import get_unsupported_params, reset_unsupported_params
-from fieldtest.results.aggregator import build_delta, build_summary, find_baseline
+from fieldtest.results.aggregator import (
+    build_delta,
+    build_summary,
+    find_baseline_with_reason,
+)
 from fieldtest.results.provenance import build_judge_block
 from fieldtest.results.writer import write_results
 
@@ -107,7 +111,7 @@ def score(
         runs        = resolve_runs(config, uc)
         for fid in fixture_ids:
             fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
-            fixture      = load_fixture(fixture_path)
+            fixture      = load_fixture(fixture_path, base_dir)
             for (eval_id, run_number), value in extract_labels(fixture).items():
                 human_labels[(fid, eval_id, run_number)] = value
             run_outputs  = []
@@ -186,14 +190,19 @@ def score(
 
     # Auto-detect baseline — same set + dataset_version only, to avoid misleading
     # cross-set or cross-snapshot deltas.
+    no_baseline_reason = None
     if baseline_path is None:
-        baseline_path = find_baseline(
+        baseline_path, no_baseline_reason = find_baseline_with_reason(
             results_dir, run_id, set_name,
             dataset_version=resolve_dataset_version(config),
             judge_fingerprint=build_judge_block(config)["fingerprint"],
         )
 
     delta = build_delta(summary, baseline_path)
+    if baseline_path is None and no_baseline_reason:
+        # Every `vs prior` reads `—` whether this is a first run or the judge
+        # changed. Only one of those is something the user did.
+        delta["no_baseline_reason"] = no_baseline_reason
 
     # -------------------------------------------------------------------
     # REPORT

@@ -154,7 +154,7 @@ def test_rule_evals_resolve_through_every_entry_point(tmp_path):
     """
     from fieldtest.calibrate import run_calibration
     from fieldtest.config import parse_and_validate
-    from fieldtest.judges.registry import _rule_registry
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
     from fieldtest.runner import score
 
     config_path = _project(tmp_path, evals_yaml=LLM_EVAL + RULE_EVAL, with_rules=True)
@@ -166,11 +166,17 @@ def test_rule_evals_resolve_through_every_entry_point(tmp_path):
         {"provider": "openai", "model": "b"},
     ])
 
-    # No registry manipulation: tmp_path is a fresh project, so rules.py has
-    # never been loaded and both entry points must load it themselves. Before the
-    # fix, calibrate reached dispatch_judge with an empty registry and raised,
-    # because loading lived in the score CLI command rather than in score().
-    assert "has_hello" not in _rule_registry or True
+    # The precondition this test rests on: nothing has registered has_hello, so
+    # both entry points must load rules.py themselves. Before the fix, calibrate
+    # reached dispatch_judge with an empty registry and raised, because loading
+    # lived in the score CLI command rather than in score().
+    #
+    # Cleared rather than assumed. The registry is process-global, so an earlier
+    # test in the same session can satisfy the precondition by accident — which
+    # is why this assertion was previously written `or True` and proved nothing.
+    _rule_registry.pop("has_hello", None)
+    _loaded_rule_files.clear()
+    assert "has_hello" not in _rule_registry
 
     adapter = RecordingAdapter()
     with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
@@ -602,3 +608,1715 @@ def test_calibrate_runs_a_panel_mixing_a_local_endpoint_and_another_judge(tmp_pa
     assert stats["judges_participating"] == 2
     assert stats["mean_agreement"] == 0.0
     assert endpoint.requests, "the local endpoint was never called"
+
+
+# ---------------------------------------------------------------------------
+# file: inputs (spec 14 §3)
+#
+# The defect these fix: inputs reach the judge through str(value), so a fixture
+# written the way README §3 showed sent the judge a 25-character path instead of
+# the document. Spec 13's defect, arriving through documentation.
+# ---------------------------------------------------------------------------
+
+HANDBOOK = "Employees may expense meals up to $75 without prior approval."
+
+
+def _project_with_file_input(tmp_path: Path, value: str) -> Path:
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=1)
+    evals_dir = config_path.parent
+    (evals_dir / "sources").mkdir(exist_ok=True)
+    (evals_dir / "sources" / "handbook.md").write_text(HANDBOOK)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: fix1\ninputs:\n"
+        f"  policy: \"{value}\"\n"
+        "  question: What is the meal limit?\n"
+    )
+    return config_path
+
+
+def test_a_file_input_reaches_the_judge_as_the_document(tmp_path):
+    """
+    Asserted on the prompt the judge was handed, not on the loader's return
+    value. The loader returning a string was never the broken part.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project_with_file_input(tmp_path, "file:sources/handbook.md")
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path,
+              write_artifacts=False)
+
+    prompt = adapter.calls[0]["prompt"]
+    assert HANDBOOK in prompt
+    assert "file:sources/handbook.md" not in prompt
+    assert "sources/handbook.md" not in prompt
+
+
+def test_a_plain_string_input_is_left_alone(tmp_path):
+    """`see notes/faq.md` is a legitimate literal, not a file reference."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project_with_file_input(tmp_path, "see sources/handbook.md")
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path,
+              write_artifacts=False)
+
+    prompt = adapter.calls[0]["prompt"]
+    assert "see sources/handbook.md" in prompt
+    assert HANDBOOK not in prompt
+
+
+def test_a_rule_eval_gets_the_document_too(tmp_path):
+    """
+    Resolution happens at load, not at prompt-building, so a rule eval and an
+    LLM eval are handed the same thing. A rule reading a path would be the same
+    defect in a cheaper judge.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _project(tmp_path, evals_yaml=RULE_EVAL, runs=1, with_rules=True)
+    evals_dir = config_path.parent
+    (evals_dir / "sources").mkdir(exist_ok=True)
+    (evals_dir / "sources" / "handbook.md").write_text(HANDBOOK)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        'id: fix1\ninputs:\n  policy: "file:sources/handbook.md"\n'
+    )
+    (evals_dir / "rules.py").write_text(
+        "from fieldtest import rule\n\n"
+        "@rule('has_hello')\n"
+        "def check(output, inputs):\n"
+        "    got = inputs.get('policy', '')\n"
+        "    return {'passed': '$75' in got, 'detail': f'policy is {len(got)} chars'}\n"
+    )
+    _, rows = score(config=parse_and_validate(config_path), config_path=config_path,
+                    write_artifacts=False)
+    row = [r for r in rows if r.eval_id == "has_hello"][0]
+    assert row.passed, row.detail
+    assert f"{len(HANDBOOK)} chars" in row.detail
+
+
+def test_a_missing_file_input_fails_validation_not_the_judge(tmp_path):
+    """Twenty errored rows into a run is the wrong place to learn this."""
+    from fieldtest.config import parse_and_validate, summarize_file_inputs
+
+    from fieldtest.config import load_fixture, validate_fixture_labels
+    from fieldtest.errors import ConfigError
+
+    config_path = _project_with_file_input(tmp_path, "file:sources/nope.md")
+    config = parse_and_validate(config_path)
+    base_dir = config_path.parent
+
+    errors, _ = validate_fixture_labels(config, base_dir)
+    assert any("nope.md" in e for e in errors), errors
+
+    # And the loader refuses rather than handing anyone the path.
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(base_dir / "fixtures" / "fix1.yaml", base_dir)
+    assert "nope.md" in str(exc.value)
+    assert "inputs.policy" in str(exc.value)
+
+    # summarize_file_inputs is a reporting helper and skips what it cannot read,
+    # so a broken reference shows up as an error above, not as a false report.
+    assert summarize_file_inputs(config, base_dir) == {}
+
+
+def test_validate_reports_resolved_file_inputs(tmp_path):
+    from fieldtest.config import parse_and_validate, summarize_file_inputs
+
+    config_path = _project_with_file_input(tmp_path, "file:sources/handbook.md")
+    config = parse_and_validate(config_path)
+    assert summarize_file_inputs(config, config_path.parent) == {"fix1": ["policy"]}
+
+
+# ---------------------------------------------------------------------------
+# The bundled datasets (spec 14 §5)
+#
+# Acceptance is behavioural: the shipped scaffold must produce real failures
+# with no API key, and the answer key must catch every planted defect. A test
+# that only checks the files exist would pass on a dataset that scores nothing.
+# ---------------------------------------------------------------------------
+
+DATASET = "expense-report"
+DATASETS = ["expense-report", "support-agent"]
+
+
+def _dataset_dir(name: str = DATASET):
+    import fieldtest
+    return Path(fieldtest.__file__).resolve().parent / "datasets" / name
+
+
+def test_the_shipped_scaffold_scores_with_no_api_key(tmp_path, monkeypatch):
+    """The first run has to work before the user has a key or has written
+    anything, or the dataset cannot be explored at all."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir() / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    assert not any(r.error for r in rows), [r.error for r in rows if r.error]
+    failures = [r for r in rows if r.passed is False]
+    assert failures, "a dataset whose scaffold finds nothing teaches nothing"
+    # Not all failing either — a user should see the report distinguish them.
+    assert any(r.passed for r in rows)
+
+
+def test_every_planted_defect_is_caught_by_a_deterministic_eval(tmp_path):
+    """
+    The three defects the README claims are findable without an API key.
+    Asserted by fixture and run, so moving a defect without updating the README
+    fails here.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _dataset_dir() / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    failed = {(r.fixture_id, r.run, r.eval_id) for r in rows if r.passed is False}
+    assert ("october-trip", 3, "total_matches_line_items") in failed
+    assert ("march-trip", 2, "no_unfilled_placeholders") in failed
+    assert ("june-trip", 2, "excluded_categories_not_reimbursed") in failed
+
+
+def test_the_clean_outputs_actually_pass(tmp_path):
+    """Every planted defect is deliberate, so run 1 of each trip is clean."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    config_path = _dataset_dir() / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    for trip in ("october-trip", "march-trip", "june-trip"):
+        clean = [r for r in rows if r.fixture_id == trip and r.run == 1
+                 and r.passed is False]
+        assert not clean, [(r.eval_id, r.detail) for r in clean]
+
+
+def test_the_answer_key_covers_every_judge_type():
+    """
+    Five types exist and the dataset is meant to teach the mechanics of each.
+    Four of five would leave one type undemonstrated.
+    """
+    from fieldtest.config import parse_and_validate
+
+    config = parse_and_validate(_dataset_dir() / "reference-evals.yaml")
+    evals = [ev for uc in config.use_cases for ev in uc.evals]
+    kinds = {ev.type for ev in evals}
+    assert kinds == {"rule", "regex", "llm", "reference"}
+    assert any(ev.type == "llm" and ev.binary for ev in evals), "no binary llm eval"
+    assert any(ev.type == "llm" and not ev.binary for ev in evals), "no scored llm eval"
+
+
+def test_the_scaffold_leaves_work_to_do():
+    """
+    A scaffold with no TODO is a fourth demo. Checked on the file, because the
+    TODOs are commented-out YAML and invisible to the parser.
+    """
+    text = (_dataset_dir() / "config.yaml").read_text()
+    assert text.count("# TODO") >= 3
+    assert "TODO" in (_dataset_dir() / "rules.py").read_text()
+
+
+def test_dataset_use_copies_a_runnable_project(tmp_path):
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    dest = tmp_path / "evals"
+    result = CliRunner().invoke(
+        main, ["dataset", "use", DATASET, "--dest", str(dest)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert (dest / "config.yaml").is_file()
+    assert (dest / "outputs" / "october-trip" / "run-1.txt").is_file()
+    # Results belong to whoever runs it, not to the shipped copy.
+    assert not (dest / "results").exists()
+
+
+def test_dataset_use_refuses_to_overwrite_existing_work(tmp_path):
+    """Copying over someone's evals is not recoverable."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    dest = tmp_path / "evals"
+    dest.mkdir()
+    (dest / "config.yaml").write_text("mine: do not clobber\n")
+    result = CliRunner().invoke(
+        main, ["dataset", "use", DATASET, "--dest", str(dest)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+    assert (dest / "config.yaml").read_text() == "mine: do not clobber\n"
+
+
+def test_dataset_use_rejects_an_unknown_name(tmp_path):
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(
+        main, ["dataset", "use", "no-such-dataset", "--dest", str(tmp_path / "e")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "Unknown dataset" in result.output
+    assert DATASET in result.output
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_scores_offline_and_finds_something(name, monkeypatch):
+    """
+    Applied to every bundled dataset, so a new one cannot be added without
+    meeting the bar the first one set.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir(name) / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    assert not any(r.error for r in rows), [r.error for r in rows if r.error]
+    assert any(r.passed is False for r in rows), f"{name} finds nothing"
+    assert any(r.passed for r in rows), f"{name} fails everything"
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_validates_without_warnings(name):
+    """
+    A label naming an eval the scaffold does not declare warns on every run.
+    That shipped once; this stops it shipping again.
+    """
+    from fieldtest.config import parse_and_validate, validate_fixture_labels
+
+    config_path = _dataset_dir(name) / "config.yaml"
+    config = parse_and_validate(config_path)
+    errors, coverage = validate_fixture_labels(config, config_path.parent)
+    assert errors == [], errors
+    assert coverage, f"{name} ships no human labels"
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_labels_agree_with_its_deterministic_evals(name, monkeypatch):
+    """
+    The shipped labels are ground truth for evals that cannot be wrong. If they
+    disagree, the labels are wrong — and a dataset teaching judge-vs-human
+    agreement cannot ship labels that are themselves incorrect.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir(name) / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    from fieldtest.config import extract_labels, load_fixture
+
+    base_dir = config_path.parent
+    truth = {}
+    for uc in config.use_cases:
+        for fp in sorted((base_dir / uc.fixtures.directory).glob("*.yaml")):
+            fixture = load_fixture(fp, base_dir)
+            for (eval_id, run), verdict in extract_labels(fixture).items():
+                truth[(fixture["id"], eval_id, run)] = verdict
+
+    assert truth, f"{name} ships no labels to check"
+
+    disagreements = [
+        (r.fixture_id, r.run, r.eval_id, "judge=pass" if r.passed else "judge=fail",
+         f"human={truth[(r.fixture_id, r.eval_id, r.run)]}")
+        for r in rows
+        if r.passed is not None
+        and (r.fixture_id, r.eval_id, r.run) in truth
+        and (truth[(r.fixture_id, r.eval_id, r.run)] == "pass") != r.passed
+    ]
+    assert not disagreements, disagreements
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_answer_key_covers_all_five_judge_types(name):
+    from fieldtest.config import parse_and_validate
+
+    config = parse_and_validate(_dataset_dir(name) / "reference-evals.yaml")
+    evals = [ev for uc in config.use_cases for ev in uc.evals]
+    assert {ev.type for ev in evals} == {"rule", "regex", "llm", "reference"}
+    assert any(ev.type == "llm" and ev.binary for ev in evals)
+    assert any(ev.type == "llm" and not ev.binary for ev in evals)
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_every_dataset_leaves_work_to_do(name):
+    d = _dataset_dir(name)
+    assert "TODO" in (d / "config.yaml").read_text()
+    assert "TODO" in (d / "rules.py").read_text()
+    assert (d / "README.md").is_file()
+    assert (d / "PROMPT.md").is_file()
+
+
+def test_the_agent_dataset_scores_json_traces():
+    """
+    An output is text. A trace is JSON in that text, and a rule eval parses it —
+    no code in fieldtest knows the difference, which is the claim this pins.
+    """
+    import json
+
+    for p in sorted((_dataset_dir("support-agent") / "outputs").rglob("run-*.txt")):
+        trace = json.loads(p.read_text())
+        assert trace["steps"], p
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_uncommenting_the_answer_key_labels_keeps_the_others(name):
+    """
+    The README tells the reader to uncomment labels for the answer-key eval.
+    Those lines shipped once as a second top-level `labels:` key, which YAML
+    resolves by keeping the last one — so following the instruction silently
+    deleted every label above it, with no error.
+
+    Simulates the edit rather than trusting the indentation by eye.
+    """
+    import re
+
+    import yaml
+
+    for path in sorted((_dataset_dir(name) / "fixtures").glob("*.yaml")):
+        text = path.read_text()
+        before = yaml.safe_load(text).get("labels", {})
+
+        # The dangerous shape directly: a commented-out top-level `labels:`.
+        # Uncommenting it makes a second top-level key, and YAML keeps the last.
+        assert not any(
+            re.match(r"^#\s*labels:", ln) for ln in text.splitlines()
+        ), (
+            f"{path.name}: a commented-out top-level 'labels:' key. Uncommenting "
+            f"it would replace the labels above it instead of adding to them — "
+            f"indent the entries under the existing key."
+        )
+
+        if not any(re.match(r"^  # \w+:", ln) for ln in text.splitlines()):
+            continue  # this fixture has no commented labels
+
+        uncommented = "\n".join(
+            ln.replace("  # ", "  ", 1)
+            if re.match(r"^  # (\w+:|  \d+: (pass|fail))", ln) else ln
+            for ln in text.splitlines()
+        )
+        after = yaml.safe_load(uncommented).get("labels", {})
+
+        assert set(before) <= set(after), (
+            f"{path.name}: uncommenting dropped {set(before) - set(after)}"
+        )
+        assert len(after) > len(before), f"{path.name}: uncommenting added nothing"
+
+
+# ---------------------------------------------------------------------------
+# The walkthrough (docs/walkthrough.md)
+#
+# It claims every command and every block of output in it is real. That claim
+# rots the first time a message changes, so it is executed rather than trusted:
+# the rule the doc tells a reader to paste is extracted from the doc itself and
+# run, and the figures it quotes are asserted against a real run.
+# ---------------------------------------------------------------------------
+
+def _walkthrough() -> str:
+    return (Path(__file__).resolve().parent.parent / "docs" / "walkthrough.md").read_text()
+
+
+def _score_dataset_copy(tmp_path, monkeypatch, mutate=None):
+    """Copy expense-report, optionally edit it, score it offline."""
+    import shutil
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    dest = tmp_path / "evals"
+    shutil.copytree(_dataset_dir("expense-report"), dest,
+                    ignore=shutil.ignore_patterns("results", "__pycache__"))
+    if mutate:
+        mutate(dest)
+
+    # A fresh registry: rules.py here is a different file with the same name.
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
+    _rule_registry.clear()
+    _loaded_rule_files.clear()
+
+    config_path = dest / "config.yaml"
+    return score(config=parse_and_validate(config_path), config_path=config_path,
+                 set_name="full", write_artifacts=False)[1]
+
+
+def test_walkthrough_step_4_output_is_what_the_command_prints(tmp_path, monkeypatch):
+    """The failure lines quoted in step 4, asserted against a real run."""
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    doc = _walkthrough()
+
+    failures = {(r.fixture_id, r.run, r.eval_id): r.detail
+                for r in rows if r.passed is False}
+
+    assert ("june-trip", 2, "excluded_categories_not_reimbursed") in failures
+    assert ("october-trip", 3, "total_matches_line_items") in failures
+    # The quoted details must appear verbatim in the doc.
+    assert "R-1190 (alcohol) reimbursed $47.00" in doc
+    assert failures[("june-trip", 2, "excluded_categories_not_reimbursed")] == \
+        "R-1190 (alcohol) reimbursed $47.00"
+    assert "line items sum to $897.70, output states $912.70" in doc
+    assert failures[("october-trip", 3, "total_matches_line_items")] == \
+        "line items sum to $897.70, output states $912.70"
+
+    # 9/12 RIGHT, quoted in the Tag Health table.
+    right = [r for r in rows if r.tag == "right" and r.passed is not None]
+    assert (sum(1 for r in right if r.passed), len(right)) == (9, 12)
+    assert "| RIGHT | 75% | 9 / 12 |" in doc
+
+
+def test_walkthrough_step_6_rule_is_runnable_and_catches_r1049(tmp_path, monkeypatch):
+    """
+    The rule the doc tells a reader to paste, extracted from the doc and run.
+    If the snippet stops working, this fails rather than the reader.
+    """
+    import re
+
+    doc = _walkthrough()
+    match = re.search(r"```python\n(@rule\(\"no_invented_receipts\"\).*?)```", doc, re.S)
+    assert match, "the walkthrough no longer contains the rule it tells you to write"
+    snippet = match.group(1)
+
+    def mutate(dest: Path):
+        (dest / "rules.py").write_text((dest / "rules.py").read_text() + "\n\n" + snippet)
+        cfg = dest / "config.yaml"
+        yaml_block = re.search(
+            r"```yaml\n(      - id: no_invented_receipts\n.*?)```", doc, re.S
+        )
+        assert yaml_block, "the walkthrough no longer contains the config block"
+        s = cfg.read_text()
+        todo = "      # TODO one of the outputs cites a receipt that exists in no source file."
+        assert todo in s, "the TODO the walkthrough quotes is gone from config.yaml"
+        cfg.write_text(s.replace(todo, yaml_block.group(1).rstrip() + "\n\n" + todo, 1))
+
+    rows = _score_dataset_copy(tmp_path, monkeypatch, mutate)
+
+    new = [r for r in rows if r.eval_id == "no_invented_receipts"]
+    assert len(new) == 9, "the eval did not run on every output"
+    failed = [r for r in new if r.passed is False]
+    assert [(r.fixture_id, r.run) for r in failed] == [("october-trip", 3)]
+    assert failed[0].detail == "cites R-1049, which is in no source receipt"
+    assert "cites R-1049, which is in no source receipt" in doc
+
+    # 17/21 RIGHT after adding it, quoted in step 7.
+    right = [r for r in rows if r.tag == "right" and r.passed is not None]
+    assert (sum(1 for r in right if r.passed), len(right)) == (17, 21)
+    assert "| RIGHT | 81% | 17 / 21 |" in doc
+
+
+def test_walkthrough_quotes_the_real_receipt_ids():
+    """Step 5's argument rests on R-1049 being absent from the source."""
+    csv_text = (_dataset_dir("expense-report") / "sources" / "receipts-october.csv").read_text()
+    ids = [ln.split(",")[0] for ln in csv_text.splitlines()[1:] if ln.strip()]
+    assert ids == ["R-1041", "R-1042", "R-1043", "R-1044", "R-1045", "R-1046"]
+    assert "R-1049" not in csv_text
+    assert ", ".join(ids).replace(", ", ",") in _walkthrough().replace(" ", "")
+
+
+def test_walkthrough_fault_counts_are_arithmetic_not_prose(tmp_path, monkeypatch):
+    """
+    The doc says the shipped evals flag three of nine outputs and leave three
+    faulty ones unflagged. I first wrote "two", from memory rather than from a
+    run. Counted here so the sentence cannot drift from the dataset.
+    """
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    doc = _walkthrough()
+
+    flagged = {(r.fixture_id, r.run) for r in rows if r.passed is False}
+    faulty = {("october-trip", 2), ("october-trip", 3), ("march-trip", 2),
+              ("march-trip", 3), ("june-trip", 2), ("june-trip", 3)}
+
+    assert len(flagged) == 3, flagged
+    assert len(faulty - flagged) == 3, faulty - flagged
+    assert sum(1 for r in rows if r.passed is False) == 5
+
+    assert "five failures, across three of the nine outputs" in doc
+    assert "The other three\nfaulty outputs went unflagged" in doc
+
+    # The three the doc names as needing a judge are exactly the unflagged ones.
+    for fixture, run in sorted(faulty - flagged):
+        assert f"{fixture}/run-{run}" in doc, f"{fixture}/run-{run} not named in step 9"
+
+
+def test_walkthrough_file_tree_lists_what_dataset_use_copies(tmp_path):
+    """
+    Step 2 tells the reader to open evals/README.md; step 3's listing omitted
+    it. A tree that quietly disagrees with the directory is worse than none.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    dest = tmp_path / "evals"
+    CliRunner().invoke(main, ["dataset", "use", "expense-report", "--dest", str(dest)],
+                       catch_exceptions=False)
+    doc = _walkthrough()
+    tree = doc[doc.index("evals/\n"):doc.index("**A fixture**")]
+
+    for entry in sorted(p.name for p in dest.iterdir()):
+        assert entry in tree, f"{entry} is copied but missing from the walkthrough tree"
+
+
+def test_site_dataset_figures_match_a_real_run(tmp_path, monkeypatch):
+    """
+    docs/index.html quotes the dataset's report. Those figures were pasted from
+    a run and will rot silently; the site is the one place nobody re-runs.
+    """
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+
+    right = [r for r in rows if r.tag == "right" and r.passed is not None]
+    good  = [r for r in rows if r.tag == "good" and r.passed is not None]
+    assert f"{sum(1 for r in right if r.passed)} / {len(right)}" in site
+    assert f"{sum(1 for r in good if r.passed)} / {len(good)}" in site
+
+    details = {r.detail for r in rows if r.passed is False}
+    for quoted in ("R-1190 (alcohol) reimbursed $47.00",
+                   "line items sum to $897.70, output states $912.70"):
+        assert quoted in details, f"{quoted!r} is on the site but not in a real run"
+        assert quoted in site
+
+
+def test_site_output_comparison_matches_the_real_outputs():
+    """
+    The side-by-side panels claim run 1 reimburses R-1045 at $75.00 and run 2 at
+    $91.40, with totals of $869.70 and $886.10. Read from the outputs.
+    """
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    out = _dataset_dir("expense-report") / "outputs" / "october-trip"
+
+    run1, run2 = (out / "run-1.txt").read_text(), (out / "run-2.txt").read_text()
+    assert "$75.00" in run1 and "Total reimbursable: $869.70" in run1
+    assert "$91.40 | $91.40" in run2 and "Total reimbursable: $886.10" in run2
+    for figure in ("869.70", "886.10", "91.40", "75.00"):
+        assert figure in site
+
+
+def test_site_uses_no_unstyled_class_names():
+    """
+    I shipped .code-window / .cw-bar with no CSS, so two panels rendered as bare
+    <pre>. Every class used in the markup must be defined in the stylesheet.
+    """
+    import re
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    styles = site[site.index("<style>"):site.index("</style>")]
+    defined = set(re.findall(r"\.([a-zA-Z][\w-]*)", styles))
+
+    used: set[str] = set()
+    for attr in re.findall(r'class="([^"]+)"', site):
+        used.update(attr.split())
+
+    # Utility names that are legitimately styled only via a parent selector.
+    allowed = {"red", "yellow", "green"}
+    undefined = sorted(used - defined - allowed)
+    assert not undefined, f"classes used but never styled: {undefined}"
+
+
+def test_docs_quote_the_real_prompt():
+    """
+    The site and the walkthrough both reproduce PROMPT.md. Editing the prompt
+    left both quoting a version that no longer existed — the prompt is an input
+    the judge reads, so a stale copy misdescribes what the evals are scoring.
+
+    Abridgement is fine; invention is not. Every non-empty line quoted must
+    appear in the real file.
+    """
+    root = Path(__file__).resolve().parent.parent
+    prompt = (_dataset_dir("expense-report") / "PROMPT.md").read_text()
+    prompt_lines = {ln.strip() for ln in prompt.splitlines() if ln.strip()}
+
+    quoting = [
+        doc for doc in ("docs/walkthrough.md", "docs/index.html")
+        if "You are an expense assistant" in (root / doc).read_text()
+    ]
+    assert quoting, "no doc reproduces PROMPT.md — did the site section move?"
+
+    for doc in quoting:
+        text = (root / doc).read_text()
+        import re
+
+        start = text.index("You are an expense assistant for Meridian Corp.")
+        # To the end of the enclosing block, whichever syntax the doc uses.
+        ends = [e for e in (text.find("</pre>", start), text.find("```", start)) if e != -1]
+        block = text[start:min(ends)]
+        quoted = [
+            re.sub(r"<[^>]+>", "", ln).strip()
+            for ln in block.splitlines() if ln.strip()
+        ]
+        missing = [ln for ln in quoted if ln and ln not in prompt_lines]
+        assert not missing, f"{doc} quotes lines not in PROMPT.md: {missing}"
+
+    # And the requirement the caps_applied eval depends on is actually stated.
+    assert "Apply the limits and exclusions in the policy" in prompt
+
+
+def test_bundled_demo_results_use_the_current_schema():
+    """
+    `fieldtest demo --offline` serves pre-scored JSON rather than re-running, so
+    a renamed summary field leaves the demo showing a schema the code no longer
+    emits. Compared against a real run's own keys rather than a hardcoded list.
+    """
+    import json
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest" / "demo"
+    for demo in ("rag", "email", "extraction"):
+        config_path = root / demo / "config.yaml"
+        # A rule/regex-only pass is enough: the summary shape is the same.
+        config = parse_and_validate(config_path)
+        _, rows = score(config=config, config_path=config_path,
+                        write_artifacts=False, allow_partial=True)
+
+        bundled = json.loads((root / demo / "results" / "demo-offline-data.json").read_text())
+        shipped_keys = {
+            k
+            for uc in bundled["summary"].values()
+            for tag in uc.values()
+            for stats in tag.values()
+            for k in stats
+        }
+        assert "confidence" not in shipped_keys, (
+            f"{demo}: bundled results still use the pre-0.3.0 'confidence' key"
+        )
+        assert "confidence_level" in shipped_keys, f"{demo}: no confidence_level in summary"
+
+
+def test_two_threads_loading_rules_both_see_the_registry(tmp_path):
+    """
+    The calibration panel scores with each judge in its own thread, and each
+    calls load_rules(). The memo recorded the path *before* executing the
+    module, so the second thread saw it as loaded while the first was still
+    running it and dispatched against an empty registry:
+
+        No rule registered for eval 'total_matches_line_items'
+
+    Reproduced deterministically: the module sleeps while executing, so a
+    second thread is guaranteed to arrive mid-load.
+    """
+    import threading
+    import time
+
+    from fieldtest.judges.registry import (_loaded_rule_files, _rule_registry,
+                                           get_rule, load_rules)
+
+    rules = tmp_path / "rules.py"
+    rules.write_text(
+        "import time\n"
+        "from fieldtest import rule\n\n"
+        "time.sleep(0.3)\n\n"          # the window the race needs
+        "@rule('slow_to_register')\n"
+        "def check(output, inputs):\n"
+        "    return {'passed': True, 'detail': 'ok'}\n"
+    )
+
+    _rule_registry.pop("slow_to_register", None)
+    _loaded_rule_files.discard(str(rules.resolve()))
+
+    seen: list = []
+
+    def worker():
+        load_rules(rules)
+        seen.append(get_rule("slow_to_register"))
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+        time.sleep(0.05)   # stagger so the others arrive mid-load
+    for t in threads:
+        t.join()
+
+    assert len(seen) == 4
+    assert all(fn is not None for fn in seen), (
+        "a thread returned from load_rules() before the registry was populated"
+    )
+
+
+def test_a_module_that_raises_is_not_recorded_as_loaded(tmp_path):
+    """
+    The path was recorded before execution, so a module that blew up counted as
+    loaded and the next call silently skipped it. Retrying should raise again.
+    """
+    from fieldtest.errors import ConfigError
+    from fieldtest.judges.registry import _loaded_rule_files, load_rules
+
+    rules = tmp_path / "rules.py"
+    rules.write_text("raise RuntimeError('boom')\n")
+    _loaded_rule_files.discard(str(rules.resolve()))
+
+    for _ in range(2):
+        with pytest.raises(ConfigError) as exc:
+            load_rules(rules)
+        assert "boom" in str(exc.value)
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("expense-report", {"rule": 18, "regex": 9, "reference": 3}),
+    ("support-agent",  {"rule": 18, "regex": 9}),
+])
+def test_documented_label_agreement_is_what_the_data_says(name, expected, monkeypatch):
+    """
+    Both dataset READMEs quote how many labelled runs agree with the judge.
+    expense-report's said "the rule evals agree on all thirty" — the rule evals
+    account for 18 of those; the other 12 belong to a regex and a reference
+    eval. A count that spans three eval types cannot be attributed to one.
+    """
+    import shutil
+    import tempfile
+
+    import yaml
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    dest = Path(tempfile.mkdtemp()) / "evals"
+    shutil.copytree(_dataset_dir(name), dest,
+                    ignore=shutil.ignore_patterns("results", "__pycache__"))
+    _rule_registry.clear()
+    _loaded_rule_files.clear()
+
+    config_path = dest / "config.yaml"
+    config = parse_and_validate(config_path)
+    types = {ev.id: ev.type for uc in config.use_cases for ev in uc.evals}
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+
+    truth = {}
+    for f in sorted((dest / "fixtures").glob("*.yaml")):
+        fixture = yaml.safe_load(f.read_text())
+        for eval_id, runs in (fixture.get("labels") or {}).items():
+            for run, verdict in runs.items():
+                truth[(fixture["id"], eval_id, run)] = verdict
+
+    counts, agree = {}, {}
+    for r in rows:
+        key = (r.fixture_id, r.eval_id, r.run)
+        if key not in truth or r.passed is None:
+            continue
+        t = types[r.eval_id]
+        counts[t] = counts.get(t, 0) + 1
+        agree[t] = agree.get(t, 0) + ((truth[key] == "pass") == r.passed)
+
+    assert counts == expected, f"{name}: labelled runs per eval type changed"
+    for t in counts:
+        assert agree[t] == counts[t], (
+            f"{name}: {t} evals disagree with the shipped labels "
+            f"({agree[t]}/{counts[t]}) — the READMEs claim 100%"
+        )
+
+    readme = (_dataset_dir(name) / "README.md").read_text()
+    total = sum(counts.values())
+    assert str(total) in readme or _spelled(total) in readme, (
+        f"{name}: README does not state its {total} labelled runs"
+    )
+
+
+def _spelled(n: int) -> str:
+    return {27: "twenty-seven", 30: "thirty"}.get(n, str(n))
+
+
+def test_report_header_names_outputs_and_judge_repeats_separately(tmp_path, monkeypatch):
+    """
+    `runs` are generator outputs; `judge_runs` are repeat verdicts on each. The
+    header multiplied only the first, so a run with judge_runs: 3 said "3
+    evaluations per eval" while making nine judge calls.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3, judge_runs=3)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    # Nine judge calls for three outputs.
+    assert len(adapter.calls) == 9
+    assert len({(r.fixture_id, r.run) for r in rows if r.type == "llm"}) == 3
+    assert {r.judge_run for r in rows if r.type == "llm"} == {1, 2, 3}
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    header = md.splitlines()[1]
+    assert "3 scored output(s) per eval" in header
+    assert "judged 3× each" in header
+    assert "Judge Repeatability (judge_runs: 3)" in md
+
+
+def test_report_header_stays_quiet_when_each_output_is_judged_once(tmp_path, monkeypatch):
+    """The common case should not grow a clause about a setting nobody used."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    header = md.splitlines()[1]
+    assert "3 scored output(s) per eval" in header
+    assert "judged" not in header
+
+
+def test_a_rate_counts_outputs_not_judge_calls(tmp_path, monkeypatch):
+    """
+    With judge_runs: 3, failure_rate must stay per-output — majority across the
+    repetitions — so rates are comparable across judge_runs settings. A rate
+    over nine rows instead of three would move when you changed the setting.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3, judge_runs=3)
+    config = parse_and_validate(config_path)
+    # Two of three outputs fail, every judge repetition agreeing.
+    adapter = RecordingAdapter(verdicts=[True, True, True, False, False, False,
+                                         False, False, False])
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        _, rows = score(config=config, config_path=config_path, write_artifacts=False)
+
+    summary = build_summary(rows, config)
+    stats = summary["uc1"]["right"]["is_helpful"]
+    assert stats["total_runs"] == 3, "total_runs must count outputs"
+    assert stats["judge_calls"] == 9, "judge_calls must count judge invocations"
+    assert stats["failure_rate"] == round(2 / 3, 6)
+
+
+def _html_for(tmp_path, monkeypatch, *, judge_runs=1, labels=""):
+    """Score a project and return the generated HTML report."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3,
+                           judge_runs=judge_runs, labels=labels)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=config, config_path=config_path)
+
+    results = list((config_path.parent / "results").glob("*-report.html"))
+    assert results, "no HTML report written"
+    return results[0].read_text()
+
+
+def test_html_report_names_the_judge_that_produced_its_numbers(tmp_path, monkeypatch):
+    """
+    The markdown report has named the judge since spec 01. The HTML — the file
+    `fieldtest view` opens, and the one the site calls "everything in one file"
+    — did not, while embedding the whole judge block in its data.
+    """
+    html = _html_for(tmp_path, monkeypatch)
+    assert "Judge:" in html
+    assert "claude-haiku-4-5" in html
+    assert "temp 0.0" in html
+
+
+def test_html_report_shows_judge_repeatability(tmp_path, monkeypatch):
+    """judge_runs > 1 produced a markdown section and nothing in the HTML."""
+    html = _html_for(tmp_path, monkeypatch, judge_runs=3)
+    assert "Judge repeatability" in html
+    assert "judge disagreement" in html
+    assert "judged 3× each" in html
+
+
+def test_html_report_shows_agreement_with_your_labels(tmp_path, monkeypatch):
+    """Same for spec 07's labels: markdown had the table, HTML had nothing."""
+    html = _html_for(
+        tmp_path, monkeypatch,
+        labels="labels:\n  is_helpful:\n    1: pass\n    2: fail\n    3: pass\n",
+    )
+    assert "Judge vs your labels" in html
+    assert "false pass" in html
+    assert "labelled runs" in html
+
+
+def test_html_report_omits_the_judge_tables_when_there_is_nothing_to_say(tmp_path, monkeypatch):
+    """A run with one judge pass and no labels should not grow empty tables."""
+    html = _html_for(tmp_path, monkeypatch)
+    assert "Judge vs your labels" not in html
+    assert "Judge repeatability" not in html
+
+
+def test_repeatability_lists_only_evals_a_judge_actually_repeated(tmp_path, monkeypatch):
+    """
+    judge_runs applies to llm evals; a rule or regex eval is evaluated once
+    however high the setting goes. The summary reported the configured value on
+    every eval, so both reports listed rule evals in the repeatability table at
+    "0.0% disagreement" — implying a judge had been consulted twice and agreed,
+    when none was consulted at all.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.html import _build_judge_tables
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL + RULE_EVAL,
+                           runs=2, judge_runs=3, with_rules=True)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    # The rule eval really was evaluated once per output.
+    assert {r.judge_run for r in rows if r.type == "rule"} == {1}
+    assert {r.judge_run for r in rows if r.type == "llm"} == {1, 2, 3}
+
+    summary = build_summary(rows, config)
+    stats = {eid: st for tag in summary["uc1"].values() for eid, st in tag.items()}
+    # Absent rather than 1: a rule eval has no judge, so there is no repetition
+    # count to report, and the repeatability table keys off this field.
+    assert "judge_runs" not in stats["has_hello"]
+    assert stats["is_helpful"]["judge_runs"] == 3
+
+    md = format_report(rows, summary, {}, config, run_id, "full")
+    repeat_block = md[md.index("Judge Repeatability"):]
+    repeat_block = repeat_block[:repeat_block.index("\n\n")]
+    assert "is_helpful" in repeat_block
+    assert "has_hello" not in repeat_block
+
+    html = _build_judge_tables(summary["uc1"])
+    assert "is_helpful" in html
+    assert "has_hello" not in html
+
+
+def test_every_artifact_carries_the_judge_repetition_data(tmp_path, monkeypatch):
+    """
+    judge_runs must be visible in all four things a run writes, not just the
+    markdown. The HTML table shipped with only the disagreement column, so a
+    scored eval — where the two spreads are the entire point — rendered as an
+    empty row.
+    """
+    import csv
+    import json
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    scored_eval = (
+        "      - id: clarity\n"
+        "        tag: good\n"
+        "        type: llm\n"
+        "        binary: false\n"
+        "        description: how clear it is\n"
+        "        scale: [1, 5]\n"
+        "        anchors:\n"
+        "          1: unclear\n"
+        "          5: clear\n"
+    )
+    # Only the scored eval: RecordingAdapter serves its score queue to every
+    # call, so a binary eval alongside it would eat the scores.
+    config_path = _project(tmp_path, evals_yaml=scored_eval, runs=3, judge_runs=2)
+    config = parse_and_validate(config_path)
+    class _ByOutput(ProviderAdapter):
+        """
+        Scores from the output's own text, so repetitions of one output always
+        agree and different outputs do not. A scripted queue cannot do this:
+        the judge calls run in a thread pool, so queue order does not map to
+        (output, repetition).
+        """
+
+        def call(self, model, prompt, gen, retry):
+            run = next(n for n in ("1", "2", "3") if f"run {n}" in prompt)
+            return {"score": {"1": 1, "2": 3, "3": 5}[run], "reasoning": "by output"}
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=_ByOutput()):
+        score(config=config, config_path=config_path)
+
+    results = config_path.parent / "results"
+    data = json.loads(next(results.glob("*-data.json")).read_text())
+    rows = list(csv.DictReader(next(results.glob("*-data.csv")).read_text().splitlines()))
+    md = next(results.glob("*-report.md")).read_text()
+    html = next(results.glob("*-report.html")).read_text()
+
+    stats = {
+        eid: st
+        for uc in data["summary"].values()
+        for tag in uc.values()
+        for eid, st in tag.items()
+    }
+    # JSON: the decomposition itself.
+    assert stats["clarity"]["judge_runs"] == 2
+    assert stats["clarity"]["system_stddev"] > 0, "outputs differ, so system spread must"
+    assert stats["clarity"]["judge_stddev"] == 0.0, "the judge repeated itself exactly"
+
+    # CSV: one row per repetition.
+    assert sorted({r["judge_run"] for r in rows}) == ["1", "2"]
+
+    # Both reports: the columns that carry the comparison.
+    #
+    # The HTML embeds the whole result set as JSON, so searching the file finds
+    # every number whether or not it is displayed. This assertion passed with
+    # the table cells deleted until the data blob was stripped first — the same
+    # trap that made the missing judge sections invisible to grep.
+    import re
+
+    rendered = re.sub(r"const RUN_DATA = .*?;\n", "", html, flags=re.S)
+    assert "RUN_DATA = {" not in rendered, "the data blob was not stripped"
+    for artifact, name in ((md, "markdown"), (rendered, "html")):
+        assert "system spread" in artifact, f"{name} lacks the system spread column"
+        assert "judge spread" in artifact, f"{name} lacks the judge spread column"
+        assert str(stats["clarity"]["system_stddev"]) in artifact, (
+            f"{name} does not display the system spread value"
+        )
+        assert str(stats["clarity"]["judge_stddev"]) in artifact, (
+            f"{name} does not display the judge spread value"
+        )
+
+
+def test_judge_error_remediation_names_the_provider_stated_cause(tmp_path, monkeypatch):
+    """
+    A real run died on an exhausted credit balance and the report said "check
+    your API key" — sending someone to inspect a credential that was working.
+    The provider had said exactly what was wrong; the report repeated generic
+    advice over it.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.providers.base import ProviderAdapter
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    class _OutOfCredit(ProviderAdapter):
+        def call(self, model, prompt, gen: JudgeGenerationConfig, retry: RetryPolicy):
+            return {"error": "Error code: 400 - Your credit balance is too low "
+                             "to access the Anthropic API."}
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=2)
+    config = parse_and_validate(config_path)
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=_OutOfCredit()):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    assert "the account is out of credit" in md
+    assert "check your API key" not in md
+
+
+def test_generic_remediation_survives_for_an_unrecognised_error(tmp_path, monkeypatch):
+    """When the provider says nothing useful, the old advice is still the best."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.providers.base import ProviderAdapter
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    class _Vague(ProviderAdapter):
+        def call(self, model, prompt, gen, retry):
+            return {"error": "something went wrong"}
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=2)
+    config = parse_and_validate(config_path)
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=_Vague()):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    assert "check your API key" in md
+
+
+def test_header_does_not_claim_a_per_eval_count_across_use_cases(tmp_path, monkeypatch):
+    """
+    fixture_count is the total across use cases. Multiplying it by runs claims
+    a per-eval figure only true for a single use case: a real project with 11
+    resume fixtures and 3 cover-letter ones was told "42 scored output(s) per
+    eval" when no eval had more than 33.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=RULE_EVAL, runs=2,
+                           fixtures=("fix1", "fix2"), with_rules=True)
+    # A second use case with its own single fixture.
+    text = config_path.read_text().replace(
+        "        full: [fix1, fix2]\n",
+        "        full: [fix1, fix2]\n"
+        "  - id: uc2\n"
+        "    description: d2\n"
+        "    evals:\n" + RULE_EVAL.replace("has_hello", "has_hello2") +
+        "    fixtures:\n      directory: fixtures/\n      sets:\n        full: [fix3]\n",
+    )
+    config_path.write_text(text)
+    (config_path.parent / "fixtures" / "fix3.yaml").write_text("id: fix3\ninputs:\n  q: x\n")
+    out = config_path.parent / "outputs" / "fix3"
+    out.mkdir(parents=True, exist_ok=True)
+    for n in (1, 2):
+        (out / f"run-{n}.txt").write_text("hello from fix3")
+    (config_path.parent / "rules.py").write_text(
+        "from fieldtest import rule\n"
+        "@rule('has_hello')\n"
+        "def a(output, inputs): return {'passed': True, 'detail': 'x'}\n"
+        "@rule('has_hello2')\n"
+        "def b(output, inputs): return {'passed': True, 'detail': 'x'}\n"
+    )
+
+    config = parse_and_validate(config_path)
+    run_id, rows = score(config=config, config_path=config_path,
+                         write_artifacts=False)
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    header = md.splitlines()[1]
+
+    # 3 fixtures total, but uc1 evals cover 2 and uc2 covers 1.
+    assert "3 fixture(s) across 2 use cases" in header
+    assert "6 scored output(s) per eval" not in header, (
+        "header multiplied total fixtures by runs across use cases"
+    )
+
+
+def test_html_says_which_population_its_tag_rates_cover(tmp_path, monkeypatch):
+    """
+    The HTML tag boxes aggregate every use case; the markdown's tag health is
+    per use case. Both are correct arithmetic on different populations, and one
+    run showed "RIGHT 74%" in one artifact and "RIGHT 75%" in the other with
+    neither saying which it covered.
+    """
+    html = _html_for(tmp_path, monkeypatch)
+    # One use case: no scope note, and no "across N use cases" on the header.
+    assert "across" not in html.split("tag-health")[0].split("Fixtures:")[-1][:80]
+    assert "Rates below cover all" not in html
+
+
+# ---------------------------------------------------------------------------
+# Loader, fixture and set-resolution failures (Track D)
+#
+# All of these fire on files a user writes by hand, and none was reached by the
+# suite before now.
+# ---------------------------------------------------------------------------
+
+def test_a_fixture_without_an_id_names_the_file(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = tmp_path / "nameless.yaml"
+    f.write_text("description: forgot the id\ninputs: {}\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "nameless.yaml" in str(exc.value)
+    assert "missing required 'id' field" in str(exc.value)
+
+
+def test_a_fixture_that_is_not_a_mapping_is_rejected(tmp_path):
+    """A YAML list parses fine, then has no .get — caught as a config error."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = tmp_path / "listy.yaml"
+    f.write_text("- id: one\n- id: two\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "missing required 'id' field" in str(exc.value)
+
+
+def test_unparseable_fixture_yaml_names_the_file(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = tmp_path / "broken.yaml"
+    f.write_text("id: x\ninputs: [unclosed\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "broken.yaml" in str(exc.value)
+
+
+def test_a_file_input_that_cannot_be_read_names_the_input(tmp_path):
+    """Exists, but is not decodable as text — the read, not the existence check."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    (tmp_path / "blob.txt").write_bytes(b"\xff\xfe\x00\x81\x82binary")
+    f = tmp_path / "fx.yaml"
+    f.write_text('id: x\ninputs:\n  doc: "file:blob.txt"\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f, base_dir=tmp_path)
+    msg = str(exc.value)
+    assert "inputs.doc" in msg
+    assert "could not read" in msg
+
+
+def test_an_unrecognised_set_value_says_what_is_allowed(tmp_path):
+    from fieldtest.resolve import resolve_set
+    from fieldtest.config import UseCase
+    from fieldtest.errors import ConfigError
+
+    uc = UseCase.model_validate({
+        "id": "uc1",
+        "description": "d",
+        "evals": [{"id": "e", "tag": "right", "type": "regex",
+                   "description": "d", "pattern": "x", "match": True}],
+        "fixtures": {"directory": "fixtures/", "sets": {"odd": "some/thing"}},
+    })
+    with pytest.raises(ConfigError) as exc:
+        resolve_set("odd", uc, tmp_path)
+    msg = str(exc.value)
+    assert "use_cases.uc1.fixtures.sets.odd" in msg
+    assert "Expected list, 'all', or 'dir/*'" in msg
+
+
+def test_a_rules_file_with_a_syntax_error_names_the_line(tmp_path):
+    from fieldtest.loader import import_user_file
+    from fieldtest.errors import ConfigError
+
+    p = tmp_path / "rules.py"
+    p.write_text("def broken(:\n    pass\n")
+    with pytest.raises(ConfigError) as exc:
+        import_user_file(p, "rules_syntax_probe", set())
+    msg = str(exc.value)
+    assert "SyntaxError" in msg
+    assert "rules.py" in msg
+
+
+def test_a_rules_file_that_raises_on_import_names_the_line(tmp_path):
+    from fieldtest.loader import import_user_file
+    from fieldtest.errors import ConfigError
+
+    p = tmp_path / "rules.py"
+    p.write_text("import json\nraise RuntimeError('no config for you')\n")
+    with pytest.raises(ConfigError) as exc:
+        import_user_file(p, "rules_raise_probe", set())
+    msg = str(exc.value)
+    assert "RuntimeError: no config for you" in msg
+    assert "rules.py:2" in msg
+
+
+def test_a_module_that_fails_to_import_is_retried_not_cached(tmp_path):
+    """Recording after exec, not before — the calibration-panel race."""
+    from fieldtest.loader import import_user_file
+    from fieldtest.errors import ConfigError
+
+    loaded: set = set()
+    p = tmp_path / "rules.py"
+    p.write_text("raise RuntimeError('boom')\n")
+    with pytest.raises(ConfigError):
+        import_user_file(p, "rules_retry_probe", loaded)
+    assert not loaded, "a module that raised must not be recorded as loaded"
+
+    p.write_text("VALUE = 42\n")
+    mod = import_user_file(p, "rules_retry_probe", loaded)
+    assert mod is not None and mod.VALUE == 42
+
+
+def test_every_report_table_quoted_in_the_walkthrough_is_in_tool_order(tmp_path, monkeypatch):
+    """
+    The doc's numbers were right and its row order was not, twice — the tables
+    were typed rather than pasted. Numbers alone do not catch that, so this
+    compares the sequence of row labels, which is what a reader follows down
+    the page when checking their own output against the doc.
+    """
+    import re
+
+    from fieldtest.results.report import format_report
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.fixtures import extract_labels, load_fixture
+    from fieldtest.config import parse_and_validate
+
+    doc = _walkthrough()
+
+    # Bring the dataset to the state the doc has it in by step 8: the rule
+    # written, declared, and labelled.
+    snippet = re.search(r"```python\n(@rule\(\"no_invented_receipts\"\).*?)```", doc, re.S)
+    yaml_block = re.search(r"```yaml\n(      - id: no_invented_receipts\n.*?)```", doc, re.S)
+    labels = re.search(r"```yaml\n(  no_invented_receipts:\n.*?)```", doc, re.S)
+    assert snippet and yaml_block and labels, "the doc no longer contains all three edits"
+
+    def mutate(dest: Path):
+        (dest / "rules.py").write_text(
+            (dest / "rules.py").read_text() + "\n\n" + snippet.group(1))
+        cfg = dest / "config.yaml"
+        todo = "      # TODO one of the outputs cites a receipt that exists in no source file."
+        cfg.write_text(cfg.read_text().replace(
+            todo, yaml_block.group(1).rstrip() + "\n\n" + todo, 1))
+        fx = dest / "fixtures" / "october-trip.yaml"
+        fx.write_text(fx.read_text().rstrip() + "\n" + labels.group(1).rstrip() + "\n")
+
+    rows = _score_dataset_copy(tmp_path, monkeypatch, mutate)
+    evals_dir = tmp_path / "evals"
+    config = parse_and_validate(evals_dir / "config.yaml")
+
+    # Labels the same way score() collects them, so the labels table is present.
+    human_labels: dict = {}
+    for fx in sorted((evals_dir / "fixtures").glob("*.yaml")):
+        fixture = load_fixture(fx, base_dir=evals_dir)
+        for (eval_id, run_number), value in extract_labels(fixture).items():
+            human_labels[(fixture["id"], eval_id, run_number)] = value
+    assert human_labels, "no labels loaded — the labels table would be absent"
+
+    summary = build_summary(rows, config, labels=human_labels)
+    report = format_report(rows, summary, {}, config, "run-under-test", "full")
+
+    def rows_under(text: str, heading: str) -> list[str]:
+        """Row labels of the first markdown table after `heading`."""
+        after = text.split(heading, 1)
+        if len(after) < 2:
+            return []
+        out = []
+        for line in after[1].splitlines():
+            if line.startswith("|") and not set(line) <= set("|- "):
+                label = line.split("|")[1].strip()
+                if label not in ("eval", ""):
+                    out.append(label)
+            elif out and not line.startswith("|"):
+                break
+        return out
+
+    for heading in ("### RIGHT", "### Judge vs Human Labels"):
+        actual = rows_under(report, heading)
+        quoted = rows_under(doc, heading)
+        assert actual, f"the tool emits no {heading} table"
+        assert quoted, f"the walkthrough no longer quotes a {heading} table"
+        assert quoted == actual, (
+            f"{heading}: the walkthrough lists {quoted}, "
+            f"the tool prints {actual}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The `expected` block (Track C)
+# ---------------------------------------------------------------------------
+
+def _fixture_with_expected(tmp_path: Path, block: str) -> Path:
+    f = tmp_path / "fx.yaml"
+    f.write_text("id: fx\ndescription: d\n" + block)
+    return f
+
+
+def test_expected_written_as_a_golden_string_is_rejected_with_the_shape(tmp_path):
+    """It crashed the reference judge with an AttributeError and a bug link."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, 'expected: |\n  the whole correct answer\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    msg = str(exc.value)
+    assert "must be a mapping" in msg
+    assert "contains:" in msg, "the message should show the shape to write"
+
+
+def test_an_unread_expected_key_is_rejected_rather_than_passing_everything(tmp_path):
+    """expected.equals ran no checks and reported 'all checks passed'."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, 'expected:\n  equals: "the right answer"\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    msg = str(exc.value)
+    assert "expected.equals" in msg
+    assert "contains, not_contains" in msg
+
+
+def test_an_empty_expected_block_is_rejected(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, "expected:\n  contains: []\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "would pass every output" in str(exc.value)
+
+
+def test_expected_contains_must_be_a_list_of_strings(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, 'expected:\n  contains: "just one string"\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "must be a list of strings" in str(exc.value)
+
+
+def test_a_well_formed_expected_block_still_loads(tmp_path):
+    from fieldtest.fixtures import load_fixture
+
+    f = _fixture_with_expected(
+        tmp_path,
+        'expected:\n  contains:\n    - "R-0912"\n  not_contains:\n    - "TBD"\n',
+    )
+    data = load_fixture(f)
+    assert data["expected"]["contains"] == ["R-0912"]
+    assert data["expected"]["not_contains"] == ["TBD"]
+
+
+def test_every_shipped_fixture_has_a_readable_expected_block():
+    """The check is only safe if nothing fieldtest ships trips it."""
+    import fieldtest
+    from fieldtest.fixtures import load_fixture
+
+    pkg = Path(fieldtest.__file__).parent
+    checked = 0
+    for sub in ("demo", "datasets"):
+        # rglob("fixtures/*.yaml") misses fixtures/golden/ and fixtures/variations/,
+        # which is where most of the `expected` blocks actually are.
+        for fx in sorted((pkg / sub).rglob("*.yaml")):
+            if "fixtures" not in fx.parts:
+                continue
+            load_fixture(fx)   # raises if the block is malformed
+            checked += 1
+    assert checked >= 20, f"only {checked} shipped fixtures found — did they move?"
+
+
+# ---------------------------------------------------------------------------
+# What the HTML report leaves out (Track E)
+#
+# The markdown carries four reasons not to trust a number: the run was partial,
+# the baseline lost calls to errors, the baseline predates judge tracking, and
+# the sample changed. None reached the HTML — the file `fieldtest view` opens —
+# so the same run read as trustworthy in one artifact and caveated in the other.
+# ---------------------------------------------------------------------------
+
+def _html_and_json(tmp_path, monkeypatch, *, delta=None, partial=False):
+    """Render the HTML report directly from a run_data dict."""
+    from fieldtest.results.html import write_html
+    from fieldtest.config import parse_and_validate
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    config = parse_and_validate(config_path)
+    run_data = {
+        "run_id": "2026-01-01T00-00-00-abcd",
+        "set": "full",
+        "fixture_count": 2,
+        "runs": 3,
+        "judge_runs": 1,
+        "rows": [],
+        "summary": {},
+        "delta": delta or {},
+        "partial": partial,
+        "partial_details": ["fx-b run 3"] if partial else [],
+        "judge": {"provider": "anthropic", "model": "m", "fingerprint": "aaaa1111"},
+    }
+    out = tmp_path / "r.html"
+    write_html(run_data, config, out)
+    return out.read_text()
+
+
+def test_a_partial_run_says_so_in_the_html(tmp_path, monkeypatch):
+    """It showed 'Runs/fixture: 3' with no sign an output was missing."""
+    html = _html_and_json(tmp_path, monkeypatch, partial=True)
+    assert "partial run" in html
+    assert "fx-b run 3" in html
+    assert "over the outputs that were found" in html
+
+
+def test_a_complete_run_carries_no_partial_banner(tmp_path, monkeypatch):
+    html = _html_and_json(tmp_path, monkeypatch, partial=False)
+    assert "partial run" not in html
+
+
+def test_the_html_says_why_there_is_no_baseline(tmp_path, monkeypatch):
+    """Every 'vs prior' reading '—' looked the same as a first run."""
+    html = _html_and_json(tmp_path, monkeypatch, delta={
+        "baseline_run_id": None,
+        "no_baseline_reason": "the judge changed since the last run (was anthropic old-model)",
+    })
+    assert "No baseline" in html
+    assert "The judge changed since the last run" in html, "sentence should be capitalised"
+    assert "old-model" in html
+
+
+def test_no_baseline_and_no_reason_renders_nothing(tmp_path, monkeypatch):
+    """A genuine first run has nothing to explain."""
+    html = _html_and_json(tmp_path, monkeypatch, delta={"baseline_run_id": None})
+    assert "No baseline" not in html
+
+
+@pytest.mark.parametrize("delta_extra,expected", [
+    ({"baseline_error_share": 0.41}, "lost 41% of its"),
+    ({"baseline_pre_judge": True}, "predates judge tracking"),
+    ({"sample_changed": ["ev1 9→6"]}, "different number of outputs"),
+])
+def test_every_baseline_caveat_in_the_markdown_reaches_the_html(
+    tmp_path, monkeypatch, delta_extra, expected
+):
+    html = _html_and_json(tmp_path, monkeypatch, delta={
+        "baseline_run_id": "2025-12-31T00-00-00-prev",
+        "increased": [], "decreased": [], "unchanged": ["ev1"],
+        **delta_extra,
+    })
+    assert "Delta vs prior run" in html
+    assert expected in html
+
+
+def test_the_json_records_that_a_run_was_partial(tmp_path, monkeypatch):
+    """
+    -data.json reported runs and fixture_count as though the run were complete,
+    so nothing reading it — the README's own jq gates included — could tell the
+    rates were over a smaller population.
+    """
+    import json
+
+    from fieldtest.results.writer import write_results
+    from fieldtest.config import parse_and_validate
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    config = parse_and_validate(config_path)
+    out = tmp_path / "out"
+    write_results(
+        rows=[], summary={}, delta={}, config=config, run_id="run-1",
+        output_dir=out, set_name="full",
+        partial=True, partial_details=["fx-b run 3"],
+    )
+    data = json.loads((out / "run-1-data.json").read_text())
+    assert data["partial"] is True
+    assert data["partial_details"] == ["fx-b run 3"]
+
+    write_results(
+        rows=[], summary={}, delta={}, config=config, run_id="run-2",
+        output_dir=out, set_name="full",
+    )
+    complete = json.loads((out / "run-2-data.json").read_text())
+    assert complete["partial"] is False
+    assert complete["partial_details"] == []
+
+
+def test_changing_the_judge_produces_the_reason_through_the_real_run_path(tmp_path, monkeypatch):
+    """
+    _html_and_json builds run_data by hand. This runs score() twice with the
+    judge model changed in between, so the reason has to survive find_baseline,
+    the runner, build_delta, the JSON and both reports.
+    """
+    import json
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    adapter = RecordingAdapter()
+
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        score(config=parse_and_validate(config_path), config_path=config_path)
+
+        text = config_path.read_text()
+        assert "defaults:\n  runs: 3" in text, "the scaffold's defaults block moved"
+        config_path.write_text(text.replace(
+            "defaults:\n  runs: 3",
+            "defaults:\n  runs: 3\n  model: a-different-judge-model"))
+
+        run_id, _ = score(config=parse_and_validate(config_path), config_path=config_path)
+
+    results = config_path.parent / "results"
+    data = json.loads((results / f"{run_id}-data.json").read_text())
+    assert data["delta"]["baseline_run_id"] is None
+    reason = data["delta"]["no_baseline_reason"]
+    assert "judge changed" in reason
+    assert "claude-haiku-4-5" in reason, "the reason should name the judge that was used"
+
+    md = (results / f"{run_id}-report.md").read_text()
+    assert "no baseline: the judge changed" in md
+
+    html = (results / f"{run_id}-report.html").read_text()
+    assert "No baseline" in html
+    assert "The judge changed" in html
+
+
+def test_the_readme_partial_gate_refuses_a_partial_run_and_allows_the_others(tmp_path):
+    """
+    The README tells a reader to gate CI on `.partial != true`. The first
+    version of that snippet used `== false`, which refuses any file written
+    before 0.3 — the field is absent there, and jq reads absent as null.
+    Executed rather than trusted, over all three shapes a gate can meet.
+    """
+    import json
+    import re
+    import subprocess
+
+    if subprocess.run(["which", "jq"], capture_output=True).returncode != 0:
+        pytest.skip("jq not installed")
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    m = re.search(r"jq -e '(\.partial [^']+)'", readme)
+    assert m, "the README no longer documents a partial gate"
+    expr = m.group(1)
+
+    shapes = {
+        "complete": {"partial": False, "partial_details": []},
+        "partial":  {"partial": True, "partial_details": ["fx-c run 3"]},
+        "pre_0_3":  {},          # the field did not exist yet
+    }
+    allowed = {}
+    for name, extra in shapes.items():
+        f = tmp_path / f"{name}.json"
+        f.write_text(json.dumps({"run_id": name, "summary": {}, **extra}))
+        r = subprocess.run(["jq", "-e", expr, str(f)], capture_output=True)
+        allowed[name] = r.returncode == 0
+
+    assert allowed == {"complete": True, "partial": False, "pre_0_3": True}, allowed
