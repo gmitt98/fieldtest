@@ -1282,3 +1282,36 @@ def test_docs_quote_the_real_prompt():
 
     # And the requirement the caps_applied eval depends on is actually stated.
     assert "Apply the limits and exclusions in the policy" in prompt
+
+
+def test_bundled_demo_results_use_the_current_schema():
+    """
+    `fieldtest demo --offline` serves pre-scored JSON rather than re-running, so
+    a renamed summary field leaves the demo showing a schema the code no longer
+    emits. Compared against a real run's own keys rather than a hardcoded list.
+    """
+    import json
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest" / "demo"
+    for demo in ("rag", "email", "extraction"):
+        config_path = root / demo / "config.yaml"
+        # A rule/regex-only pass is enough: the summary shape is the same.
+        config = parse_and_validate(config_path)
+        _, rows = score(config=config, config_path=config_path,
+                        write_artifacts=False, allow_partial=True)
+
+        bundled = json.loads((root / demo / "results" / "demo-offline-data.json").read_text())
+        shipped_keys = {
+            k
+            for uc in bundled["summary"].values()
+            for tag in uc.values()
+            for stats in tag.values()
+            for k in stats
+        }
+        assert "confidence" not in shipped_keys, (
+            f"{demo}: bundled results still use the pre-0.3.0 'confidence' key"
+        )
+        assert "confidence_level" in shipped_keys, f"{demo}: no confidence_level in summary"

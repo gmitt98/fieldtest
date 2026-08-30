@@ -80,7 +80,7 @@ def test_v1_config_still_accepted(tmp_path):
     """v1 configs load unchanged for one minor release, with v2 defaults filled in."""
     cfg = parse_and_validate(_write_config(tmp_path, MINIMAL_VALID))
     assert cfg.schema_version == 1
-    assert cfg.defaults.confidence == 0.95
+    assert cfg.defaults.confidence_level == 0.95
 
 
 def test_eval_tag_invalid(tmp_path):

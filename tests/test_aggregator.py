@@ -488,7 +488,7 @@ def test_wilson_interval_computed_for_binary_eval():
 
     assert stats["failure_rate"] == 0.2
     assert stats["failure_rate_ci"] == [0.0362, 0.6245]
-    assert stats["confidence"] == 0.95
+    assert stats["confidence_level"] == 0.95
     assert stats["total_runs"] == 5
 
 
@@ -528,12 +528,12 @@ def test_failure_rate_ci_null_when_rate_null():
 def test_confidence_level_configurable():
     evals = [_make_eval_def("ev1", is_scored=False)]
     config = _make_config(evals)
-    config.defaults.confidence = 0.80
+    config.defaults.confidence_level = 0.80
 
     rows = [_row(passed=True) for _ in range(4)] + [_row(passed=False)]
     stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
 
-    assert stats["confidence"] == 0.80
+    assert stats["confidence_level"] == 0.80
     # A less demanding level is a narrower interval.
     wide = build_summary(rows, _make_config(evals))["uc1"]["right"]["ev1"]
     assert (stats["failure_rate_ci"][1] - stats["failure_rate_ci"][0]) < (
@@ -557,7 +557,7 @@ def test_scored_eval_summary_unchanged():
         "judge_calls", "outputs_attempted",
     }
     assert "failure_rate_ci" not in stats
-    assert "confidence" not in stats
+    assert "confidence_level" not in stats
 
 
 def test_delta_flags_overlapping_intervals(tmp_path):

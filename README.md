@@ -146,6 +146,35 @@ export OPENAI_API_KEY=sk-...          # for openai provider
 export GEMINI_API_KEY=...             # for gemini provider
 ```
 
+### Interval width — `confidence_level`
+
+Every binary eval reports a Wilson score interval beside its rate:
+
+```
+| total_matches_line_items | 78% [45–94%] | 9 |
+```
+
+Seven of nine passed. The bracket says the true rate is somewhere between 45%
+and 94%, because nine runs is not much evidence. `defaults.confidence_level`
+sets the level, default `0.95`:
+
+```yaml
+defaults:
+  confidence_level: 0.95   # 0.80 narrows the bracket, 0.99 widens it
+```
+
+**This has nothing to do with asking a model how confident it is.** No judge is
+consulted. The interval is arithmetic on the pass and fail counts — the same
+calculation you would run on a coin. A model's self-reported confidence is
+poorly calibrated and fieldtest never asks for it; a judge returns a verdict,
+and the uncertainty comes from how few verdicts you have.
+
+Wilson rather than the textbook normal approximation because small `n` is the
+normal case here: at `runs: 5` with zero failures the normal interval collapses
+to `[0, 0]`, claiming certainty five samples cannot support.
+
+Scored evals get no interval — `stddev` already conveys their spread.
+
 ### Any OpenAI-compatible endpoint
 
 vLLM, Ollama, OpenRouter, Together, Fireworks and xAI all speak the OpenAI
@@ -1152,7 +1181,7 @@ The fields most commonly used for CI gating:
         "<eval_id>": {
           "failure_rate": 0.10,
           "failure_rate_ci": [0.0347, 0.2653],
-          "confidence": 0.95,
+          "confidence_level": 0.95,
           "total_runs": 30,
           "error_count": 0,
           "judge_calls": 30,
@@ -1170,7 +1199,7 @@ The fields most commonly used for CI gating:
 ```
 
 - `failure_rate` is `null` for scored evals; use `mean` instead.
-- `failure_rate_ci` is a two-sided Wilson score interval at `confidence`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
+- `failure_rate_ci` is a two-sided Wilson score interval at `confidence_level`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `judge_calls` is judge calls attempted and `outputs_attempted` is outputs attempted. At `judge_runs: 1` they are equal and both equal `total_runs + error_count`; above 1 they diverge, and `failure_rate`'s denominator is `total_runs` in outputs, not calls.
 - `dataset_version` is optional; absent in older runs.

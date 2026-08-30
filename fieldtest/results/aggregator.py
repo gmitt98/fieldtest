@@ -19,7 +19,7 @@ from fieldtest.config import Config, ResultRow, resolve_judge_runs
 # ---------------------------------------------------------------------------
 
 def wilson_interval(
-    failures: int, total: int, confidence: float = 0.95
+    failures: int, total: int, confidence_level: float = 0.95
 ) -> Optional[tuple[float, float]]:
     """
     Two-sided Wilson score interval for a failure rate.
@@ -33,7 +33,7 @@ def wilson_interval(
     if total <= 0:
         return None
 
-    z = NormalDist().inv_cdf(1 - (1 - confidence) / 2)
+    z = NormalDist().inv_cdf(1 - (1 - confidence_level) / 2)
     p = failures / total
 
     denominator = 1 + z**2 / total
@@ -344,15 +344,15 @@ def build_summary(
                     failure_rate  = (
                         round(failed_count / total_runs, 6) if total_runs > 0 else None
                     )
-                    confidence = config.defaults.confidence
+                    confidence_level = config.defaults.confidence_level
                     interval   = (
-                        wilson_interval(failed_count, total_runs, confidence)
+                        wilson_interval(failed_count, total_runs, confidence_level)
                         if failure_rate is not None else None
                     )
                     summary[uc_id][tag][eval_id] = {
                         "failure_rate":    failure_rate,
                         "failure_rate_ci": list(interval) if interval else None,
-                        "confidence":      confidence,
+                        "confidence_level": confidence_level,
                         "floor_hits":      0,
                         "total_runs":      total_runs,
                         "error_count":     error_count,

@@ -142,15 +142,23 @@ class Defaults(BaseModel):
     # CI run want different patience, so this is configurable rather than fixed.
     judge_retry: RetryPolicy = RetryPolicy()
 
-    # Confidence level for the interval on a binary eval's failure_rate.
-    confidence: float = 0.95
+    # Confidence level for the Wilson score interval on a binary eval's
+    # failure_rate — a statistic computed from pass and fail counts.
+    #
+    # Named confidence_level rather than confidence because in a tool full of
+    # LLM judges, "confidence" reads as a model reporting how sure it is of its
+    # own answer. It is not that, and it must never become that: self-reported
+    # confidence is poorly calibrated, and treating it as a measurement is the
+    # error this whole project exists to argue against. No judge is asked
+    # anything here; the interval comes from arithmetic on the verdicts.
+    confidence_level: float = 0.95
 
-    @field_validator("confidence")
+    @field_validator("confidence_level")
     @classmethod
-    def confidence_in_open_unit_interval(cls, v: float) -> float:
+    def confidence_level_in_open_unit_interval(cls, v: float) -> float:
         if not (0.0 < v < 1.0):
             raise ValueError(
-                f"defaults.confidence must be between 0 and 1 (exclusive), got {v}."
+                f"defaults.confidence_level must be between 0 and 1 (exclusive), got {v}."
             )
         return v
 

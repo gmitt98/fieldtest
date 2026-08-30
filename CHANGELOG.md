@@ -97,7 +97,7 @@ hundred. At `runs: 5`, one flipped judgment moves it by 0.2.
 ```
 
 The interval is Wilson score; at five runs with zero failures the normal approximation gives
-[0, 0]. `defaults.confidence` sets the level, default 0.95. Delta entries gain an `overlapping`
+[0, 0]. `defaults.confidence_level` sets the level, default 0.95. Delta entries gain an `overlapping`
 flag when the two intervals overlap.
 
 For CI, `failure_rate_ci[0]` is the rate your sample actually supports:
@@ -301,21 +301,21 @@ a literal string.
 
 - Config `schema_version: 2`. Version 1 configs load unchanged for one minor release
 - `-data.json` adds `schema_version`, `judge`, `judge_runs`; summaries add `failure_rate_ci`,
-  `confidence`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
+  `confidence_level`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
 - New: `fieldtest dataset list` / `fieldtest dataset use <name>`
 - Commands find `config.yaml` when run from inside `evals/`, not only from its parent
 - Fixture inputs accept a `file:` prefix, read at load time
 - New provider `openai_compatible`, plus a `providers` config block and the
   `@provider` decorator loaded from `evals/providers.py`
-- New config: `defaults.judge_temperature`, `judge_seed`, `judge_retry`, `confidence`;
+- New config: `defaults.judge_temperature`, `judge_seed`, `judge_retry`, `confidence_level`;
   `fixtures.judge_runs`; `calibration.panel`; `Eval.judge_sees_inputs`
 - Fixtures accept a `labels` block — per eval, per generator run
 - `ProviderAdapter.call()` takes generation and retry config
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 438, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 439, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 

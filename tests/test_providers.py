@@ -1539,7 +1539,7 @@ def test_documented_defaults_are_the_ones_the_config_uses():
     assert d.runs == 5
     assert d.judge_temperature == 0.0          # "pinned to 0.0 unless you say otherwise"
     assert d.judge_seed is None
-    assert d.confidence == 0.95                # "defaults.confidence sets the level"
+    assert d.confidence_level == 0.95          # "defaults.confidence_level sets the level"
 
 
 def test_documented_judge_fingerprint_matches_the_bundled_demos():
