@@ -1838,3 +1838,16 @@ def test_header_does_not_claim_a_per_eval_count_across_use_cases(tmp_path, monke
     assert "6 scored output(s) per eval" not in header, (
         "header multiplied total fixtures by runs across use cases"
     )
+
+
+def test_html_says_which_population_its_tag_rates_cover(tmp_path, monkeypatch):
+    """
+    The HTML tag boxes aggregate every use case; the markdown's tag health is
+    per use case. Both are correct arithmetic on different populations, and one
+    run showed "RIGHT 74%" in one artifact and "RIGHT 75%" in the other with
+    neither saying which it covered.
+    """
+    html = _html_for(tmp_path, monkeypatch)
+    # One use case: no scope note, and no "across N use cases" on the header.
+    assert "across" not in html.split("tag-health")[0].split("Fixtures:")[-1][:80]
+    assert "Rates below cover all" not in html

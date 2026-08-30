@@ -102,6 +102,15 @@ def _build_html(run_data: dict, config) -> str:
         }
 
     # Build delta section HTML
+    n_uc = len(config.use_cases)
+    uc_note = f" across {n_uc} use cases" if n_uc > 1 else ""
+    scope_note = (
+        '<p style="font-size:12px;color:#888;margin-bottom:8px;">'
+        f"Rates below cover all {n_uc} use cases. Each use case reports its own "
+        "below.</p>"
+        if n_uc > 1 else ""
+    )
+
     judge_meta = ""
     if judge:
         temp = judge.get("temperature")
@@ -317,7 +326,7 @@ def _build_html(run_data: dict, config) -> str:
   <div class="meta">Run: <span>{run_id}</span></div>
   <div class="meta">Time: <span>{timestamp}</span></div>
   <div class="meta">Set: <span>{set_name}</span></div>
-  <div class="meta">Fixtures: <span>{fixture_count}</span></div>
+  <div class="meta">Fixtures: <span>{fixture_count}</span>{uc_note}</div>
   <div class="meta">Runs/fixture: <span>{runs}</span></div>
   {judge_meta}
 </div>
@@ -326,6 +335,7 @@ def _build_html(run_data: dict, config) -> str:
 
 <div class="container">
 
+  {scope_note}
   <div class="tag-health">
     <div class="tag-box right">
       <div class="tag-name">RIGHT</div>
