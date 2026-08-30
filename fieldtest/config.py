@@ -346,8 +346,8 @@ def parse_and_validate(config_path: Path) -> Config:
                 f"  parent directory, or use --config config.yaml\n"
                 if Path("config.yaml").is_file() else ""
             )
-            + f"  Run 'fieldtest init' to scaffold a new project, or\n"
-            f"  use --config to specify a different path."
+            + "  Run 'fieldtest init' to scaffold a new project, or\n"
+            "  use --config to specify a different path."
         )
     except Exception as e:
         raise ConfigError(f"Config error at {config_path}: {e}") from e
