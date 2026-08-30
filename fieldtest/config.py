@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import ConfigDict, BaseModel, Field, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
 from fieldtest.providers.base import RetryPolicy
@@ -31,12 +31,16 @@ from fieldtest.providers.settings import (
 # ---------------------------------------------------------------------------
 
 class LLMExample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     output:    str
     label:     Literal["pass", "fail"]
     reasoning: str
 
 
 class Eval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id:          str
     tag:         Literal["right", "good", "safe"]
     labels:      list[str] = []   # optional free-form analytics labels; multiple allowed
@@ -95,6 +99,8 @@ class Eval(BaseModel):
 
 
 class FixturesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     directory: str           = "fixtures/"
     sets:      dict[str, Union[list[str], str]]  # set_name → [ids] | "dir/*" | "all"
     runs:      Optional[int] = None
@@ -111,6 +117,8 @@ class FixturesConfig(BaseModel):
 
 
 class UseCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id:          str
     description: str
     evals:       list[Eval]
@@ -118,11 +126,15 @@ class UseCase(BaseModel):
 
 
 class SystemConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name:   str
     domain: str
 
 
 class Defaults(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     provider: str = "anthropic"
     # Haiku 4.5 rather than a 5-series model: sampling parameters were removed
     # on Sonnet 5 / Opus 5, so defaults.judge_temperature cannot be honoured
@@ -169,6 +181,8 @@ class Defaults(BaseModel):
 
 class PanelJudge(BaseModel):
     """One judge in a calibration panel."""
+    model_config = ConfigDict(extra="forbid")
+
     provider: str
     model:    str
 
@@ -183,6 +197,8 @@ class CalibrationConfig(BaseModel):
     The judge panel, declared in config and versioned with everything else
     rather than passed as ad hoc CLI flags.
     """
+    model_config = ConfigDict(extra="forbid")
+
     panel: list[PanelJudge]
     # Below this, a judge pair is flagged as agreeing no better than chance.
     # 0.6 is the conventional "substantial agreement" floor.
@@ -225,6 +241,8 @@ class CalibrationConfig(BaseModel):
 
 
 class Config(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     schema_version: Literal[1, 2]
     system:         SystemConfig
     use_cases:      list[UseCase]
@@ -329,6 +347,33 @@ class ScoredJudgeOutput(BaseModel):
 # Public API
 # ---------------------------------------------------------------------------
 
+# Where a key belongs, for the keys most often written one level off. Listed by
+# hand because the message names a YAML path, not a model; a test checks every
+# entry is still a real field on the model it points at.
+_WHERE_KEYS_BELONG = {
+    "runs":             "use_cases[].fixtures, or defaults",
+    "judge_runs":       "use_cases[].fixtures",
+    "version":          "use_cases[].fixtures",
+    "directory":        "use_cases[].fixtures",
+    "sets":             "use_cases[].fixtures",
+    "provider":         "defaults",
+    "model":            "defaults",
+    "judge_temperature": "defaults",
+    "judge_seed":       "defaults",
+    "judge_retry":      "defaults",
+    "confidence_level": "defaults",
+    "evals":            "use_cases[]",
+    "fixtures":         "use_cases[]",
+    "panel":            "calibration",
+    "kappa_threshold":  "calibration",
+}
+
+# Keys an older config may still carry.
+_RENAMED_KEYS = {
+    "confidence": "confidence_level",
+}
+
+
 def parse_and_validate(config_path: Path) -> Config:
     """Load and validate config.yaml. Raises ConfigError (never raw ValidationError)."""
     try:
@@ -381,6 +426,19 @@ def parse_and_validate(config_path: Path) -> Config:
                     "right (is it correct?), good (is it well-formed?) or safe "
                     "(what must never happen?) for each eval."
                 )
+            # An unrecognised key used to be dropped in silence, so a `runs:`
+            # one level too high, or the `confidence:` that 0.3.0 renamed, ran
+            # with the default and reported a number the user never asked for.
+            # Pydantic's own wording does not say which key or where it belongs.
+            if first["type"] == "extra_forbidden":
+                msg = f"unrecognised key '{field}'."
+                belongs = _WHERE_KEYS_BELONG.get(field)
+                if belongs:
+                    msg += f" It belongs under {belongs}."
+                renamed = _RENAMED_KEYS.get(field)
+                if renamed:
+                    msg += f" It was renamed to '{renamed}'."
+
             raise ConfigError(f"Config error at {loc}: {msg}") from exc
         raise ConfigError(f"Config error at {config_path}: {exc}") from exc
 

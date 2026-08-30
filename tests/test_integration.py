@@ -2044,3 +2044,89 @@ def test_every_report_table_quoted_in_the_walkthrough_is_in_tool_order(tmp_path,
             f"{heading}: the walkthrough lists {quoted}, "
             f"the tool prints {actual}"
         )
+
+
+# ---------------------------------------------------------------------------
+# The `expected` block (Track C)
+# ---------------------------------------------------------------------------
+
+def _fixture_with_expected(tmp_path: Path, block: str) -> Path:
+    f = tmp_path / "fx.yaml"
+    f.write_text("id: fx\ndescription: d\n" + block)
+    return f
+
+
+def test_expected_written_as_a_golden_string_is_rejected_with_the_shape(tmp_path):
+    """It crashed the reference judge with an AttributeError and a bug link."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, 'expected: |\n  the whole correct answer\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    msg = str(exc.value)
+    assert "must be a mapping" in msg
+    assert "contains:" in msg, "the message should show the shape to write"
+
+
+def test_an_unread_expected_key_is_rejected_rather_than_passing_everything(tmp_path):
+    """expected.equals ran no checks and reported 'all checks passed'."""
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, 'expected:\n  equals: "the right answer"\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    msg = str(exc.value)
+    assert "expected.equals" in msg
+    assert "contains, not_contains" in msg
+
+
+def test_an_empty_expected_block_is_rejected(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, "expected:\n  contains: []\n")
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "would pass every output" in str(exc.value)
+
+
+def test_expected_contains_must_be_a_list_of_strings(tmp_path):
+    from fieldtest.fixtures import load_fixture
+    from fieldtest.errors import ConfigError
+
+    f = _fixture_with_expected(tmp_path, 'expected:\n  contains: "just one string"\n')
+    with pytest.raises(ConfigError) as exc:
+        load_fixture(f)
+    assert "must be a list of strings" in str(exc.value)
+
+
+def test_a_well_formed_expected_block_still_loads(tmp_path):
+    from fieldtest.fixtures import load_fixture
+
+    f = _fixture_with_expected(
+        tmp_path,
+        'expected:\n  contains:\n    - "R-0912"\n  not_contains:\n    - "TBD"\n',
+    )
+    data = load_fixture(f)
+    assert data["expected"]["contains"] == ["R-0912"]
+    assert data["expected"]["not_contains"] == ["TBD"]
+
+
+def test_every_shipped_fixture_has_a_readable_expected_block():
+    """The check is only safe if nothing fieldtest ships trips it."""
+    import fieldtest
+    from fieldtest.fixtures import load_fixture
+
+    pkg = Path(fieldtest.__file__).parent
+    checked = 0
+    for sub in ("demo", "datasets"):
+        # rglob("fixtures/*.yaml") misses fixtures/golden/ and fixtures/variations/,
+        # which is where most of the `expected` blocks actually are.
+        for fx in sorted((pkg / sub).rglob("*.yaml")):
+            if "fixtures" not in fx.parts:
+                continue
+            load_fixture(fx)   # raises if the block is malformed
+            checked += 1
+    assert checked >= 20, f"only {checked} shipped fixtures found — did they move?"

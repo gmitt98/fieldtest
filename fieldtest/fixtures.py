@@ -70,6 +70,61 @@ def resolve_file_inputs(
     return out, resolved_keys
 
 
+EXPECTED_KEYS = ("contains", "not_contains")
+
+
+def _check_expected(data: dict, where: Path) -> None:
+    """
+    Validate the `expected` block a reference eval reads.
+
+    Unchecked, a string here crashed the judge with an AttributeError and a
+    "please file a bug"; an unrecognised key was worse, because the judge found
+    no checks to run, reported "all checks passed", and a safe-tagged eval
+    passed every output it was ever given.
+    """
+    expected = data.get("expected")
+    if expected is None:
+        return
+
+    fixture_id = data.get("id", "?")
+    if not isinstance(expected, dict):
+        raise ConfigError(
+            f"Config error at {where}: fixture '{fixture_id}' has `expected` as "
+            f"{type(expected).__name__}, but it must be a mapping of "
+            f"{' / '.join(EXPECTED_KEYS)}.\n"
+            f"  expected:\n"
+            f"    contains:\n"
+            f"      - \"a string the output must contain\""
+        )
+
+    unknown = [k for k in expected if k not in EXPECTED_KEYS]
+    if unknown:
+        raise ConfigError(
+            f"Config error at {where}: fixture '{fixture_id}' has "
+            f"expected.{unknown[0]}, which the reference judge does not read. "
+            f"Valid keys: {', '.join(EXPECTED_KEYS)}."
+        )
+
+    if not any(expected.get(k) for k in EXPECTED_KEYS):
+        raise ConfigError(
+            f"Config error at {where}: fixture '{fixture_id}' has an `expected` "
+            f"block with nothing in it. A reference eval against it would pass "
+            f"every output. Remove it, or give it a "
+            f"{' or '.join(EXPECTED_KEYS)} list."
+        )
+
+    for key in EXPECTED_KEYS:
+        val = expected.get(key)
+        if val is None:
+            continue
+        if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
+            raise ConfigError(
+                f"Config error at {where}: fixture '{fixture_id}' has "
+                f"expected.{key} as {type(val).__name__}, but it must be a list "
+                f"of strings."
+            )
+
+
 def load_fixture(fixture_path: Path, base_dir: Optional[Path] = None) -> dict:
     """
     Load a YAML fixture file. Raises ConfigError if the id field is missing.
@@ -85,6 +140,8 @@ def load_fixture(fixture_path: Path, base_dir: Optional[Path] = None) -> dict:
         raise ConfigError(f"Config error at {fixture_path}: {e}") from e
     if not isinstance(data, dict) or "id" not in data:
         raise ConfigError(f"Config error at {fixture_path}: fixture missing required 'id' field")
+
+    _check_expected(data, fixture_path)
 
     if base_dir is not None and isinstance(data.get("inputs"), dict):
         data["inputs"], resolved = resolve_file_inputs(

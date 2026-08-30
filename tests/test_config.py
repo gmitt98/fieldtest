@@ -851,3 +851,78 @@ def test_unparseable_yaml_is_a_config_error_not_a_traceback(tmp_path):
     with pytest.raises(ConfigError) as exc:
         parse_and_validate(p)
     assert str(p) in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Unknown keys (Track C)
+# ---------------------------------------------------------------------------
+
+def test_a_key_at_the_wrong_level_says_where_it_belongs(tmp_path):
+    """`runs` under the use case ran 5 runs instead of 3, and said nothing."""
+    yaml = MINIMAL_VALID.replace(
+        "        evals:", "        runs: 3\n        evals:", 1)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "unrecognised key 'runs'" in msg
+    assert "use_cases[].fixtures" in msg
+
+
+def test_the_key_renamed_in_0_3_0_says_what_it_became(tmp_path):
+    """An upgrader's `confidence:` was dropped and the default used instead."""
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", "    defaults:\n      confidence: 0.95\n    use_cases:", 1)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    msg = str(exc.value)
+    assert "unrecognised key 'confidence'" in msg
+    assert "renamed to 'confidence_level'" in msg
+
+
+def test_a_misspelled_key_is_rejected_rather_than_ignored(tmp_path):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", "    defaults:\n      judge_temprature: 0.0\n    use_cases:", 1)
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "unrecognised key 'judge_temprature'" in str(exc.value)
+
+
+def test_every_key_in_the_where_it_belongs_table_is_a_real_field():
+    """The table names YAML paths, so nothing else stops it going stale."""
+    from fieldtest.config import (
+        _WHERE_KEYS_BELONG, _RENAMED_KEYS,
+        CalibrationConfig, Defaults, FixturesConfig, UseCase,
+    )
+
+    models = {
+        "use_cases[].fixtures": FixturesConfig,
+        "defaults": Defaults,
+        "use_cases[]": UseCase,
+        "calibration": CalibrationConfig,
+    }
+    for key, where in _WHERE_KEYS_BELONG.items():
+        targets = [w.strip() for w in where.rstrip(".").split(", or ")]
+        for target in targets:
+            model = models.get(target)
+            assert model is not None, f"'{where}' names an unknown location {target!r}"
+            assert key in model.model_fields, \
+                f"'{key}' is not a field on {model.__name__} ({target})"
+
+    for old, new in _RENAMED_KEYS.items():
+        assert any(new in m.model_fields for m in models.values()), \
+            f"'{old}' is said to have been renamed to '{new}', which exists nowhere"
+
+
+def test_shipped_configs_still_load_with_unknown_keys_forbidden():
+    """extra=forbid is only safe if nothing fieldtest ships carries a stray key."""
+    import fieldtest
+
+    pkg = Path(fieldtest.__file__).parent
+    checked = 0
+    for sub in ("demo", "datasets"):
+        for cfg in sorted((pkg / sub).rglob("*.yaml")):
+            if "schema_version" not in cfg.read_text():
+                continue
+            parse_and_validate(cfg)   # raises if a shipped config has a stray key
+            checked += 1
+    assert checked >= 5, f"only {checked} shipped configs found — did they move?"

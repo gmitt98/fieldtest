@@ -365,7 +365,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 519, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 554, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 
@@ -374,5 +374,12 @@ fixture inputs changes what it can see. Both are corrections, and both mean your
 0.3.0 is not comparable to your last on 0.2.2. `find_baseline()` will not compare across judge
 fingerprints, so the first post-upgrade run simply finds no baseline.
 
-`schema_version: 1` configs still load. The `jq` gating patterns in the README still work —
-every `-data.json` change is additive.
+A key fieldtest does not recognise is now an error naming the key, rather than a value
+silently dropped. That is the second half of the `confidence` → `confidence_level` rename:
+without it an upgraded config kept the old key, lost the setting, and reported intervals at
+the default width with nothing to show for it. The same check catches a `runs:` written one
+level above `fixtures:`, which quietly ran the default five times instead of yours. If your
+config carries a stray key, `fieldtest validate` now names it and says where it belongs.
+
+Otherwise `schema_version: 1` configs still load. The `jq` gating patterns in the README
+still work — every `-data.json` change is additive.
