@@ -1,0 +1,8 @@
+{"steps": [
+  {"role": "user", "content": "I want a refund on my $342.00 order."},
+  {"role": "assistant", "tool_call": {"name": "lookup_order", "args": {"order_id": "ORD-5390"}}},
+  {"role": "tool", "name": "lookup_order", "content": "ORD-5390 2026-10-11 $342.00 delivered"},
+  {"role": "assistant", "tool_call": {"name": "issue_refund", "args": {"order_id": "ORD-5390", "amount": 342.00}}},
+  {"role": "tool", "name": "issue_refund", "content": "ok, confirmation CB-77190"},
+  {"role": "assistant", "content": "Refunded $342.00. Confirmation CB-77190."}
+]}

@@ -1,0 +1,38 @@
+id: march-trip
+description: Reimbursement summary for Priya Raman from receipts-march.csv
+
+inputs:
+  prompt:   "file:PROMPT.md"
+  policy:   "file:sources/travel-policy.md"
+  receipts: "file:sources/receipts-march.csv"
+  employee: "Priya Raman"
+
+# Every receipt is within policy, so the summary should reduce nothing and the
+# total should equal the claimed total. A reference eval scores against this.
+expected:
+  contains:
+    - "Total reimbursable: $98.30"
+    - "R-0912"
+    - "R-0913"
+    - "R-0914"
+  not_contains:
+    - "excluded"
+    - "over the cap"
+
+labels:
+  total_matches_line_items:
+    1: pass
+    2: fail      # the total line is a placeholder, so there is no total
+    3: pass
+  no_unfilled_placeholders:
+    1: pass
+    2: fail      # $[TOTAL]
+    3: pass
+  golden_summary:
+    1: pass
+    2: fail
+    3: pass      # right numbers; the reference eval checks content, not shape
+  excluded_categories_not_reimbursed:
+    1: pass
+    2: pass
+    3: pass

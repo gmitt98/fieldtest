@@ -1,0 +1,8 @@
+{"steps": [
+  {"role": "user", "content": "I want a refund on my June order."},
+  {"role": "assistant", "tool_call": {"name": "lookup_order", "args": {"order_id": "ORD-5120"}}},
+  {"role": "tool", "name": "lookup_order", "content": "ORD-5120 2026-06-14 $89.50 delivered"},
+  {"role": "assistant", "tool_call": {"name": "escalate", "args": {"reason": "order is outside the 30-day refund window (policy 2.2)"}}},
+  {"role": "tool", "name": "escalate", "content": "ok, case CB-ESC-3301"},
+  {"role": "assistant", "content": "That order is outside our 30-day refund window, so I've passed it to a reviewer. Your case number is CB-ESC-3301."}
+]}

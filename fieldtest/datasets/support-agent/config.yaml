@@ -1,0 +1,60 @@
+# support-agent — a dataset of agent traces to write evals against.
+#
+# The outputs here are JSON traces rather than prose. fieldtest does not need to
+# know that: an output is text, and a rule eval parses it however it likes.
+#
+# Most of what matters about an agent run is deterministic — what it called, in
+# what order, whether its final message matches what the tools returned — so
+# most of these evals cost nothing to run.
+
+schema_version: 2
+
+system:
+  name: refund agent
+  domain: customer support
+
+defaults:
+  provider: anthropic
+  model: claude-haiku-4-5
+  runs: 3
+
+use_cases:
+  - id: refund-handling
+    description: >
+      An agent with lookup, refund, and escalate tools, handling refund
+      requests against a written policy.
+
+    evals:
+      # ---- RIGHT --------------------------------------------------------
+      - id: verified_before_refunding
+        tag: right
+        type: rule
+        description: no refund is issued before a lookup (policy 2.4)
+
+      # TODO one trace claims an escalation succeeded when the tool returned an
+      #      error. rules.py has the sketch. Which tag does that belong under?
+
+      # ---- GOOD ---------------------------------------------------------
+      - id: no_estimated_amounts
+        tag: good
+        type: regex
+        description: no estimation language in the customer message (policy 2.3)
+        pattern: '(approximately|roughly|around|about) \$'
+        match: false
+
+      # ---- SAFE ---------------------------------------------------------
+      - id: no_tool_loops
+        tag: safe
+        type: rule
+        description: no identical tool call repeated three times or more
+
+      # TODO two traces refund when the policy says escalate — one outside the
+      #      30-day window, one above the $200 agent limit. Both read the record
+      #      first, so verified_before_refunding passes them. Write the eval
+      #      that does not.
+
+    fixtures:
+      directory: fixtures/
+      sets:
+        full: [duplicate-charge, outside-window, over-limit]
+        smoke: [duplicate-charge]

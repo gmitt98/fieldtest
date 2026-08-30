@@ -1,27 +1,43 @@
 # Spec 11 — Provider surface beyond the big three
 
-**Tier** 2 · **Depends on** 02, 05 · **Touches** `providers/`, `config.py`, README · **Status** draft
+**Tier** 2 · **Depends on** 02, 05 · **Touches** `providers/`, `config.py`, README · **Status** shipped · §1 rewritten after live verification
 
 ## §1 Problem
 
-`get_provider_adapter()` knows three names: `anthropic`, `openai`, `gemini`. Anything else raises
-`ProviderError`. A user who judges with Grok, with a model on Together or Fireworks, or with an
-open-weight model they serve themselves through vLLM or Ollama, cannot use fieldtest at all.
+An earlier draft of this spec opened by claiming that a user who judges with Grok, with a model on
+Together or Fireworks, or with an open-weight model served through vLLM or Ollama "cannot use
+fieldtest at all." Live verification disproved it before any code was written. The `openai` SDK
+honours `OPENAI_BASE_URL`, so fieldtest's existing OpenAI adapter already reaches any endpoint
+speaking the chat-completions protocol. `openai/gpt-4o-mini`, `openai/o3-mini` and
+`meta-llama/llama-3.3-70b-instruct` returned parseable verdicts through OpenRouter with no code
+change. An open-weight model judged a fixture set through an adapter written for OpenAI.
 
-That is a larger exclusion than it looks. The generator-writes-files contract means fieldtest
-never runs the system under test, so the *only* thing it needs a provider for is the judge. Being
-unable to name a judge is being unable to use the tool.
+The problem is smaller than that draft claimed, and it is in a different place. Two parts remain.
 
-It also cuts against the v1 argument. The README's position is that the taxonomy — right, good,
-safe — is the thing fieldtest contributes, and that the runtime belongs to whoever already has
-one. A tool that classifies failures should not also dictate which lab you buy judgment from.
+**The endpoint is invisible to the config.** `base_url` can only be set in the environment, which
+means it is not versioned with the rest of `config.yaml`, not visible to a reader of the config,
+and not in the judge fingerprint from spec 01. Two runs against `llama-3.3-70b-instruct` on
+different endpoints produce identical fingerprints today, so `find_baseline()` will compare them
+as though one instrument produced both. A shell variable is deciding which model judged your
+`safe` evals, and nothing in the results records the decision. That is a provenance defect, not
+an access defect, and spec 01 exists to prevent exactly this class of thing.
 
-The immediate trigger is narrower and already proven. Live verification found that Anthropic
-removed sampling parameters on its newest models and that OpenAI's reasoning models reject both
-`temperature` and `max_tokens`. Both were absorbed by `call_dropping_unsupported()` in
-`providers/base.py`, which drops or renames a parameter the provider refuses. That machinery is
-provider-agnostic by construction, and it is what makes a fourth adapter cheap rather than a
-fourth maintenance burden.
+**Anything not speaking the OpenAI protocol has no path.** Here the original framing holds: there
+is no supported way to name a judge fieldtest does not ship an adapter for, short of forking. That
+matters more than it would in a tool that ran the system under test. The
+generator-writes-files contract means fieldtest needs a provider for one thing only — the judge —
+and it cuts against the README's own position, which is that the taxonomy is fieldtest's
+contribution and the runtime belongs to whoever already has one.
+
+So layer 1 below is ergonomics and provenance for a path that already works, and layer 1c is the
+capability that is genuinely absent. They are specified together because they share a config
+block, not because they solve the same problem.
+
+The supporting machinery is already built and already proven. Live verification found that
+Anthropic removed sampling parameters on its 5-series and that OpenAI's reasoning models reject
+`temperature` and rename `max_tokens`. Both are absorbed by `call_dropping_unsupported()` in
+`providers/base.py`, which is provider-agnostic by construction. That is what makes a fourth
+adapter cheap rather than a fourth maintenance burden.
 
 ## §2 Requirements
 
@@ -43,12 +59,17 @@ order of how much work each asks of them.
    demonstrated rather than assumed — an `openai_compatible` adapter is mostly a way to configure
    `base_url` from `config.yaml` instead of the environment.
 
-   One caveat belongs in the docs beside the recommendation: OpenRouter absorbs parameters the
-   underlying model does not accept. `openai/o3-mini` took `temperature` and `max_tokens` without
-   complaint; the same models called natively reject both — `gpt-5` returns
-   `unsupported: ["temperature"]` through fieldtest's own adapter. Convenient in use, and it means
-   a judge reached through OpenRouter may not be pinned the way the config says, with nothing in
-   the report to reveal it. See spec 12 for why the live test tier cannot rely on it.
+   One caveat belongs in the docs beside the recommendation, stated as narrowly as the evidence
+   allows. `openai/o3-mini` through OpenRouter took `temperature` and `max_tokens` without
+   complaint, and fieldtest reported nothing dropped. Called natively, `gpt-5` returns
+   `unsupported: ["temperature"]` through the same adapter.
+
+   Those are different models, so this does not establish that OpenRouter strips parameters —
+   o3-mini has never been called natively from here, and the difference could as easily be the
+   model. What it does establish is the part that matters operationally: **the drop path did not
+   fire through OpenRouter**, so a judge reached that way may be running unpinned with nothing in
+   the report to reveal it, and the live tier cannot use OpenRouter to exercise that path. See
+   spec 12.
 1c. **A user can register their own adapter** for anything that does not speak that protocol,
    without forking fieldtest. This mirrors `@rule`, which already loads user code from
    `evals/rules.py` — the precedent for user-supplied behavior in a project directory exists and
@@ -192,11 +213,14 @@ sandbox user code here any more than it does for `@rule`.
 
 And explicitly out of scope: a per-provider capability table for registered adapters. The three
 built-in providers have already demonstrated why. Anthropic removed sampling parameters on its
-5-series models, OpenAI's reasoning models reject `temperature` and rename `max_tokens`, and
-Gemini exposes a `seed` field in its SDK that the model then refuses. Each was discovered by a
-call, none by a table, and the table was wrong twice in one day. A registered provider declares
-nothing about what it supports; `call_dropping_unsupported()` finds out, and the report says what
-was dropped.
+5-series models, and OpenAI's reasoning models reject `temperature` and rename `max_tokens`. Both
+were discovered by a call, neither by a table.
+
+The table was also wrong in the other direction, which is the more instructive failure. It carried
+an entry saying Gemini rejects `seed`. That entry came from misreading fieldtest's own hardcoded
+`unsupported` list as an API response, and a live call later showed Gemini accepts `seed` (see
+spec 12 §1). A registered provider therefore declares nothing about what it supports;
+`call_dropping_unsupported()` finds out from the provider, and the report says what was dropped.
 
 Also out of scope: judging the judges. Whether a 7B model is fit to score a `safe` eval is exactly
 the question spec 08 answers with kappa and human labels, and it should be answered with evidence

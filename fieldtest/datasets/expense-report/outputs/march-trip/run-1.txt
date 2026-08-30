@@ -1,0 +1,12 @@
+## Reimbursement summary — Priya Raman
+
+| Receipt | Date | Category | Claimed | Reimbursable |
+| R-0912 | 2026-03-11 | ground | $14.50 | $14.50 |
+| R-0913 | 2026-03-11 | meals | $22.80 | $22.80 |
+| R-0914 | 2026-03-12 | meals | $61.00 | $61.00 |
+
+### Reductions
+
+None. Every expense falls within the limits in policy 4.1.
+
+Total reimbursable: $98.30

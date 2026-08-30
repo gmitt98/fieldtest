@@ -1,6 +1,6 @@
 # Spec 12 — Verification tiers
 
-**Tier** 2 · **Depends on** 11 · **Touches** `tests/`, `pyproject.toml`, CI workflow · **Status** draft
+**Tier** 2 · **Depends on** 11 · **Touches** `tests/`, `pyproject.toml`, CI workflow · **Status** shipped
 
 ## §1 Problem
 
@@ -80,9 +80,15 @@ markers = [
 addopts = "-m 'not live'"
 ```
 
-`pytest` runs unit + integration. `pytest -m live` runs the live tier. CI runs the default on
-every push and the live tier on a schedule, where a failure means a provider changed something,
-not that a contributor did.
+`pytest` runs unit + integration. `pytest -m live` runs the live tier.
+
+`.github/workflows/test.yml` runs the default tier plus `scripts/verify_tiers.py` on every push
+and pull request, and the live tier on the 14th and 28th or on demand, where a failure means a
+provider changed something rather than that a contributor did. Twice a month rather than
+daily because provider drift is slow and a scheduled run that goes red on an outage is
+noise, not a signal. The live job needs four repository
+secrets — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` — and
+fails rather than passing quietly if none are present.
 
 Live tests skip on a missing key, per provider:
 
@@ -93,6 +99,27 @@ requires = pytest.mark.skipif(
 )
 ```
 
+**A silent skip is the same blind spot in a quieter form.** `2 skipped` scrolls past and the run
+reads as verification, which is how the four defects reached a release in the first place — a
+suite that could not ask, reporting success. So the run ends with a coverage report naming every
+provider that went untested, and a live run with no credentials at all exits non-zero rather than
+green:
+
+```
+============================== live tier coverage ==============================
+  exercised   openai_compatible  OPENROUTER_API_KEY
+  NOT TESTED  anthropic          ANTHROPIC_API_KEY is unset
+
+  1 of 4 providers went untested. Their adapters are unverified against a real API by this run.
+```
+
+Per-provider skipping stays allowed, because nobody holds accounts everywhere. Skipping without
+saying so does not.
+
+`openai_compatible` is a protocol, not a vendor, so its live tests take the endpoint from
+`FIELDTEST_LIVE_BASE_URL` and `FIELDTEST_LIVE_MODEL` and default to OpenRouter. A contributor with
+a local vLLM or Ollama can exercise the same path without an account anywhere.
+
 **OpenRouter is the primary live credential, and it is not sufficient on its own.** One key
 reaches Anthropic, OpenAI, Google, xAI and open-weight models behind `vendor/model` slugs, which
 turns "we have never made a real OpenAI or Gemini call" from a four-account problem into a one-key
@@ -101,9 +128,10 @@ problem for the happy path.
 But it cannot exercise the parameter-rejection path, and that was established empirically rather
 than assumed. Calling `openai/o3-mini` through OpenRouter with `temperature: 0.0` and `max_tokens`
 set — the exact combination OpenAI documents as a 400 on reasoning models — **succeeded, with
-nothing reported as dropped**. OpenRouter absorbs the incompatibility somewhere upstream; its
-docs describe what happens when a parameter is *absent* and are silent on what happens when an
-unsupported one is *present*.
+nothing reported as dropped**. Whether OpenRouter strips the parameter or that model simply
+accepts it is untested — o3-mini has never been called natively from here — and OpenRouter's docs
+describe what happens when a parameter is *absent* while saying nothing about an unsupported one
+being *present*. The mechanism does not matter for this spec's purpose; the observation does.
 
 That is good for users and bad for tests. `rejects_parameter()` and `call_dropping_unsupported()`
 exist precisely for the case OpenRouter hides, so the live tier needs **provider-native keys** to
@@ -113,7 +141,7 @@ reach it:
 |---|---|---|
 | Adapter works, JSON parses | yes | yes |
 | Cross-lab and open-weight coverage | yes | no (one lab each) |
-| Parameter rejection drops and reports | **no — absorbed upstream** | yes |
+| Parameter rejection drops and reports | **no — did not fire** | yes |
 | Bespoke Anthropic / Gemini adapters | no — OpenAI protocol only | yes |
 
 A live tier that only ever runs through OpenRouter would report green while leaving the newest,
@@ -174,8 +202,8 @@ error strings, under the fixture test without any network at all.
 ## §6 Out of scope
 
 Recording and replaying real responses (VCR-style). It would make contract drift *less* visible by
-freezing yesterday's contract into a fixture that keeps passing — which is the failure this spec
-exists to correct, wearing a costume.
+freezing yesterday's contract into a fixture that keeps passing. That is the failure this spec
+exists to correct, not a way to avoid it.
 
 Also out of scope: gating merges on the live tier. Provider outages are not contributor errors,
 and a required check that fails for reasons outside the repository teaches people to ignore it.

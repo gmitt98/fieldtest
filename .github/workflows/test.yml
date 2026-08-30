@@ -1,0 +1,87 @@
+name: tests
+
+# Spec 12's tiers, wired up. The default tier runs on every push and needs no
+# credentials, so a provider outage can never look like a contributor error.
+# The live tier runs on a schedule instead, where a failure means a provider
+# changed something rather than that someone's branch did.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    # 14th and 28th, so the first run lands mid-September. Provider drift is
+    # slow and there is no user base to page, so twice a month trades detection
+    # latency for not turning a provider outage into a red X every morning.
+    #
+    # GitHub cron has no "every 2 weeks". 14/28 rather than 15/29 because the
+    # 29th does not exist in a non-leap February, which silently drops a run
+    # and stretches that gap to 28 days. 14/28 holds 14-17 days year round.
+    - cron: "0 7 14,28 * *"
+  workflow_dispatch:
+
+jobs:
+  default:
+    # unit + integration. No network, no keys.
+    #
+    # pyproject says requires-python >= 3.10, and only 3.14 was ever run. Every
+    # version in that range is now exercised, because claiming support for four
+    # untested interpreters is the same promise the tool exists to stop people
+    # making. macOS on the ends of the range only: the failures worth catching
+    # there are pathlib and encoding, which do not vary by minor version.
+    name: unit + integration (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python: "3.10"
+          - os: macos-latest
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[openai,gemini,dev]"
+      - run: pytest -q
+
+  verify:
+    # Reintroduces five defects that actually shipped and checks each is caught.
+    # A green suite that cannot catch its own bugs is decoration. Once, not per
+    # matrix cell: it reruns the whole suite five times over.
+    name: verification tiers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[openai,gemini,dev]"
+      - run: python scripts/verify_tiers.py
+
+  live:
+    # Real providers. Scheduled and manual only — never on a push, so a
+    # contributor never waits on someone else's rate limit.
+    name: live providers
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[openai,gemini,dev]"
+      - name: live tier
+        env:
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY:     ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        # Exits non-zero if no credentials were present, so a misconfigured
+        # secret shows up as a failure rather than as a green run that asked
+        # nothing. The coverage report names any provider that went untested.
+        run: pytest -m live -v

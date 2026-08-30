@@ -83,7 +83,7 @@ def collect_human_labels(config: Config, base_dir: Path, set_name: str) -> dict:
             fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
             if not fixture_path.exists():
                 continue
-            for (eval_id, run), value in extract_labels(load_fixture(fixture_path)).items():
+            for (eval_id, run), value in extract_labels(load_fixture(fixture_path, base_dir)).items():
                 labels.setdefault((uc.id, eval_id), {})[(fid, run)] = value
     return labels
 

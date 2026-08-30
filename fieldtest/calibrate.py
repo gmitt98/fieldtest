@@ -14,11 +14,12 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
 
 from fieldtest.config import Config, PanelJudge, resolve_set
 from fieldtest.errors import ConfigError
 from fieldtest.results.calibration_analysis import analyze, collect_human_labels
+# Re-exported: the renderer lives in results/ with the other report writers,
+# and `from fieldtest.calibrate import format_calibration` keeps working.
 from fieldtest.results.calibration_report import format_calibration
 from fieldtest.results.provenance import build_judge_block
 
@@ -193,8 +194,3 @@ def write_calibration(data: dict, output_dir: Path, run_id: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"{run_id}-calibration.json").write_text(json_content)
     (output_dir / f"{run_id}-calibration.md").write_text(md_content)
-
-
-# The renderer lives in results/ with the other report writers; re-exported
-# here so `from fieldtest.calibrate import format_calibration` keeps working.
-from fieldtest.results.calibration_report import format_calibration  # noqa: E402

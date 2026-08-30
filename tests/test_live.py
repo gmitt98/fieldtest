@@ -28,6 +28,16 @@ pytestmark = pytest.mark.live
 
 PROMPT = ('Reply with exactly this JSON and nothing else: '
           '{"answer": "Pass", "reasoning": "ok"}')
+
+# openai_compatible is not an OpenRouter adapter — OpenRouter is just the
+# endpoint that is cheapest to reach from a laptop. Point these at a local
+# vLLM or Ollama instead by setting these two.
+COMPATIBLE_BASE_URL = os.environ.get(
+    "FIELDTEST_LIVE_BASE_URL", "https://openrouter.ai/api/v1"
+)
+COMPATIBLE_MODEL = os.environ.get(
+    "FIELDTEST_LIVE_MODEL", "meta-llama/llama-3.3-70b-instruct"
+)
 GEN = JudgeGenerationConfig()
 RETRY = RetryPolicy()
 
@@ -142,9 +152,11 @@ def test_live_unsupported_parameter_is_dropped_and_named():
         "temperature was accepted where the provider documents a 400 — either "
         "the model changed or rejects_parameter() stopped matching"
     )
-    # max_tokens is renamed rather than dropped, so it is absent from
-    # `unsupported` by design: the call succeeding on a model that rejects it is
-    # what proves the rename fired.
+    # A rename is not a capability loss, so it stays out of `unsupported`. It is
+    # reported separately rather than inferred from the call not failing.
+    assert ("max_tokens", "max_completion_tokens") in r.get("renamed", []), (
+        f"max_tokens was not renamed; the adapter reported {r.get('renamed')}"
+    )
 
 
 @needs_gemini
@@ -187,3 +199,122 @@ def test_live_pinned_temperature_is_accepted_or_reported():
         "claude-haiku-4-5 stopped accepting temperature — the default judge is "
         "no longer pinnable and defaults.model needs to move"
     )
+
+
+# ---------------------------------------------------------------------------
+# openai_compatible against a real endpoint (spec 11)
+#
+# What only a live call can establish: that pointing the OpenAI request path at
+# another base_url still returns a parseable verdict. The claim that it does is
+# what shrank spec 11's problem statement, so it should not rest on a mock.
+# ---------------------------------------------------------------------------
+
+needs_openrouter = pytest.mark.skipif(
+    not os.environ.get("OPENROUTER_API_KEY"),
+    reason=(
+        "live: OPENROUTER_API_KEY unset — the openai_compatible adapter goes "
+        "untested. Key from openrouter.ai/keys; these two tests cost a few "
+        "cents total."
+    ),
+)
+
+
+@needs_openrouter
+def test_openai_compatible_reaches_a_third_party_endpoint():
+    from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
+
+    adapter = OpenAICompatibleAdapter(
+        base_url=COMPATIBLE_BASE_URL,
+        api_key_env="OPENROUTER_API_KEY",
+    )
+    result = adapter.call(COMPATIBLE_MODEL, PROMPT, GEN, RETRY)
+
+    assert "error" not in result, result
+    assert result.get("answer") == "Pass"
+    # Whatever the endpoint refused is reported rather than silently dropped.
+    print(f"\n{COMPATIBLE_MODEL} at {COMPATIBLE_BASE_URL} dropped: {result.get('unsupported') or 'nothing'}")
+
+
+@needs_openrouter
+def test_openai_compatible_config_path_end_to_end(tmp_path):
+    """
+    The adapter reached through config rather than constructed directly, since
+    naming the endpoint in config.yaml is the entire point of the provider.
+    """
+    from fieldtest.config import ProviderSettings
+    from fieldtest.providers import get_provider_adapter
+
+    adapter = get_provider_adapter(
+        "openai_compatible",
+        ProviderSettings(
+            base_url=COMPATIBLE_BASE_URL,
+            api_key_env="OPENROUTER_API_KEY",
+        ),
+    )
+    result = adapter.call(COMPATIBLE_MODEL, PROMPT, GEN, RETRY)
+    assert "error" not in result, result
+    assert result.get("answer") == "Pass"
+
+
+# ---------------------------------------------------------------------------
+# The judge path, not just the adapter
+#
+# Every test above asserts on the adapter's dict. 0.3.0 made a reply carrying no
+# usable verdict an error rather than a silent Fail, and nothing live exercises
+# that parse — so a real model whose reply stopped matching would show up as a
+# judged Fail here and be invisible. These run the whole way through
+# judge_llm_binary and judge_llm_scored.
+# ---------------------------------------------------------------------------
+
+def _live_config(binary: bool):
+    from fieldtest.config import Config
+
+    ev = {
+        "id": "live_probe", "tag": "right", "type": "llm",
+        "description": "whether the output is a greeting",
+    }
+    if binary:
+        ev |= {"pass_criteria": "the output greets someone",
+               "fail_criteria": "the output does not greet anyone"}
+    else:
+        ev |= {"binary": False, "scale": [1, 5],
+               "anchors": {1: "not a greeting at all", 5: "an unmistakable greeting"}}
+    return Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "live", "domain": "live"},
+        "defaults": {"provider": "anthropic", "model": "claude-haiku-4-5"},
+        "use_cases": [{
+            "id": "uc1", "description": "d", "evals": [ev],
+            "fixtures": {"directory": "fixtures/", "sets": {"full": []}},
+        }],
+    }), ev
+
+
+@needs_anthropic
+def test_live_binary_judge_returns_a_verdict_not_an_error():
+    """A real reply must survive the verdict check, not fall through it."""
+    from fieldtest.config import Eval
+    from fieldtest.judges.llm import judge_llm_binary
+
+    config, ev = _live_config(binary=True)
+    row = judge_llm_binary(
+        "uc1", Eval.model_validate(ev), "Hello there, good to meet you.",
+        {"id": "fx", "inputs": {}}, 1, config,
+    )
+    assert row.error is None, f"a real judge reply was rejected: {row.error}"
+    assert row.passed is True, row.detail
+
+
+@needs_anthropic
+def test_live_scored_judge_returns_a_score_inside_its_scale():
+    """0.3.0 makes an out-of-range score an error; a real model must stay in range."""
+    from fieldtest.config import Eval
+    from fieldtest.judges.llm import judge_llm_scored
+
+    config, ev = _live_config(binary=False)
+    row = judge_llm_scored(
+        "uc1", Eval.model_validate(ev), "Hello there, good to meet you.",
+        {"id": "fx", "inputs": {}}, 1, config,
+    )
+    assert row.error is None, f"a real judge score was rejected: {row.error}"
+    assert 1 <= row.score <= 5, row.score

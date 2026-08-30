@@ -233,7 +233,10 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
     model         = eval.model    or config.defaults.model
 
     try:
-        adapter = get_provider_adapter(provider_name)
+        adapter = get_provider_adapter(
+            provider_name,
+            config.providers.get(provider_name),
+        )
     except Exception as e:
         return {"error": str(e)}
 
@@ -242,12 +245,25 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
         seed=config.defaults.judge_seed,
     )
 
-    response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
-
     # Adapters promise a dict and never raising. A third-party adapter that
     # breaks that contract must produce one errored row, not abort the run:
     # this call is inside a ThreadPoolExecutor, and an exception here reaches
     # future.result() and takes every other eval down with it.
+    #
+    # The isinstance guard below was written for that risk but only covered half
+    # of it. Every built-in adapter catches its own exceptions, so nothing
+    # exercised the raising half until @provider made third-party adapters a
+    # supported thing.
+    try:
+        response = adapter.call(model, prompt, gen, config.defaults.judge_retry)
+    except Exception as e:
+        return {
+            "error": (
+                f"Judge adapter for '{provider_name}' raised "
+                f"{type(e).__name__}: {e}"
+            )
+        }
+
     if not isinstance(response, dict):
         return {
             "error": (
@@ -268,6 +284,18 @@ def call_judge_llm(prompt: str, eval: Eval, config: Config) -> dict:
 # ---------------------------------------------------------------------------
 # Judge functions
 # ---------------------------------------------------------------------------
+
+
+def _unusable(response: dict, wanted: str) -> str:
+    """Error text for a judge reply that parsed as JSON but says nothing usable."""
+    import json
+
+    try:
+        got = json.dumps(response)
+    except (TypeError, ValueError):
+        got = repr(response)
+    return f"judge returned no usable verdict (wanted {wanted}); got {got[:200]}"
+
 
 def judge_llm_binary(
     use_case_id: str, eval: Eval, output: str, fixture: dict, run: int,
@@ -291,9 +319,19 @@ def judge_llm_binary(
     if "error" in response:
         return ResultRow(**base, error=response["error"])
 
-    passed = response.get("answer") == "Pass"
+    # A response carrying no usable verdict is a judge failure, not a failing
+    # output. `response.get("answer") == "Pass"` made every other shape — a
+    # lowercase "pass", a different key, a custom @provider returning its own
+    # dict — read as Fail, so the report showed 0% with a confidence interval
+    # and zero errors. A wrong number stated confidently is the one thing this
+    # tool must not do.
+    answer  = response.get("answer")
+    verdict = answer.strip().lower() if isinstance(answer, str) else None
+    if verdict not in ("pass", "fail"):
+        return ResultRow(**base, error=_unusable(response, 'answer: "Pass" or "Fail"'))
+
     return ResultRow(
-        **base, passed=passed,
+        **base, passed=verdict == "pass",
         detail=_flag_neutralized(response.get("reasoning"), neutralized),
     )
 
@@ -320,9 +358,20 @@ def judge_llm_scored(
     if "error" in response:
         return ResultRow(**base, error=response["error"])
 
-    score     = response.get("score")
-    floor_hit = score == eval.scale[0] if score is not None else False
+    score = response.get("score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return ResultRow(**base, error=_unusable(response, "score: a number"))
+
+    lo, hi = eval.scale
+    if not lo <= score <= hi:
+        # Silently averaging a 9 on a 1–5 scale moves the mean and hides that
+        # the judge ignored the scale it was given.
+        return ResultRow(
+            **base,
+            error=f"judge returned score {score}, outside the {lo}-{hi} scale",
+        )
+
     return ResultRow(
-        **base, score=score, floor_hit=floor_hit,
+        **base, score=score, floor_hit=score == lo,
         detail=_flag_neutralized(response.get("reasoning"), neutralized),
     )

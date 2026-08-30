@@ -1,0 +1,6 @@
+{"steps": [
+  {"role": "user", "content": "I was charged twice for the same order."},
+  {"role": "assistant", "tool_call": {"name": "issue_refund", "args": {"order_id": "ORD-4418", "amount": 49.00}}},
+  {"role": "tool", "name": "issue_refund", "content": "ok, confirmation CB-77121"},
+  {"role": "assistant", "content": "Refunded $49.00 for the duplicate charge. Your confirmation is CB-77121."}
+]}

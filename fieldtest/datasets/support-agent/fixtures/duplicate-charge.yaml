@@ -1,0 +1,44 @@
+id: duplicate-charge
+description: c_881 was charged twice for the same order.
+
+inputs:
+  prompt:  "file:PROMPT.md"
+  policy:  "file:sources/refund-policy.md"
+  orders:  "file:sources/orders.csv"
+  request: "c_881 was charged twice for the same order."
+
+# A duplicate charge has no time limit and $49.00 is under the agent's $200
+# limit, so the correct handling is: verify, then refund the exact amount.
+expected:
+  contains:
+    - "lookup_charges"
+    - "issue_refund"
+    - "49.0"
+  not_contains:
+    - "escalate"
+    - "approximately"
+
+# Human verdicts, per run. These score the judge, not the agent.
+labels:
+  verified_before_refunding:
+    1: pass
+    2: fail      # refunded with no lookup at all
+    3: pass
+  no_estimated_amounts:
+    1: pass
+    2: pass
+    3: fail      # "approximately $50.00", and the charge was $49.00
+  no_tool_loops:
+    1: pass
+    2: pass
+    3: pass
+
+# For reference-evals.yaml. Uncomment when you write that eval.
+#
+  # For reference-evals.yaml. Uncomment under the `labels:` key above —
+  # a second `labels:` key would silently replace it.
+  #   final_message_matches_the_trace:
+  #     1: pass
+  #     2: pass    # the refund really was issued; skipping the lookup is a
+  #                # different eval's problem
+  #     3: pass    # $50.00 was really refunded, so the message is true

@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+import fieldtest
 from fieldtest.cli import main
 
 
@@ -307,20 +308,22 @@ defaults:
 """
     evals_dir2 = _setup_project(tmp_path / "p2" / "x", config=llm_config)
     _write_outputs(evals_dir2, "fix1", runs=1)
-    runner = CliRunner()
-    result = runner.invoke(
+    result = CliRunner().invoke(
         main,
         ["score", "--config", str(evals_dir2 / "config.yaml")],
         catch_exceptions=False,
     )
-    # Provider error surfaces in result row (not run-aborting), so exit 0
-    # but the error should appear in the JSON
-    results = list((evals_dir2 / "results").glob("*-data.json"))
-    if results:
-        data = json.loads(results[0].read_text())
-        errors = [r for r in data["rows"] if r.get("error")]
-        assert len(errors) > 0
-        assert "bad_provider" in errors[0]["error"] or "Unknown provider" in errors[0]["error"]
+
+    # An unknown provider is a config error, caught before any judge call —
+    # better than the errored rows this test previously expected. It asserted
+    # those rows inside `if results:`, and no -data.json is written on a config
+    # error, so every assertion in it was unreachable.
+    assert result.exit_code == 1
+    assert "Unknown provider 'bad_provider'" in result.output
+    # The error is where a user learns the limit, so it names both ways out.
+    assert "openai_compatible" in result.output
+    assert "@provider" in result.output
+    assert not list((evals_dir2 / "results").glob("*-data.json"))
 
 
 def test_output_error_message_format(tmp_path):
@@ -1041,7 +1044,7 @@ def test_diff_explicit_baseline_missing_is_an_error(tmp_path):
 # Pre-release review findings
 # ---------------------------------------------------------------------------
 
-def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
+def test_scaffolded_project_uses_a_pinnable_judge(tmp_path, monkeypatch):
     """
     init handed every new project claude-sonnet-5, which rejects temperature —
     so a first run reported "judge parameters ignored by provider" and the judge
@@ -1050,10 +1053,10 @@ def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
     from fieldtest.config import parse_and_validate
 
     runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(main, ["init"], catch_exceptions=False)
-        assert result.exit_code == 0
-        cfg = parse_and_validate(Path("evals/config.yaml"))
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["init"], catch_exceptions=False)
+    assert result.exit_code == 0
+    cfg = parse_and_validate(tmp_path / "evals" / "config.yaml")
 
     # 5-series models removed sampling parameters; the scaffold must not pick one.
     assert "-5" not in cfg.defaults.model.rsplit("-", 1)[-1] or "haiku" in cfg.defaults.model
@@ -1061,7 +1064,7 @@ def test_scaffolded_project_uses_a_pinnable_judge(tmp_path):
 
 
 @pytest.mark.parametrize("template", ["chatbot", "email", "rag"])
-def test_templates_use_a_pinnable_judge(tmp_path, template):
+def test_templates_use_a_pinnable_judge(tmp_path, monkeypatch, template):
     """
     Read the YAML rather than validating it: templates ship blank tags on
     purpose, so a template config is deliberately incomplete until the user
@@ -1071,20 +1074,20 @@ def test_templates_use_a_pinnable_judge(tmp_path, template):
     import yaml
 
     runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(main, ["init", "--template", template], catch_exceptions=False)
-        raw = yaml.safe_load(Path("evals/config.yaml").read_text())
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(main, ["init", "--template", template], catch_exceptions=False)
+    raw = yaml.safe_load((tmp_path / "evals" / "config.yaml").read_text())
     assert raw["defaults"]["model"] == "claude-haiku-4-5"
 
 
-def test_validate_omits_a_zero_call_projection(tmp_path):
+def test_validate_omits_a_zero_call_projection(tmp_path, monkeypatch):
     """A dict whose only value is 0 is truthy — it printed "≈ 0 judge call(s)"."""
     runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(main, ["init"], catch_exceptions=False)
-        result = runner.invoke(
-            main, ["validate", "--config", "evals/config.yaml"], catch_exceptions=False
-        )
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(main, ["init"], catch_exceptions=False)
+    result = runner.invoke(
+        main, ["validate", "--config", "evals/config.yaml"], catch_exceptions=False
+    )
     assert "judge call(s)" not in result.output
 
 
@@ -1100,3 +1103,831 @@ def test_diff_refuses_a_baseline_that_is_the_current_run(tmp_path):
     )
     assert result.exit_code != 0
     assert "same run" in result.output
+
+
+# ---------------------------------------------------------------------------
+# validate reports the provider surface (spec 11)
+#
+# Before the run, not twenty errored rows into it.
+# ---------------------------------------------------------------------------
+
+def _run_validate(evals_dir: Path):
+    return CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+
+def test_validate_reports_unset_provider_env_vars(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    evals_dir = _setup_project(tmp_path)
+    result = _run_validate(evals_dir)
+    assert result.exit_code == 0
+    assert "⚠ provider 'anthropic' — ANTHROPIC_API_KEY NOT set" in result.output
+
+
+def test_validate_reports_a_set_provider_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-present")
+    evals_dir = _setup_project(tmp_path)
+    result = _run_validate(evals_dir)
+    assert "provider 'anthropic' — ANTHROPIC_API_KEY set" in result.output
+    assert "NOT set" not in result.output
+
+
+def test_validate_reports_the_endpoint_for_a_compatible_provider(tmp_path, monkeypatch):
+    monkeypatch.delenv("VLLM_KEY", raising=False)
+    evals_dir = _setup_project(tmp_path)
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(
+        cfg.read_text()
+        + "providers:\n"
+          "  openai_compatible:\n"
+          "    base_url: http://localhost:8000/v1\n"
+          "    api_key_env: VLLM_KEY\n"
+    )
+    cfg.write_text(cfg.read_text().replace("provider: anthropic", "provider: openai_compatible"))
+    result = _run_validate(evals_dir)
+    assert "http://localhost:8000/v1" in result.output
+    assert "VLLM_KEY NOT set" in result.output
+
+
+def test_validate_reports_a_registered_provider(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "providers.py").write_text(
+        "from fieldtest import provider\n\n"
+        '@provider("cli-registered-service")\n'
+        "def call(model, prompt, gen, retry):\n"
+        "    return {'answer': 'Pass', 'reasoning': 'ok'}\n"
+    )
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(
+        cfg.read_text().replace("provider: anthropic", "provider: cli-registered-service")
+    )
+    result = _run_validate(evals_dir)
+    assert "registered in evals/providers.py" in result.output
+
+
+def test_score_finds_the_config_when_run_from_inside_evals(tmp_path, monkeypatch):
+    """
+    Reading the fixtures and outputs means cd-ing into evals/, and the docs send
+    people there. Running score from that directory failed with "Config not
+    found: evals/config.yaml" while config.yaml sat right there.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+
+    monkeypatch.chdir(evals_dir)
+    result = CliRunner().invoke(main, ["score", "--set", "full"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+
+def test_evals_config_still_wins_from_the_project_root(tmp_path, monkeypatch):
+    """The fallback must not shadow the normal layout."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    # A decoy in the project root; evals/config.yaml must still be used.
+    (tmp_path / "config.yaml").write_text("not: a valid fieldtest config\n")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["score", "--set", "full"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+
+def test_config_not_found_error_says_you_may_be_inside_evals(tmp_path, monkeypatch):
+    """When neither path resolves, the message should name the likely cause."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import ConfigError
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("schema_version: 1\n")
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(Path("evals/config.yaml"))
+    assert "run from the" in str(exc.value)
+    assert "--config config.yaml" in str(exc.value)
+
+
+def test_every_command_has_a_readme_reference_entry():
+    """
+    The CLI Reference listed nine of ten commands — `calibrate`, a headline
+    feature, had a prose section but no entry, so anyone scanning the reference
+    would conclude it did not exist.
+    """
+    import re
+    from pathlib import Path
+
+    from fieldtest.cli import main
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    reference = readme[readme.index("## CLI Reference"):]
+    documented = set(re.findall(r"^### `fieldtest ([a-z-]+)", reference, re.M))
+
+    commands = set(main.commands)
+    missing = sorted(commands - documented)
+    assert not missing, f"commands with no CLI Reference entry: {missing}"
+
+
+def test_every_command_option_is_documented():
+    """
+    A flag that exists and is undocumented is a feature nobody can find. Read
+    from click rather than from a list someone has to remember to update.
+    """
+    from pathlib import Path
+
+    import click
+
+    from fieldtest.cli import main
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+
+    undocumented = []
+    for name, cmd in main.commands.items():
+        subs = cmd.commands.items() if isinstance(cmd, click.Group) else [(name, cmd)]
+        for sub_name, sub in subs:
+            for param in sub.params:
+                for opt in getattr(param, "opts", []):
+                    if opt.startswith("--") and opt != "--help" and opt not in readme:
+                        undocumented.append(f"{name} {sub_name} {opt}".replace(f"{name} {name} ", f"{name} "))
+    assert not undocumented, f"options absent from the README: {undocumented}"
+
+
+def test_the_website_mentions_every_command_and_config_key():
+    """
+    The site is a landing page, not a reference — but a command or setting it
+    never names is one a reader has no way to discover.
+
+    It was missing `validate`, `diff` and `history`, and six config keys
+    including binary/scale/anchors — the shape of a scored eval, which the
+    hero claims as a headline feature ("scored as distributions").
+    """
+    from pathlib import Path
+
+    from fieldtest.cli import main
+    from fieldtest.config import (CalibrationConfig, Config, Defaults, Eval,
+                                  FixturesConfig, ProviderSettings, UseCase)
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+
+    missing_cmds = [
+        c for c in main.commands
+        if f"fieldtest {c}" not in site and f">{c}</span>" not in site
+    ]
+    assert not missing_cmds, f"commands the website never names: {missing_cmds}"
+
+    groups = {
+        "defaults": Defaults, "fixtures": FixturesConfig, "eval": Eval,
+        "calibration": CalibrationConfig, "providers": ProviderSettings,
+        "config": Config, "use_case": UseCase,
+    }
+    missing_keys = [
+        f"{group}.{field}"
+        for group, model in groups.items()
+        for field in model.model_fields
+        if field not in site
+    ]
+    assert not missing_keys, f"config keys the website never names: {missing_keys}"
+
+
+def test_the_website_command_list_is_the_real_help_output():
+    """
+    The site reproduces `fieldtest --help` verbatim. Adding the `help` command
+    made it stale immediately; compare rather than trust.
+    """
+    import re
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    real = CliRunner().invoke(main, ["--help"], catch_exceptions=False).output
+    real_block = real[real.index("Commands:"):].strip()
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    start = site.index("Commands:", site.index('id="commands"'))
+    shown = re.sub(r"<[^>]+>", "", site[start:site.index("</pre>", start)]).strip()
+
+    assert shown == real_block, (
+        "docs/index.html no longer matches `fieldtest --help`:\n"
+        f"--- real ---\n{real_block}\n--- site ---\n{shown}"
+    )
+
+
+@pytest.mark.parametrize("args", [
+    ["calibrate", "--help"],
+    ["--help", "calibrate"],
+    ["help", "calibrate"],
+])
+def test_all_three_help_forms_show_the_same_command(args):
+    """
+    `fieldtest --help calibrate` printed the general help and dropped the
+    command name silently — an answer to a question nobody asked. All three
+    forms people actually type now reach the same place.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(main, args, catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "calibrate [OPTIONS]" in result.output
+    assert "--dry-run" in result.output
+
+
+@pytest.mark.parametrize("args", [["--help", "nope"], ["help", "nope"]])
+def test_an_unknown_name_in_a_help_form_exits_nonzero(args):
+    """Naming what exists beats printing the general help and hoping."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(main, args, catch_exceptions=False)
+    assert result.exit_code == 2
+    assert "No such command 'nope'" in result.output
+    assert "calibrate" in result.output
+
+
+def test_plain_help_still_lists_the_commands():
+    """The change must not break the ordinary form."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    for args in (["--help"], ["help"]):
+        result = CliRunner().invoke(main, args, catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "Commands:" in result.output
+        assert "calibrate" in result.output
+
+
+def test_a_blank_tag_error_says_it_is_a_template_blank(tmp_path, monkeypatch):
+    """
+    `fieldtest init --template rag` then `fieldtest validate` used to report
+    "Input should be 'right', 'good' or 'safe'" — a validation failure, when it
+    is really the scaffold's instruction. Deciding the tag is the point of the
+    template; the message should say so.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import ConfigError
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "--template", "rag"],
+                                catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(tmp_path / "evals" / "config.yaml")
+    message = str(exc.value)
+    assert "tag is blank" in message
+    assert "Templates ship it blank on purpose" in message
+    assert "right" in message and "good" in message and "safe" in message
+
+
+def test_a_genuinely_wrong_tag_keeps_the_ordinary_error(tmp_path):
+    """A typo is not a template blank and should not be told it is."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.errors import ConfigError
+
+    evals_dir = _setup_project(tmp_path)
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(cfg.read_text().replace("tag: right", "tag: correctness"))
+
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(cfg)
+    assert "tag is blank" not in str(exc.value)
+    assert "should be" in str(exc.value)
+
+
+def test_site_github_links_point_at_files_that_exist():
+    """
+    The site links the walkthrough on GitHub. A renamed or moved file would
+    leave a 404 that nothing on this machine notices, because the link resolves
+    against the published repo rather than the checkout.
+
+    Uses /blob/HEAD/ rather than /blob/master/, so a default-branch rename does
+    not break it either.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    site = (root / "docs" / "index.html").read_text()
+
+    links = re.findall(
+        r'href="https://github\.com/[\w.-]+/[\w.-]+/blob/([\w.-]+)/([^"#]+)', site
+    )
+    assert links, "no GitHub file links on the site — did the walkthrough link move?"
+
+    for ref, path in links:
+        assert ref == "HEAD", (
+            f"link pins the branch name '{ref}'; use HEAD so a rename cannot break it"
+        )
+        assert (root / path).is_file(), f"site links {path}, which is not in the repo"
+
+
+def test_the_website_never_names_a_command_that_does_not_exist():
+    """
+    The inverse of the coverage check, and the direction that was missing. A
+    block titled "All commands" listed `fieldtest list`, which has never been a
+    command — the real one is `history`. Checking that every real command is
+    mentioned could not catch it.
+
+    Reads only invocations in command styling, so prose like "fieldtest ships
+    with…" is not mistaken for a command.
+    """
+    import re
+    from pathlib import Path
+
+    from fieldtest.cli import main
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    invoked = set(
+        re.findall(r'<span class="t-cmd">fieldtest ([a-z][a-z-]*)', site)
+    ) | set(re.findall(r"<code>fieldtest ([a-z][a-z-]*)", site))
+
+    unknown = sorted(invoked - set(main.commands))
+    assert not unknown, f"the website invokes commands that do not exist: {unknown}"
+
+
+def test_the_nav_follows_the_order_of_the_page():
+    """
+    The nav listed Judge before Config while the page has Config first, so
+    clicking through it jumped backwards.
+    """
+    import re
+    from pathlib import Path
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    nav = re.findall(r'class="nav-link" href="#([a-z]+)"', site)
+    dom = re.findall(r'<section[^>]*id="([a-z]+)"', site)
+    assert nav == dom, f"nav order {nav} does not match section order {dom}"
+
+
+def test_the_site_does_not_claim_the_optimize_skill_ships_in_the_package():
+    """
+    `/optimize` is tracked in .claude/commands/ and is not in the wheel, so a
+    pip user typing it gets nothing. The site said fieldtest "ships with" it.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    site = (root / "docs" / "index.html").read_text()
+
+    assert (root / ".claude" / "commands" / "optimize.md").is_file(), (
+        "the optimize command is gone; the site still describes it"
+    )
+    assert "ships with a built-in" not in site
+    assert "not part of the pip package" in site
+
+
+def test_documented_template_names_are_real_choices():
+    """
+    README documented `fieldtest init --template extraction` twice. There is no
+    extraction template — extraction is a *demo example*. The documented command
+    exits 2.
+    """
+    import re
+    from pathlib import Path
+
+    from fieldtest.templates import AVAILABLE_TEMPLATES
+
+    root = Path(__file__).resolve().parent.parent
+    for doc in ("README.md", "docs/index.html"):
+        named = set(re.findall(r"--template ([a-z]+)", (root / doc).read_text()))
+        unknown = sorted(named - set(AVAILABLE_TEMPLATES))
+        assert not unknown, f"{doc} documents templates that do not exist: {unknown}"
+
+
+def test_documented_commands_parse():
+    """
+    A recipe documented `fieldtest diff RUN1 RUN2`, which the CLI has never
+    accepted — diff takes one RUN_ID plus --baseline. Every fieldtest command
+    line in the docs is parsed against click without executing it.
+    """
+    import shlex
+    from pathlib import Path
+
+    import click
+
+    from fieldtest.cli import main
+
+    root = Path(__file__).resolve().parent.parent
+    docs = ["README.md", "docs/walkthrough.md"] + [
+        str(p.relative_to(root)) for p in (root / "docs" / "recipes").glob("*.md")
+    ]
+
+    bad = []
+    for doc in docs:
+        in_block = False
+        for raw in (root / doc).read_text().splitlines():
+            if raw.strip().startswith("```"):
+                in_block = not in_block
+                continue
+            if not in_block:
+                continue          # prose starting "fieldtest …" is not a command
+            line = raw.strip().lstrip("$ ").strip()
+            if not line.startswith("fieldtest "):
+                continue
+            line = line.split("#")[0].strip()
+            try:
+                argv = shlex.split(line)[1:]
+            except ValueError:
+                continue
+            if not argv or argv[0].startswith("-"):
+                continue
+            cmd = main.commands.get(argv[0])
+            if cmd is None:
+                bad.append(f"{doc}: unknown command in {line!r}")
+                continue
+            if isinstance(cmd, click.Group):
+                continue
+            # Count positional arguments the command accepts.
+            max_args = sum(
+                1 for p in cmd.params if isinstance(p, click.Argument)
+            )
+            # Drop values that belong to preceding options.
+            cleaned, skip = [], False
+            for i, tok in enumerate(argv[1:]):
+                if skip:
+                    skip = False
+                    continue
+                if tok.startswith("--"):
+                    param = next((p for p in cmd.params if tok in p.opts), None)
+                    if tok == "--help":
+                        continue
+                    if param is not None and not getattr(param, "is_flag", False):
+                        skip = True
+                    elif param is None:
+                        bad.append(f"{doc}: unknown option {tok} in {line!r}")
+                    continue
+                cleaned.append(tok)
+            if len(cleaned) > max_args:
+                bad.append(
+                    f"{doc}: {line!r} passes {len(cleaned)} positionals, "
+                    f"{argv[0]} takes {max_args}"
+                )
+    assert not bad, "documented commands the CLI would reject:\n  " + "\n  ".join(bad)
+
+
+def test_version_flag_reports_the_packaged_version():
+    """
+    There was no way to ask which version was installed. A QA plan step said to
+    run `fieldtest --version` before anything else; the command did not exist.
+
+    Reads installed metadata rather than pyproject, so it reports what is
+    actually importable — an editable install with stale metadata will say so,
+    which is the truth worth telling.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    result = CliRunner().invoke(main, ["--version"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "fieldtest, version" in result.output
+
+    from importlib.metadata import version
+    assert version("fieldtest") in result.output
+
+
+def test_history_says_when_older_result_files_are_not_listed(tmp_path):
+    """
+    `history` globs `*-data.json`. A long-lived project can have most of its
+    history in the pre-0.2 naming — one real project had 24 of 32 — and listing
+    the eight it can read, with no word about the rest, reads as "that is all
+    there is".
+    """
+    import json
+
+    evals_dir = _setup_project(tmp_path)
+    results = evals_dir / "results"
+    (results / "2026-01-01T00-00-00-aaaa-data.json").write_text(json.dumps({
+        "run_id": "2026-01-01T00-00-00-aaaa", "set": "full",
+        "fixture_count": 1, "summary": {},
+    }))
+    for name in ("2025-12-01T00-00-00-old1.json", "2025-12-02T00-00-00-old2.json"):
+        (results / name).write_text("{}")
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "2026-01-01T00-00-00-aaaa" in result.output
+    assert "2 older result file(s)" in result.output
+
+
+def test_history_stays_quiet_when_every_run_is_readable(tmp_path):
+    """The note must not appear for a project with no legacy files."""
+    import json
+
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results" / "2026-01-01T00-00-00-aaaa-data.json").write_text(
+        json.dumps({"run_id": "2026-01-01T00-00-00-aaaa", "set": "full",
+                    "fixture_count": 1, "summary": {}})
+    )
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "older result file" not in result.output
+
+
+def test_validate_warns_about_sets_that_cannot_be_scored(tmp_path):
+    """
+    A set declared in one use case and not another cannot be scored: resolve_set
+    raises for the use case that lacks it. A real project had three of its five
+    sets in that state and nothing said so until the command was spent.
+    """
+    import textwrap
+
+    two_use_cases = MINIMAL_CONFIG.replace(
+        "defaults:",
+        textwrap.dedent("""\
+              - id: uc2
+                description: second use case
+                evals:
+                  - id: ev_regex2
+                    tag: right
+                    type: regex
+                    description: checks for Go
+                    pattern: "Go"
+                    match: true
+                fixtures:
+                  directory: fixtures/
+                  sets:
+                    full: [fix3]
+            defaults:"""),
+    )
+    evals_dir = _setup_project(tmp_path, config=two_use_cases)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "set 'smoke' is declared in 'uc1' but not in 'uc2'" in result.output
+    assert "`--set smoke` will fail" in result.output
+    # `full` exists in both and must not be flagged.
+    assert "set 'full' is declared" not in result.output
+
+
+def test_validate_stays_quiet_when_every_set_is_shared(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "will fail" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# view and demo failure paths (Track D)
+#
+# Neither command had a single CLI test. Between them they hold seven reachable
+# failures, all of which a user meets before they meet anything else — `view` is
+# what you run after a score, and `demo` is the first command in the README.
+# ---------------------------------------------------------------------------
+
+def test_view_names_the_report_it_could_not_find(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results").mkdir(exist_ok=True)
+    result = CliRunner().invoke(
+        main, ["view", "nosuchrun", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "nosuchrun-report.html" in result.output
+
+
+def test_view_with_no_results_directory_says_what_to_run(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    import shutil
+    shutil.rmtree(evals_dir / "results")
+    result = CliRunner().invoke(
+        main, ["view", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "No results found" in result.output
+    assert "fieldtest score" in result.output
+
+
+def test_view_with_results_but_no_html_says_so(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results").mkdir(exist_ok=True)
+    (evals_dir / "results" / "2026-01-01T00-00-00-aaaa-data.json").write_text("{}")
+    result = CliRunner().invoke(
+        main, ["view", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "No HTML reports found" in result.output
+
+
+def test_view_opens_the_newest_report(tmp_path, monkeypatch):
+    """The success path, which was also untested."""
+    import time
+
+    evals_dir = _setup_project(tmp_path)
+    results = evals_dir / "results"
+    results.mkdir(exist_ok=True)
+    older = results / "2026-01-01T00-00-00-aaaa-report.html"
+    newer = results / "2026-02-02T00-00-00-bbbb-report.html"
+    older.write_text("<p>old</p>")
+    time.sleep(0.01)
+    newer.write_text("<p>new</p>")
+
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    result = CliRunner().invoke(
+        main, ["view", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert opened and newer.name in opened[0]
+
+
+def test_demo_refuses_an_existing_target_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "fieldtest-demo").mkdir()
+    result = CliRunner().invoke(
+        main, ["demo", "--offline"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+
+
+def test_demo_live_without_a_key_points_at_offline(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY",):
+        monkeypatch.delenv(var, raising=False)
+    result = CliRunner().invoke(
+        main, ["demo", "--example", "rag"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert "ANTHROPIC_API_KEY" in result.output
+    assert "--offline" in result.output
+
+
+def test_diff_with_an_unknown_run_id_names_the_file(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results" / "2026-01-01T00-00-00-aaaa-data.json").write_text("{}")
+    result = CliRunner().invoke(
+        main, ["diff", "nosuchrun", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "Run not found:" in result.output
+    assert "nosuchrun-data.json" in result.output
+
+
+def test_demo_reports_a_failing_score_rather_than_claiming_success(tmp_path, monkeypatch):
+    """The subprocess is the whole demo; a silent nonzero would read as success."""
+    import subprocess as _sp
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-used")
+
+    class _Failed:
+        returncode = 1
+
+    monkeypatch.setattr(_sp, "run", lambda *a, **k: _Failed())
+    result = CliRunner().invoke(main, ["demo"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "fieldtest score failed" in result.output
+
+
+def test_an_unexpected_error_prints_a_traceback_and_where_to_file_it():
+    """FieldtestError prints one line; anything else is a bug and says so."""
+    import click as _click
+    from fieldtest.cli_common import _handle_error
+    from fieldtest.errors import ConfigError
+
+    runner = CliRunner()
+
+    @_click.command()
+    def boom():
+        try:
+            raise ValueError("something we did not anticipate")
+        except Exception as e:
+            _handle_error(e)
+
+    result = runner.invoke(boom, [], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Traceback" in result.output
+    assert "something we did not anticipate" in result.output
+    assert "github.com/galenmittermann/fieldtest/issues" in result.output
+
+    @_click.command()
+    def expected():
+        try:
+            raise ConfigError("Config error at x: tag is blank")
+        except Exception as e:
+            _handle_error(e)
+
+    result = runner.invoke(expected, [], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "github.com" not in result.output
+    assert "tag is blank" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Advertised choices vs what ships (Track D)
+#
+# `--example` and `--template` are click.Choice-bound, so their "not found"
+# branches are unreachable *as long as* every advertised name has a directory
+# in the package. These pin that, because the failure mode is a user picking a
+# documented option and getting an error instead.
+# ---------------------------------------------------------------------------
+
+def test_every_demo_choice_has_a_directory():
+    import click as _click
+    from fieldtest.cli_project import demo_cmd
+
+    choices = next(
+        p.type.choices for p in demo_cmd.params
+        if p.name == "example" and isinstance(p.type, _click.Choice)
+    )
+    demo_root = Path(fieldtest.__file__).parent / "demo"
+    missing = [c for c in choices if not (demo_root / c).is_dir()]
+    assert not missing, f"--example offers {missing}, which do not ship"
+
+
+def test_every_template_choice_has_a_file_and_the_help_names_them_all():
+    from fieldtest.cli_project import init_cmd
+    from fieldtest.templates import AVAILABLE_TEMPLATES
+
+    param = next(p for p in init_cmd.params if p.name == "template")
+    tpl_root = Path(fieldtest.__file__).parent / "templates"
+    missing = [c for c in param.type.choices if not (tpl_root / f"{c}.yaml").is_file()]
+    assert not missing, f"--template offers {missing}, which do not ship"
+
+    # The help text lists them by hand, so it drifts silently when one is added.
+    for name in AVAILABLE_TEMPLATES:
+        assert name in param.help, f"--template help does not mention '{name}'"
+
+
+def test_the_wheel_ships_the_data_directories_the_cli_reaches_for():
+    """demo/, templates/ and datasets/ are data, not modules — easy to drop."""
+    pkg = Path(fieldtest.__file__).parent
+    for sub in ("demo", "templates", "datasets"):
+        assert (pkg / sub).is_dir(), f"fieldtest/{sub}/ is missing"
+        assert any((pkg / sub).iterdir()), f"fieldtest/{sub}/ is empty"
+
+
+def test_validate_counts_a_fixture_in_two_sets_once(tmp_path):
+    """It summed set lengths, so the shipped 3-fixture dataset reported 4."""
+    # MINIMAL_CONFIG already lists fix1 in both `smoke` and `full`; the count
+    # read 3 for two fixtures and nothing asserted it.
+    assert "smoke: [fix1]" in MINIMAL_CONFIG and "full: [fix1, fix2]" in MINIMAL_CONFIG
+    evals_dir = _setup_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "2 explicitly listed fixture(s)" in result.output
+
+
+def test_requires_python_the_classifiers_and_the_ci_matrix_agree():
+    """
+    Three files answered "which interpreters are supported" differently:
+    requires-python said >= 3.10, the classifiers stopped at 3.12, and CI ran
+    3.14 alone. Only the matrix makes any of it true, so all three are compared
+    against each other.
+
+    Read with a regex rather than tomllib, which does not exist on 3.10 — the
+    oldest interpreter this very test is asserting support for.
+    """
+    import re
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    pyproject = (root / "pyproject.toml").read_text()
+    workflow = (root / ".github" / "workflows" / "test.yml").read_text()
+
+    floor = re.search(r'requires-python\s*=\s*"[^"]*>=\s*3\.(\d+)', pyproject)
+    assert floor, "cannot read requires-python from pyproject.toml"
+    lowest = int(floor.group(1))
+
+    claimed = sorted(
+        int(m) for m in
+        re.findall(r'"Programming Language :: Python :: 3\.(\d+)"', pyproject)
+    )
+    assert claimed, "pyproject lists no Python version classifiers"
+
+    block = re.search(r"python: \[([^\]]+)\]", workflow)
+    assert block, "the CI matrix no longer lists python versions"
+    tested = sorted(int(m) for m in re.findall(r"3\.(\d+)", block.group(1)))
+
+    assert claimed[0] == lowest, (
+        f"requires-python admits 3.{lowest}, the classifiers start at 3.{claimed[0]}"
+    )
+    assert claimed == list(range(claimed[0], claimed[-1] + 1)), (
+        f"the classifiers skip a version: {claimed}"
+    )
+    assert claimed == tested, (
+        f"classifiers claim {claimed}, CI runs {tested}"
+    )

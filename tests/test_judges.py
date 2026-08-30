@@ -10,11 +10,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fieldtest.config import Config, Defaults, Eval, FixturesConfig, ResultRow, SystemConfig, UseCase
+from fieldtest.config import Config, Defaults, Eval, FixturesConfig, SystemConfig, UseCase
 from fieldtest.errors import ConfigError
 from fieldtest.judges.dispatch import dispatch_judge
 from fieldtest.judges.llm import build_binary_judge_prompt, build_scored_judge_prompt
-from fieldtest.judges.registry import _rule_registry, get_rule, rule
+from fieldtest.judges.registry import _rule_registry, rule
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +241,6 @@ def test_llm_scored_no_passed_field():
 
 def test_unknown_type_raises():
     # Can't create invalid Eval via Pydantic, so test dispatch directly
-    from fieldtest.config import Eval as RealEval
     ev = _make_eval(type="regex", pattern="x", match=True)
     # Monkey-patch type on the eval object to bypass Pydantic
     object.__setattr__(ev, "type", "custom_unknown")
@@ -555,7 +554,7 @@ def test_scored_judge_sees_inputs_too():
 
 def test_opt_out_changes_the_judge_fingerprint():
     """A judge that cannot see the context is not the same instrument."""
-    from fieldtest.config import Config, Defaults, FixturesConfig, SystemConfig, UseCase
+    from fieldtest.config import Config, Defaults, SystemConfig
     from fieldtest.results.provenance import build_judge_block
 
     def cfg(sees: bool):
@@ -575,3 +574,97 @@ def test_opt_out_changes_the_judge_fingerprint():
     assert blind["blinded_evals"] == ["ev1"]
     assert seeing["blinded_evals"] == []
     assert seeing["fingerprint"] != blind["fingerprint"]
+
+
+# ---------------------------------------------------------------------------
+# Judge replies that parse as JSON but say nothing usable (Track C)
+#
+# `passed = response.get("answer") == "Pass"` turned every other shape into a
+# failing output. A provider returning its own dict, or a model answering in
+# lowercase, produced 0% with a confidence interval and no errors at all.
+# ---------------------------------------------------------------------------
+
+def _binary_eval():
+    from fieldtest.config import Eval
+    return Eval(id="e", tag="right", type="llm", description="d",
+                pass_criteria="it is fine", fail_criteria="it is not")
+
+
+def _scored_eval():
+    from fieldtest.config import Eval
+    return Eval(id="e", tag="good", type="llm", description="d", binary=False,
+                scale=[1, 5], anchors={1: "bad", 5: "good"})
+
+
+def _judge_with(monkeypatch, reply: dict, scored: bool = False):
+    from fieldtest.judges import llm as llm_mod
+    from fieldtest.config import Config
+
+    monkeypatch.setattr(llm_mod, "call_judge_llm", lambda *a, **k: reply)
+    config = Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "s", "domain": "d"},
+        "use_cases": [{
+            "id": "uc1", "description": "d",
+            "evals": [{"id": "e", "tag": "right", "type": "regex",
+                       "description": "d", "pattern": "x", "match": True}],
+            "fixtures": {"directory": "fixtures/", "sets": {"full": []}},
+        }],
+    })
+    fn = llm_mod.judge_llm_scored if scored else llm_mod.judge_llm_binary
+    ev = _scored_eval() if scored else _binary_eval()
+    return fn("uc1", ev, "some output", {"id": "fx", "inputs": {}}, 1, config)
+
+
+@pytest.mark.parametrize("reply", [
+    {"passed": True, "reasoning": "r"},        # a custom @provider's own shape
+    {"verdict": "Pass"},                       # a plausible key
+    {"reasoning": "it looks fine"},            # answer omitted entirely
+    {"answer": "Yes"},                         # not one of the two words
+    {"answer": None},
+    {},
+])
+def test_a_binary_reply_without_a_verdict_is_an_error_not_a_fail(monkeypatch, reply):
+    row = _judge_with(monkeypatch, reply)
+    assert row.error is not None, f"{reply} was read as a verdict"
+    assert row.passed is None
+    assert "no usable verdict" in row.error
+
+
+@pytest.mark.parametrize("answer,expected", [
+    ("Pass", True), ("pass", True), ("PASS", True), (" Pass ", True),
+    ("Fail", False), ("fail", False), ("FAIL", False),
+])
+def test_case_and_whitespace_around_the_verdict_are_tolerated(monkeypatch, answer, expected):
+    """A model answering 'pass' meant every output failed."""
+    row = _judge_with(monkeypatch, {"answer": answer, "reasoning": "r"})
+    assert row.error is None, row.error
+    assert row.passed is expected
+
+
+@pytest.mark.parametrize("reply", [
+    {"reasoning": "r"},                # no score
+    {"score": "4"},                    # a string, not a number
+    {"score": None},
+    {"score": True},                   # bool is an int in Python; not a score
+])
+def test_a_scored_reply_without_a_number_is_an_error(monkeypatch, reply):
+    row = _judge_with(monkeypatch, reply, scored=True)
+    assert row.error is not None, f"{reply} was read as a score"
+    assert row.score is None
+
+
+@pytest.mark.parametrize("score", [0, 6, 9, -1])
+def test_a_score_outside_the_scale_is_an_error_not_an_average(monkeypatch, score):
+    """Averaging a 9 on a 1-5 scale moved the mean and hid the disobedience."""
+    row = _judge_with(monkeypatch, {"score": score, "reasoning": "r"}, scored=True)
+    assert row.error is not None
+    assert "outside the 1-5 scale" in row.error
+
+
+@pytest.mark.parametrize("score,floor", [(1, True), (3, False), (5, False)])
+def test_a_score_inside_the_scale_still_works(monkeypatch, score, floor):
+    row = _judge_with(monkeypatch, {"score": score, "reasoning": "r"}, scored=True)
+    assert row.error is None, row.error
+    assert row.score == score
+    assert row.floor_hit is floor

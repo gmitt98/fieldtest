@@ -49,8 +49,6 @@ def test_factory_unknown_provider():
 # ---------------------------------------------------------------------------
 
 def test_openai_missing_api_key():
-    adapter = OpenAIAdapter()
-
     mock_openai_module = MagicMock()
 
     with patch.dict("os.environ", {}, clear=True):
@@ -73,8 +71,6 @@ def test_openai_missing_package():
 
 
 def test_openai_successful_call():
-    adapter = OpenAIAdapter()
-
     mock_message = MagicMock()
     mock_message.content = '{"answer": "Pass", "reasoning": "Looks good"}'
     mock_choice = MagicMock()
@@ -100,8 +96,6 @@ def test_openai_successful_call():
 
 
 def test_openai_strips_markdown_fences():
-    adapter = OpenAIAdapter()
-
     mock_message = MagicMock()
     mock_message.content = '```json\n{"answer": "Fail", "reasoning": "Bad"}\n```'
     mock_choice = MagicMock()
@@ -126,8 +120,6 @@ def test_openai_strips_markdown_fences():
 
 
 def test_openai_non_json_response():
-    adapter = OpenAIAdapter()
-
     mock_message = MagicMock()
     mock_message.content = "This is not JSON"
     mock_choice = MagicMock()
@@ -1300,3 +1292,316 @@ def test_rejects_parameter_ignores_unrelated_bad_requests(message):
         assert not rejects_parameter(_Rejected(message), param), (
             f"matched {param!r} in an unrelated failure: {message!r}"
         )
+
+
+def test_rename_is_reported_separately_from_unsupported():
+    """
+    A renamed parameter is not a capability loss, so it must not appear in
+    `unsupported` — that field drives the report line telling a user their judge
+    ran without something. It is reported on its own so a rename can be observed
+    rather than inferred from the call having succeeded.
+    """
+    class _Rejected(Exception):
+        status_code = 400
+
+    err = _Rejected(
+        "Unsupported parameter: 'max_tokens' is not supported with this model. "
+        "Use 'max_completion_tokens' instead."
+    )
+    result, _, _ = _drive_adapter(
+        "openai", side_effect=[err, DEFAULT],
+        returns_text='{"answer": "Pass", "reasoning": "ok"}',
+    )
+
+    assert result["renamed"] == [("max_tokens", "max_completion_tokens")]
+    assert "unsupported" not in result
+
+
+# ---------------------------------------------------------------------------
+# openai_compatible adapter (spec 11)
+#
+# Adds no reach the environment did not already have — the openai SDK honours
+# OPENAI_BASE_URL — but it puts the endpoint in config, and therefore in the
+# fingerprint. These tests are about that plumbing, not about network access.
+# ---------------------------------------------------------------------------
+
+from fieldtest.config import ProviderSettings
+from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
+
+
+def test_openai_compatible_requires_base_url():
+    adapter = OpenAICompatibleAdapter(base_url="", api_key_env=None)
+    result = adapter.call("m", "p", GEN, RETRY)
+    assert "base_url" in result["error"]
+
+
+def test_factory_openai_compatible_without_settings_names_the_fix():
+    with pytest.raises(ProviderError, match="base_url"):
+        get_provider_adapter("openai_compatible")
+
+
+def test_openai_compatible_works_without_an_api_key(monkeypatch):
+    """A self-hosted endpoint may need no key. Absence is configuration."""
+    adapter = OpenAICompatibleAdapter(base_url="http://localhost:8000/v1")
+    args = adapter._client_args()
+    assert args["base_url"] == "http://localhost:8000/v1"
+    assert args["api_key"] == "not-required"
+
+
+def test_api_key_read_from_named_env_var(monkeypatch):
+    monkeypatch.setenv("MY_ENDPOINT_KEY", "sk-from-env")
+    adapter = OpenAICompatibleAdapter(
+        base_url="https://openrouter.ai/api/v1", api_key_env="MY_ENDPOINT_KEY"
+    )
+    assert adapter._client_args()["api_key"] == "sk-from-env"
+
+
+def test_missing_named_env_var_is_an_error_naming_the_variable(monkeypatch):
+    monkeypatch.delenv("MY_ENDPOINT_KEY", raising=False)
+    adapter = OpenAICompatibleAdapter(
+        base_url="https://openrouter.ai/api/v1", api_key_env="MY_ENDPOINT_KEY"
+    )
+    result = adapter.call("m", "p", GEN, RETRY)
+    assert "MY_ENDPOINT_KEY" in result["error"]
+
+
+def test_api_key_never_read_from_config_literal():
+    """
+    ProviderSettings has no field a literal key could land in. A config that
+    tries is rejected rather than quietly honoured.
+    """
+    assert "api_key" not in ProviderSettings.model_fields
+    with pytest.raises(Exception):
+        ProviderSettings(base_url="http://x/v1", api_key="sk-literal-in-config")
+
+
+def test_unknown_provider_error_mentions_openai_compatible():
+    with pytest.raises(ProviderError, match="openai_compatible"):
+        get_provider_adapter("cohere")
+
+
+def test_unknown_provider_error_mentions_the_decorator():
+    with pytest.raises(ProviderError, match="@provider"):
+        get_provider_adapter("cohere")
+
+
+def test_rejected_parameter_dropped_on_a_compatible_endpoint(monkeypatch):
+    """
+    The drop path is inherited, not reimplemented, so a compatible endpoint
+    refusing temperature behaves exactly as OpenAI does.
+    """
+    monkeypatch.setenv("EP_KEY", "k")
+    calls = []
+
+    class _Rejects:
+        def __init__(self, **kw):
+            self.chat = MagicMock()
+            self.chat.completions.create = self._create
+
+        def _create(self, **kwargs):
+            calls.append(dict(kwargs))
+            if "temperature" in kwargs:
+                raise ValueError("400: Unsupported parameter: 'temperature'")
+            msg = MagicMock()
+            msg.message.content = '{"answer": "pass", "reasoning": "ok"}'
+            return MagicMock(choices=[msg])
+
+    fake_openai = MagicMock()
+    fake_openai.OpenAI = _Rejects
+    with patch.dict("sys.modules", {"openai": fake_openai}):
+        adapter = OpenAICompatibleAdapter(base_url="http://ep/v1", api_key_env="EP_KEY")
+        result = adapter.call("llama", "prompt", GEN, RETRY)
+
+    assert result["answer"] == "pass"
+    assert result["unsupported"] == ["temperature"]
+    assert "temperature" not in calls[-1]
+
+
+def test_retry_policy_applies_to_a_compatible_endpoint(monkeypatch):
+    """
+    A self-hosted endpoint is more likely to be briefly unavailable than a
+    hosted one, not less.
+    """
+    monkeypatch.setenv("EP_KEY", "k")
+    attempts = []
+
+    class _Flaky:
+        def __init__(self, **kw):
+            self.chat = MagicMock()
+            self.chat.completions.create = self._create
+
+        def _create(self, **kwargs):
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise fake_openai.APIConnectionError("endpoint down")
+            msg = MagicMock()
+            msg.message.content = '{"answer": "pass", "reasoning": "ok"}'
+            return MagicMock(choices=[msg])
+
+    class _APIConnectionError(Exception):
+        pass
+
+    fake_openai = MagicMock()
+    fake_openai.OpenAI = _Flaky
+    fake_openai.APIConnectionError = _APIConnectionError
+    fake_openai.APITimeoutError = type("APITimeoutError", (Exception,), {})
+    fake_openai.InternalServerError = type("InternalServerError", (Exception,), {})
+    fake_openai.RateLimitError = type("RateLimitError", (Exception,), {})
+
+    with patch.dict("sys.modules", {"openai": fake_openai}):
+        adapter = OpenAICompatibleAdapter(base_url="http://ep/v1", api_key_env="EP_KEY")
+        result = adapter.call("llama", "p", GEN, RetryPolicy(max_retries=2, backoff=[0]))
+
+    assert len(attempts) == 2
+    assert result["answer"] == "pass"
+
+
+def test_provider_env_names_match_what_the_adapters_read():
+    """
+    `fieldtest validate` reports a credential per provider. If that table names
+    a different variable than the adapter reads, validate reports a correctly
+    configured key as missing — or worse, reports a missing one as present and
+    the run fails anyway.
+
+    Asserted against the adapters' own behaviour rather than a second copy of
+    the table, so the two cannot drift.
+    """
+    from fieldtest.cli_common import _PROVIDER_ENV
+    from fieldtest.providers import get_provider_adapter
+
+    for provider, declared in _PROVIDER_ENV.items():
+        adapter = get_provider_adapter(provider)
+        with patch.dict("os.environ", {}, clear=True):
+            result = adapter.call("some-model", "prompt", GEN, RETRY)
+        assert "error" in result, f"{provider} did not error with no credentials"
+        assert declared in result["error"], (
+            f"validate says {provider} reads {declared}, but its adapter's error "
+            f"names something else: {result['error']!r}"
+        )
+
+
+def test_one_definition_of_the_builtin_provider_names():
+    """
+    The factory constructs these and config validates against them. Two copies
+    would let a new provider be accepted by config and then fail to construct,
+    or be constructible and rejected by config.
+    """
+    from fieldtest.config import VALID_PROVIDERS
+    from fieldtest.providers import BUILTIN_PROVIDERS
+    from fieldtest.providers.settings import BUILTIN_PROVIDERS as source
+
+    assert BUILTIN_PROVIDERS is source
+    assert VALID_PROVIDERS is source
+
+
+def test_every_builtin_provider_can_actually_be_constructed():
+    """A name in the table that the factory cannot build is a config error
+    waiting to happen at the first judge call instead of at validation."""
+    from fieldtest.config import ProviderSettings
+    from fieldtest.providers import BUILTIN_PROVIDERS, get_provider_adapter
+
+    for name in BUILTIN_PROVIDERS:
+        settings = (
+            ProviderSettings(base_url="http://x/v1")
+            if name == "openai_compatible" else None
+        )
+        assert get_provider_adapter(name, settings) is not None
+
+
+# ---------------------------------------------------------------------------
+# Facts the documentation states, pinned to the code that produces them
+#
+# Prose restating a constant is the same defect as a second table: the gemini
+# credential name was wrong in exactly this way, and nothing noticed because
+# nothing tied the claim to the behaviour.
+# ---------------------------------------------------------------------------
+
+def test_documented_retry_schedule_is_the_one_the_policy_produces():
+    """README, CHANGELOG and spec 05 all state 5/10/20/40/60/60 seconds."""
+    from fieldtest.providers.base import RetryPolicy
+
+    policy = RetryPolicy()
+    schedule = [policy.delay_for(i) for i in range(policy.max_attempts)]
+    assert schedule == [5.0, 10.0, 20.0, 40.0, 60.0, 60.0]
+
+
+def test_documented_defaults_are_the_ones_the_config_uses():
+    """
+    Each of these appears as a literal in README, CHANGELOG or docs/index.html.
+    Changing one without updating the prose should fail here rather than
+    quietly leaving the docs wrong.
+    """
+    from fieldtest.config import Defaults
+
+    d = Defaults()
+    assert d.model == "claude-haiku-4-5"      # README Install, CHANGELOG judge block
+    assert d.provider == "anthropic"
+    assert d.runs == 5
+    assert d.judge_temperature == 0.0          # "pinned to 0.0 unless you say otherwise"
+    assert d.judge_seed is None
+    assert d.confidence_level == 0.95          # "defaults.confidence_level sets the level"
+
+
+def test_documented_judge_fingerprint_matches_the_bundled_demos():
+    """
+    The CHANGELOG prints fingerprint 4f10569a in its judge block, and the
+    bundled demo results were generated under it. If a change to the judge
+    fields moves the hash, both the notes and those artifacts go stale.
+    """
+    from pathlib import Path
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.provenance import build_judge_block
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest" / "demo"
+    for demo in ("rag", "email", "extraction"):
+        judge = build_judge_block(parse_and_validate(root / demo / "config.yaml"))
+        assert judge["fingerprint"] == "4f10569a", demo
+
+
+def test_a_client_library_that_dropped_the_parameter_is_treated_as_a_refusal():
+    """
+    anthropic 1.2.0 removed `temperature` from messages.create(). fieldtest
+    pins `anthropic>=0.20.0` with no upper bound, so a fresh install got the
+    new SDK and every Anthropic judge call failed with a TypeError — on the
+    default provider, with the default model.
+
+    A library that has dropped a parameter from its own signature is refusing
+    it, just earlier and with a TypeError instead of a 400. The drop path
+    handles it like any other refusal.
+    """
+    from fieldtest.providers.base import rejects_parameter
+
+    sdk_error = TypeError(
+        "Messages.create() got an unexpected keyword argument 'temperature'"
+    )
+    assert rejects_parameter(sdk_error, "temperature")
+
+    # Still narrow: the parameter must be named and the message must read as a
+    # support complaint, so an unrelated TypeError is not swallowed.
+    assert not rejects_parameter(TypeError("bad thing happened"), "temperature")
+    assert not rejects_parameter(sdk_error, "seed")
+
+
+def test_the_drop_path_recovers_from_an_sdk_signature_mismatch():
+    """End to end: the call succeeds and names what it dropped."""
+    from fieldtest.providers.base import call_dropping_unsupported
+
+    calls = []
+
+    def invoke(kwargs):
+        calls.append(dict(kwargs))
+        if "temperature" in kwargs:
+            raise TypeError(
+                "Messages.create() got an unexpected keyword argument 'temperature'"
+            )
+        return {"ok": True}
+
+    unsupported: list = []
+    result = call_dropping_unsupported(
+        invoke, {"model": "m", "temperature": 0.0, "max_tokens": 8}, unsupported
+    )
+    assert result == {"ok": True}
+    assert unsupported == ["temperature"]
+    assert "temperature" not in calls[-1]
+    assert calls[-1]["max_tokens"] == 8

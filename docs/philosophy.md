@@ -20,4 +20,31 @@ Engineering teams that bring this discipline to LLM products will build more rel
 
 ---
 
+## What fieldtest will not find
+
+Config-first has a cost, and it should be stated rather than discovered.
+
+A failure mode has to be named before it can be measured. If nobody wrote an eval for it,
+fieldtest will not surface it. The report shows what you asked about, and it is silent about
+everything else — including the failure that eventually matters.
+
+Other tools do the opposite. Inspect ships Scanners that search transcripts after the fact for
+issues nobody encoded in a scorer. That is a real capability and fieldtest does not have it.
+
+The cost is paid deliberately. A tool that surfaces anomalies you never defined lets you skip the
+definition step, and skipping the definition step is the behaviour fieldtest exists to prevent.
+Automatic discovery would make the twenty-minute conversation optional again.
+
+Discovery still happens; it happens somewhere else. Every run writes `-data.csv`: one row per
+fixture, eval and run, with the judge's reasoning on every row. That file exists so the data can
+leave the tool. A `safe` eval passing everywhere while its reasoning text keeps mentioning an edge
+case nobody modelled is findable — in a notebook, a spreadsheet, or whatever you already use to
+look at data.
+
+Then you close the loop by writing the eval. Discovery in the analysis layer produces a candidate
+failure mode. The practice says you name it, tag it, and add it to the config. Finding something
+is not measuring it.
+
+---
+
 *A longer version of this argument: coming soon.*
