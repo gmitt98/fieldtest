@@ -941,6 +941,29 @@ When a judge is erroring (API failure, malformed response), `--concurrency 1` sh
 
 ---
 
+### `fieldtest calibrate`
+
+Score the same outputs with several judges and report how much they agree.
+
+```bash
+fieldtest calibrate                 # the panel in config, over the 'full' set
+fieldtest calibrate smoke           # a named set
+fieldtest calibrate --dry-run       # projected call count, calls nothing
+fieldtest calibrate --concurrency 1 # serialise the judge calls
+```
+
+```
+--config PATH          Path to config.yaml (default: evals/config.yaml)
+--dry-run              Print the projected call count and exit without calling anything
+--concurrency INTEGER  Max parallel judge calls (default: 5)
+```
+
+Needs a `calibration.panel` in config with at least two distinct judges. Rescoring an existing `outputs/` directory costs one extra pass per judge and no generation, so `--dry-run` first is a habit worth having — the bill is `judges × runs × judge_runs × llm evals × fixtures`.
+
+Panel results are not written as a baseline: a panel member's pass is a measurement of the judge, not of your system, so it must never reach `find_baseline()`.
+
+See [Measuring the judge itself](#measuring-the-judge-itself--fieldtest-calibrate) for what the report contains.
+
 ### `fieldtest history`
 
 List all past runs, newest first, with tag-level failure rates.

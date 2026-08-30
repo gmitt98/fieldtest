@@ -1205,3 +1205,47 @@ def test_config_not_found_error_says_you_may_be_inside_evals(tmp_path, monkeypat
         parse_and_validate(Path("evals/config.yaml"))
     assert "run from the" in str(exc.value)
     assert "--config config.yaml" in str(exc.value)
+
+
+def test_every_command_has_a_readme_reference_entry():
+    """
+    The CLI Reference listed nine of ten commands — `calibrate`, a headline
+    feature, had a prose section but no entry, so anyone scanning the reference
+    would conclude it did not exist.
+    """
+    import re
+    from pathlib import Path
+
+    from fieldtest.cli import main
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    reference = readme[readme.index("## CLI Reference"):]
+    documented = set(re.findall(r"^### `fieldtest ([a-z-]+)", reference, re.M))
+
+    commands = set(main.commands)
+    missing = sorted(commands - documented)
+    assert not missing, f"commands with no CLI Reference entry: {missing}"
+
+
+def test_every_command_option_is_documented():
+    """
+    A flag that exists and is undocumented is a feature nobody can find. Read
+    from click rather than from a list someone has to remember to update.
+    """
+    from pathlib import Path
+
+    import click
+
+    from fieldtest.cli import main
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+
+    undocumented = []
+    for name, cmd in main.commands.items():
+        subs = cmd.commands.items() if isinstance(cmd, click.Group) else [(name, cmd)]
+        for sub_name, sub in subs:
+            for param in sub.params:
+                for opt in getattr(param, "opts", []):
+                    if opt.startswith("--") and opt != "--help" and opt not in readme:
+                        undocumented.append(f"{name} {sub_name} {opt}".replace(f"{name} {name} ", f"{name} "))
+    assert not undocumented, f"options absent from the README: {undocumented}"
