@@ -39,6 +39,15 @@ def history(config_path: Optional[str]):
         return
 
     result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
+
+    # Runs written before the -data.json naming are invisible to that glob.
+    # A long-lived project can have most of its history in the old layout —
+    # one had 24 of 32 — and listing the rest without a word reads as
+    # "that is all there is".
+    legacy = [
+        f for f in results_dir.glob("*.json")
+        if not f.name.endswith("-data.json")
+    ]
     if not result_files:
         click.echo(
             f"No results found at {results_dir}.\n"
@@ -99,6 +108,14 @@ def history(config_path: Optional[str]):
             f"{run_id:<26}  {ts_display:<18}  {set_name:<12}  "
             f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
         )
+
+    if legacy:
+        click.echo(
+            f"\n  {len(legacy)} older result file(s) in this directory are not "
+            f"listed — they predate the current naming and carry no summary "
+            f"fieldtest can read."
+        )
+
 
 @click.command()
 @click.argument("run_id", default=None, required=False)

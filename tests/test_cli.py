@@ -1588,3 +1588,47 @@ def test_version_flag_reports_the_packaged_version():
 
     from importlib.metadata import version
     assert version("fieldtest") in result.output
+
+
+def test_history_says_when_older_result_files_are_not_listed(tmp_path):
+    """
+    `history` globs `*-data.json`. A long-lived project can have most of its
+    history in the pre-0.2 naming — one real project had 24 of 32 — and listing
+    the eight it can read, with no word about the rest, reads as "that is all
+    there is".
+    """
+    import json
+
+    evals_dir = _setup_project(tmp_path)
+    results = evals_dir / "results"
+    (results / "2026-01-01T00-00-00-aaaa-data.json").write_text(json.dumps({
+        "run_id": "2026-01-01T00-00-00-aaaa", "set": "full",
+        "fixture_count": 1, "summary": {},
+    }))
+    for name in ("2025-12-01T00-00-00-old1.json", "2025-12-02T00-00-00-old2.json"):
+        (results / name).write_text("{}")
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "2026-01-01T00-00-00-aaaa" in result.output
+    assert "2 older result file(s)" in result.output
+
+
+def test_history_stays_quiet_when_every_run_is_readable(tmp_path):
+    """The note must not appear for a project with no legacy files."""
+    import json
+
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results" / "2026-01-01T00-00-00-aaaa-data.json").write_text(
+        json.dumps({"run_id": "2026-01-01T00-00-00-aaaa", "set": "full",
+                    "fixture_count": 1, "summary": {}})
+    )
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "older result file" not in result.output
