@@ -1315,3 +1315,71 @@ def test_bundled_demo_results_use_the_current_schema():
             f"{demo}: bundled results still use the pre-0.3.0 'confidence' key"
         )
         assert "confidence_level" in shipped_keys, f"{demo}: no confidence_level in summary"
+
+
+def test_two_threads_loading_rules_both_see_the_registry(tmp_path):
+    """
+    The calibration panel scores with each judge in its own thread, and each
+    calls load_rules(). The memo recorded the path *before* executing the
+    module, so the second thread saw it as loaded while the first was still
+    running it and dispatched against an empty registry:
+
+        No rule registered for eval 'total_matches_line_items'
+
+    Reproduced deterministically: the module sleeps while executing, so a
+    second thread is guaranteed to arrive mid-load.
+    """
+    import threading
+    import time
+
+    from fieldtest.judges.registry import (_loaded_rule_files, _rule_registry,
+                                           get_rule, load_rules)
+
+    rules = tmp_path / "rules.py"
+    rules.write_text(
+        "import time\n"
+        "from fieldtest import rule\n\n"
+        "time.sleep(0.3)\n\n"          # the window the race needs
+        "@rule('slow_to_register')\n"
+        "def check(output, inputs):\n"
+        "    return {'passed': True, 'detail': 'ok'}\n"
+    )
+
+    _rule_registry.pop("slow_to_register", None)
+    _loaded_rule_files.discard(str(rules.resolve()))
+
+    seen: list = []
+
+    def worker():
+        load_rules(rules)
+        seen.append(get_rule("slow_to_register"))
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+        time.sleep(0.05)   # stagger so the others arrive mid-load
+    for t in threads:
+        t.join()
+
+    assert len(seen) == 4
+    assert all(fn is not None for fn in seen), (
+        "a thread returned from load_rules() before the registry was populated"
+    )
+
+
+def test_a_module_that_raises_is_not_recorded_as_loaded(tmp_path):
+    """
+    The path was recorded before execution, so a module that blew up counted as
+    loaded and the next call silently skipped it. Retrying should raise again.
+    """
+    from fieldtest.errors import ConfigError
+    from fieldtest.judges.registry import _loaded_rule_files, load_rules
+
+    rules = tmp_path / "rules.py"
+    rules.write_text("raise RuntimeError('boom')\n")
+    _loaded_rule_files.discard(str(rules.resolve()))
+
+    for _ in range(2):
+        with pytest.raises(ConfigError) as exc:
+            load_rules(rules)
+        assert "boom" in str(exc.value)

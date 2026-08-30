@@ -108,3 +108,25 @@ use_cases:
       sets:
         full: [october-trip, march-trip, june-trip]
         smoke: [october-trip]
+
+# ---------------------------------------------------------------------------
+# A panel, for `fieldtest calibrate`.
+#
+# Uncomment and run:
+#
+#     fieldtest calibrate --config reference-evals.yaml --set smoke --dry-run
+#     fieldtest calibrate --config reference-evals.yaml --set smoke
+#
+# --dry-run first, always: the bill is judges × runs × judge_runs × llm evals ×
+# fixtures, and it is easy to ask for more than you meant. The smoke set is one
+# fixture, which is enough to see the shape of the report.
+#
+# Two models from one provider is a real panel and needs one key. The question
+# it answers is whether your pass_criteria mean the same thing to both — where
+# they disagree, the criteria are ambiguous, not the models.
+#
+# calibration:
+#   panel:
+#     - { provider: anthropic, model: claude-haiku-4-5 }
+#     - { provider: anthropic, model: claude-sonnet-5 }
+#   kappa_threshold: 0.4

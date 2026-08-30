@@ -302,7 +302,26 @@ Then compare against the answer key:
 fieldtest score --config reference-evals.yaml --set full
 ```
 
-Read it for its failures as much as its passes. Its `caps_applied` eval states
+A `calibration.panel` is commented out at the bottom of that file. Uncomment it
+and you can run two judges over the same outputs and see where they disagree:
+
+```bash
+fieldtest calibrate --config reference-evals.yaml --set smoke --dry-run
+fieldtest calibrate --config reference-evals.yaml --set smoke
+```
+
+```
+Most contested evals:
+  follows_requested_structure — 50.0% disagreement
+  caps_applied — 33.3% disagreement
+  explanation_clarity — 0.0% disagreement
+```
+
+The evals at the top of that list are the ones whose `pass_criteria` are
+ambiguous. Two models reading the same words reached different verdicts, which
+is a fact about the words.
+
+Read the answer key for its failures as much as its passes. Its `caps_applied` eval states
 in its own `fail_criteria` that it should judge two daily caps and ignore
 everything else, and the judge still fails outputs for unrelated defects —
 66.7% agreement with a human against 100% for every rule eval. That gap is what

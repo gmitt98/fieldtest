@@ -64,6 +64,22 @@ MUTATIONS = [
         new="build_binary_judge_prompt(eval, output)",
         shipped_in="every release before 0.3.0; grounding evals judged blind",
     ),
+    Mutation(
+        name="user-file load memo records the path before executing it",
+        path="fieldtest/loader.py",
+        old="""    resolved = str(path.resolve())
+    with _load_lock:
+        if resolved in loaded:
+            return None
+""",
+        new="""    resolved = str(path.resolve())
+    if True:
+        if resolved in loaded:
+            return None
+        loaded.add(resolved)
+""",
+        shipped_in="0.3.0 until found by running calibrate on the bundled dataset",
+    ),
 ]
 
 

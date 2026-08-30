@@ -228,14 +228,19 @@ def validate(config_path: Optional[str]):
 
 @main.command()
 @click.argument("set_name", default="full", metavar="[SET]")
+# --set as well as the positional, because `score` accepts both and someone who
+# learned it there should not meet "No such option: --set" here.
+@click.option("--set", "set_name_opt", default=None, help="Fixture set to calibrate")
 @click.option("--config", "config_path", default=None, type=click.Path(),
               help="Path to config.yaml (default: evals/config.yaml)")
 @click.option("--dry-run", is_flag=True, default=False,
               help="Print the projected call count and exit without calling anything")
 @click.option("--concurrency", default=5, type=int,
               help="Max parallel judge calls (default: 5)")
-def calibrate(set_name: str, config_path: Optional[str], dry_run: bool, concurrency: int):
+def calibrate(set_name: str, set_name_opt: Optional[str], config_path: Optional[str],
+              dry_run: bool, concurrency: int):
     """Run a panel of judges over the same outputs and report how much they agree."""
+    set_name = set_name_opt or set_name
     from fieldtest.calibrate import (
         project_calls,
         require_panel,
