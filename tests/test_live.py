@@ -254,3 +254,67 @@ def test_openai_compatible_config_path_end_to_end(tmp_path):
     result = adapter.call(COMPATIBLE_MODEL, PROMPT, GEN, RETRY)
     assert "error" not in result, result
     assert result.get("answer") == "Pass"
+
+
+# ---------------------------------------------------------------------------
+# The judge path, not just the adapter
+#
+# Every test above asserts on the adapter's dict. 0.3.0 made a reply carrying no
+# usable verdict an error rather than a silent Fail, and nothing live exercises
+# that parse — so a real model whose reply stopped matching would show up as a
+# judged Fail here and be invisible. These run the whole way through
+# judge_llm_binary and judge_llm_scored.
+# ---------------------------------------------------------------------------
+
+def _live_config(binary: bool):
+    from fieldtest.config import Config
+
+    ev = {
+        "id": "live_probe", "tag": "right", "type": "llm",
+        "description": "whether the output is a greeting",
+    }
+    if binary:
+        ev |= {"pass_criteria": "the output greets someone",
+               "fail_criteria": "the output does not greet anyone"}
+    else:
+        ev |= {"binary": False, "scale": [1, 5],
+               "anchors": {1: "not a greeting at all", 5: "an unmistakable greeting"}}
+    return Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "live", "domain": "live"},
+        "defaults": {"provider": "anthropic", "model": "claude-haiku-4-5"},
+        "use_cases": [{
+            "id": "uc1", "description": "d", "evals": [ev],
+            "fixtures": {"directory": "fixtures/", "sets": {"full": []}},
+        }],
+    }), ev
+
+
+@needs_anthropic
+def test_live_binary_judge_returns_a_verdict_not_an_error():
+    """A real reply must survive the verdict check, not fall through it."""
+    from fieldtest.config import Eval
+    from fieldtest.judges.llm import judge_llm_binary
+
+    config, ev = _live_config(binary=True)
+    row = judge_llm_binary(
+        "uc1", Eval.model_validate(ev), "Hello there, good to meet you.",
+        {"id": "fx", "inputs": {}}, 1, config,
+    )
+    assert row.error is None, f"a real judge reply was rejected: {row.error}"
+    assert row.passed is True, row.detail
+
+
+@needs_anthropic
+def test_live_scored_judge_returns_a_score_inside_its_scale():
+    """0.3.0 makes an out-of-range score an error; a real model must stay in range."""
+    from fieldtest.config import Eval
+    from fieldtest.judges.llm import judge_llm_scored
+
+    config, ev = _live_config(binary=False)
+    row = judge_llm_scored(
+        "uc1", Eval.model_validate(ev), "Hello there, good to meet you.",
+        {"id": "fx", "inputs": {}}, 1, config,
+    )
+    assert row.error is None, f"a real judge score was rejected: {row.error}"
+    assert 1 <= row.score <= 5, row.score
