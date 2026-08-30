@@ -1738,7 +1738,7 @@ def test_judge_error_remediation_names_the_provider_stated_cause(tmp_path, monke
     advice over it.
     """
     from fieldtest.config import parse_and_validate
-    from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter, RetryPolicy
+    from fieldtest.providers.base import ProviderAdapter
     from fieldtest.results.aggregator import build_summary
     from fieldtest.results.report import format_report
     from fieldtest.runner import score
