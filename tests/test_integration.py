@@ -2286,3 +2286,37 @@ def test_changing_the_judge_produces_the_reason_through_the_real_run_path(tmp_pa
     html = (results / f"{run_id}-report.html").read_text()
     assert "No baseline" in html
     assert "The judge changed" in html
+
+
+def test_the_readme_partial_gate_refuses_a_partial_run_and_allows_the_others(tmp_path):
+    """
+    The README tells a reader to gate CI on `.partial != true`. The first
+    version of that snippet used `== false`, which refuses any file written
+    before 0.3 — the field is absent there, and jq reads absent as null.
+    Executed rather than trusted, over all three shapes a gate can meet.
+    """
+    import json
+    import re
+    import subprocess
+
+    if subprocess.run(["which", "jq"], capture_output=True).returncode != 0:
+        pytest.skip("jq not installed")
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    m = re.search(r"jq -e '(\.partial [^']+)'", readme)
+    assert m, "the README no longer documents a partial gate"
+    expr = m.group(1)
+
+    shapes = {
+        "complete": {"partial": False, "partial_details": []},
+        "partial":  {"partial": True, "partial_details": ["fx-c run 3"]},
+        "pre_0_3":  {},          # the field did not exist yet
+    }
+    allowed = {}
+    for name, extra in shapes.items():
+        f = tmp_path / f"{name}.json"
+        f.write_text(json.dumps({"run_id": name, "summary": {}, **extra}))
+        r = subprocess.run(["jq", "-e", expr, str(f)], capture_output=True)
+        allowed[name] = r.returncode == 0
+
+    assert allowed == {"complete": True, "partial": False, "pre_0_3": True}, allowed

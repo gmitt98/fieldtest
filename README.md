@@ -1189,6 +1189,13 @@ Gate only on `safe` evals (looser thresholds for `right`/`good`):
 jq '[.summary[].safe[].failure_rate | select(. != null)] | max // 0' "$DATA"
 ```
 
+Refuse a run that did not score everything, before reading any rate off it:
+
+```bash
+jq -e '.partial != true' "$DATA" \
+  || { echo "partial run: $(jq -r '.partial_details | join(", ")' "$DATA")"; exit 1; }
+```
+
 ### `data.json` summary schema
 
 The fields most commonly used for CI gating:
@@ -1199,6 +1206,8 @@ The fields most commonly used for CI gating:
   "run_id": "2026-03-22T14-30-00-a3f9",
   "set": "regression",
   "dataset_version": "v2",
+  "partial": false,
+  "partial_details": [],
   "judge": {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
@@ -1246,6 +1255,11 @@ The fields most commonly used for CI gating:
 - `failure_rate_ci` is a two-sided Wilson score interval at `confidence_level`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `judge_calls` is judge calls attempted and `outputs_attempted` is outputs attempted. At `judge_runs: 1` they are equal and both equal `total_runs + error_count`; above 1 they diverge, and `failure_rate`'s denominator is `total_runs` in outputs, not calls.
+- `partial` is true when `--allow-partial` skipped a missing output. The rates are then
+  over a smaller population than `fixture_count × runs` implies, and `partial_details`
+  names what was missing. Gate on it: a run that silently lost half its outputs otherwise
+  reports whatever the survivors did. Absent in runs from before v0.3, so test `!= true`
+  rather than `== false` if your gate may still meet an older file.
 - `dataset_version` is optional; absent in older runs.
 - `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3.
 - `schema_version` is `2`. Runs written before v0.3 have no such key; treat a missing key as `1`.
