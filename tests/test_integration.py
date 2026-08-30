@@ -1452,3 +1452,87 @@ def test_documented_label_agreement_is_what_the_data_says(name, expected, monkey
 
 def _spelled(n: int) -> str:
     return {27: "twenty-seven", 30: "thirty"}.get(n, str(n))
+
+
+def test_report_header_names_outputs_and_judge_repeats_separately(tmp_path, monkeypatch):
+    """
+    `runs` are generator outputs; `judge_runs` are repeat verdicts on each. The
+    header multiplied only the first, so a run with judge_runs: 3 said "3
+    evaluations per eval" while making nine judge calls.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3, judge_runs=3)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    # Nine judge calls for three outputs.
+    assert len(adapter.calls) == 9
+    assert len({(r.fixture_id, r.run) for r in rows if r.type == "llm"}) == 3
+    assert {r.judge_run for r in rows if r.type == "llm"} == {1, 2, 3}
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    header = md.splitlines()[1]
+    assert "3 scored output(s) per eval" in header
+    assert "judged 3× each" in header
+    assert "Judge Repeatability (judge_runs: 3)" in md
+
+
+def test_report_header_stays_quiet_when_each_output_is_judged_once(tmp_path, monkeypatch):
+    """The common case should not grow a clause about a setting nobody used."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    md = format_report(rows, build_summary(rows, config), {}, config, run_id, "full")
+    header = md.splitlines()[1]
+    assert "3 scored output(s) per eval" in header
+    assert "judged" not in header
+
+
+def test_a_rate_counts_outputs_not_judge_calls(tmp_path, monkeypatch):
+    """
+    With judge_runs: 3, failure_rate must stay per-output — majority across the
+    repetitions — so rates are comparable across judge_runs settings. A rate
+    over nine rows instead of three would move when you changed the setting.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL, runs=3, judge_runs=3)
+    config = parse_and_validate(config_path)
+    # Two of three outputs fail, every judge repetition agreeing.
+    adapter = RecordingAdapter(verdicts=[True, True, True, False, False, False,
+                                         False, False, False])
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        _, rows = score(config=config, config_path=config_path, write_artifacts=False)
+
+    summary = build_summary(rows, config)
+    stats = summary["uc1"]["right"]["is_helpful"]
+    assert stats["total_runs"] == 3, "total_runs must count outputs"
+    assert stats["judge_calls"] == 9, "judge_calls must count judge invocations"
+    assert stats["failure_rate"] == round(2 / 3, 6)

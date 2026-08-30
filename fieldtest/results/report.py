@@ -181,10 +181,23 @@ def format_report(
     fixture_count = len(fixture_ids)
 
     # Determine runs from config (use first use_case as representative)
-    from fieldtest.config import resolve_runs
+    from fieldtest.config import resolve_judge_runs, resolve_runs
     runs = config.defaults.runs
+    header_judge_runs = 1
     if config.use_cases:
         runs = resolve_runs(config, config.use_cases[0])
+        header_judge_runs = resolve_judge_runs(config, config.use_cases[0])
+
+    # Two different numbers, and the header said only one of them. With
+    # judge_runs: 3 a run makes three judge calls per output while the header
+    # read "3 evaluations per eval" — a third of what the bill showed.
+    # `runs` are generator outputs; `judge_runs` are repeat verdicts on each.
+    scored = f"{fixture_count * runs} scored output(s) per eval"
+    if header_judge_runs > 1:
+        scored = (
+            f"{fixture_count * runs} scored output(s) per eval, "
+            f"judged {header_judge_runs}× each"
+        )
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -207,7 +220,7 @@ def format_report(
     else:
         lines.append(
             f"{ts} | set: {set_name} | {fixture_count} fixtures × {runs} runs = "
-            f"{fixture_count * runs} evaluations per eval"
+            f"{scored}"
         )
 
     # Only when an LLM judge is actually configured — a rules-only project has

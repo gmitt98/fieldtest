@@ -1233,6 +1233,16 @@ The fields most commonly used for CI gating:
 ```
 
 - `failure_rate` is `null` for scored evals; use `mean` instead.
+- One row per **fixture × eval × generator run × judge repetition**. `run` is which
+  output of that fixture — `outputs/<fixture>/run-N.txt` — and `judge_run` is which
+  verdict on that same output. With `runs: 3` and `judge_runs: 3` an llm eval produces
+  nine rows across three outputs.
+- `total_runs` counts scored **outputs**; `judge_calls` counts judge invocations. They
+  differ exactly when `judge_runs > 1`.
+- `failure_rate` is per output, not per row: the repetitions are collapsed to one verdict
+  by majority, ties resolved to fail. Rates therefore stay comparable across `judge_runs`
+  settings — turning repetition on measures the judge without moving the number it reports
+  about your system.
 - `failure_rate_ci` is a two-sided Wilson score interval at `confidence_level`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `judge_calls` is judge calls attempted and `outputs_attempted` is outputs attempted. At `judge_runs: 1` they are equal and both equal `total_runs + error_count`; above 1 they diverge, and `failure_rate`'s denominator is `total_runs` in outputs, not calls.
