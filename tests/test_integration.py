@@ -1594,3 +1594,50 @@ def test_html_report_omits_the_judge_tables_when_there_is_nothing_to_say(tmp_pat
     html = _html_for(tmp_path, monkeypatch)
     assert "Judge vs your labels" not in html
     assert "Judge repeatability" not in html
+
+
+def test_repeatability_lists_only_evals_a_judge_actually_repeated(tmp_path, monkeypatch):
+    """
+    judge_runs applies to llm evals; a rule or regex eval is evaluated once
+    however high the setting goes. The summary reported the configured value on
+    every eval, so both reports listed rule evals in the repeatability table at
+    "0.0% disagreement" — implying a judge had been consulted twice and agreed,
+    when none was consulted at all.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.html import _build_judge_tables
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _project(tmp_path, evals_yaml=LLM_EVAL + RULE_EVAL,
+                           runs=2, judge_runs=3, with_rules=True)
+    config = parse_and_validate(config_path)
+    adapter = RecordingAdapter()
+    with patch("fieldtest.judges.llm.get_provider_adapter", return_value=adapter):
+        run_id, rows = score(config=config, config_path=config_path,
+                             write_artifacts=False)
+
+    # The rule eval really was evaluated once per output.
+    assert {r.judge_run for r in rows if r.type == "rule"} == {1}
+    assert {r.judge_run for r in rows if r.type == "llm"} == {1, 2, 3}
+
+    summary = build_summary(rows, config)
+    stats = {eid: st for tag in summary["uc1"].values() for eid, st in tag.items()}
+    # Absent rather than 1: a rule eval has no judge, so there is no repetition
+    # count to report, and the repeatability table keys off this field.
+    assert "judge_runs" not in stats["has_hello"]
+    assert stats["is_helpful"]["judge_runs"] == 3
+
+    md = format_report(rows, summary, {}, config, run_id, "full")
+    repeat_block = md[md.index("Judge Repeatability"):]
+    repeat_block = repeat_block[:repeat_block.index("\n\n")]
+    assert "is_helpful" in repeat_block
+    assert "has_hello" not in repeat_block
+
+    html = _build_judge_tables(summary["uc1"])
+    assert "is_helpful" in html
+    assert "has_hello" not in html

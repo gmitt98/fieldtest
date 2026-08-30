@@ -240,14 +240,24 @@ def build_summary(
 
     summary: dict = {}
     for uc_id, tags in groups.items():
-        uc_model   = uc_by_id.get(uc_id)
-        judge_runs = resolve_judge_runs(config, uc_model) if uc_model else 1
+        uc_model      = uc_by_id.get(uc_id)
+        configured_jr = resolve_judge_runs(config, uc_model) if uc_model else 1
         summary[uc_id] = {}
         for tag, evals in tags.items():
             summary[uc_id][tag] = {}
             for eval_id, eval_rows in evals.items():
                 meta      = eval_meta.get(eval_id, {"is_scored": False, "scale_min": None})
                 is_scored = meta["is_scored"]
+
+                # What this eval was actually judged, not what the config asked
+                # for. judge_runs applies to llm evals; a rule or regex eval is
+                # evaluated once however high the setting goes. Reporting the
+                # configured value put every rule eval in the repeatability
+                # table at "0.0% disagreement", implying a judge had been
+                # consulted twice and agreed, when none was consulted at all.
+                judge_runs = len({r.judge_run for r in eval_rows}) or 1
+                if judge_runs > configured_jr:
+                    judge_runs = configured_jr
                 scale_min = meta["scale_min"]
 
                 error_rows   = [r for r in eval_rows if r.error is not None]

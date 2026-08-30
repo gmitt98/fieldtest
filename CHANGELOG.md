@@ -297,6 +297,13 @@ plus a **Judge vs your labels** table wherever fixtures carry labels, and a
 **Judge repeatability** table wherever `judge_runs > 1`. Agreement below 80% is
 marked. Neither appears when there is nothing to report.
 
+Both reports also stop listing rule and regex evals in the repeatability table.
+`judge_runs` applies to LLM evals — a rule is evaluated once however high you
+set it — but the summary recorded the configured number on every eval, so rule
+evals appeared at "0.0% disagreement" as though a judge had been asked twice
+and agreed. The field now records how many times each eval was actually
+judged.
+
 ### Fixture inputs can name a file
 
 ```yaml
@@ -338,7 +345,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 460, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 461, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces four defects that shipped
   and checks each is still caught
 
