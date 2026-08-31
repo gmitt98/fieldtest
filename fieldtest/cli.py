@@ -331,6 +331,24 @@ def calibrate(set_name: str, set_name_opt: Optional[str], config_path: Optional[
     click.echo("")
     click.echo(f"Calibration written to: {results_dir / f'{run_id}-calibration.md'}")
 
+    # A panel where every call errored measured nothing. The report says so in
+    # its errors column, but the exit code said success, so a CI job running
+    # calibrate went green on a run that produced no comparison at all. This is
+    # not the "high failure rate" case the README declines to fail on — there is
+    # no rate here, only a judge that never answered.
+    panel = data.get("panel", [])
+    calls = sum(j.get("calls", 0) for j in panel)
+    errors = sum(j.get("errors", 0) for j in panel)
+    if calls and errors == calls:
+        click.echo("")
+        click.echo(
+            f"All {calls} judge call(s) failed — nothing was measured. "
+            f"Check the provider credential and the models named in "
+            f"calibration.panel.",
+            err=True,
+        )
+        sys.exit(1)
+
 
 # ---------------------------------------------------------------------------
 # score
@@ -395,6 +413,21 @@ def score(
     if md_path.exists():
         click.echo(md_path.read_text(encoding="utf-8"))
     click.echo(f"\nResults written to: {results_dir / run_id}")
+
+    # Same rule as calibrate: a run where every judge call errored measured
+    # nothing, and exiting 0 told CI it had. This is not the "high failure rate"
+    # case the README declines to fail on — there is no rate, only a judge that
+    # never answered. A run with SOME errors still exits 0 and reports them.
+    scored = [r for r in rows if r.passed is not None or r.score is not None]
+    errored = [r for r in rows if r.error]
+    if errored and not scored:
+        click.echo("")
+        click.echo(
+            f"All {len(errored)} judge call(s) failed — nothing was scored. "
+            f"Check the provider credential and defaults.model.",
+            err=True,
+        )
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
