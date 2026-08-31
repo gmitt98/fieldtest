@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+
+import yaml
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +40,6 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
     """Clean up accumulated run artifacts."""
     import shutil
 
-    from fieldtest.config import parse_and_validate
 
     path     = Path(config_path) if config_path else _default_config_path()
     base_dir = path.resolve().parent
@@ -56,12 +57,21 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
             err=True,
         )
         sys.exit(1)
+    # The question is "is this a fieldtest project", not "is this config
+    # finished". Full validation answered the second: every shipped template
+    # carries `tag: ""` on purpose, so `clean` refused to work in the project
+    # `init --template` had just created, and told the user there was nothing
+    # here to remove while their outputs sat in it.
     try:
-        parse_and_validate(path)
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as e:
+        click.echo(f"{path} is not readable YAML: {e}", err=True)
+        sys.exit(1)
+    if not isinstance(raw, dict) or "schema_version" not in raw or "use_cases" not in raw:
         click.echo(
-            f"{path} is not a usable fieldtest config, so there is nothing here "
-            f"clean can safely remove.\n  {str(e).splitlines()[0]}",
+            f"{path} is not a fieldtest config — it has no schema_version and "
+            f"use_cases. clean removes files from a fieldtest project; run it "
+            f"from one, or pass --config.",
             err=True,
         )
         sys.exit(1)
@@ -147,6 +157,15 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         click.echo(f"✓ results/ pruned — kept {kept}, removed {runs} run(s)")
 
 
+def _echo_gitignore(evals_dir: Path, added: list) -> None:
+    """Say what actually happened to .gitignore, rather than implying creation."""
+    if added == ["(created)"]:
+        click.echo(f"  {evals_dir}/.gitignore        — outputs/ excluded from git")
+    elif added:
+        click.echo(f"  {evals_dir}/.gitignore        — appended "
+                   f"{', '.join(added)} (your existing entries kept)")
+
+
 @click.command("init")
 @click.option("--dir", "target_dir", default="evals", show_default=True,
               help="Directory to scaffold (default: ./evals)")
@@ -185,24 +204,46 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
     (evals_dir / "outputs").mkdir(parents=True, exist_ok=True)
     (evals_dir / "results").mkdir(parents=True, exist_ok=True)
 
+    # A .gitignore is the user's, not ours. --force used to replace it whole,
+    # so a file carrying `.env` and `*.pem` became the single line `outputs/`
+    # and the next `git add .` staged their secrets. Nothing in the output said
+    # so. Missing lines are appended; existing content is never touched.
     gitignore_path = evals_dir / ".gitignore"
-    if not gitignore_path.exists() or force:
+    gitignore_added: list = []
+    if gitignore_path.exists():
+        existing = gitignore_path.read_text(encoding="utf-8")
+        have = {ln.strip() for ln in existing.splitlines()}
+        missing = [ln for ln in GITIGNORE_CONTENT.splitlines()
+                   if ln.strip() and not ln.strip().startswith("#") and ln.strip() not in have]
+        if missing:
+            sep = "" if existing.endswith("\n") or not existing else "\n"
+            gitignore_path.write_text(
+                existing + sep + "\n".join(missing) + "\n", encoding="utf-8")
+            gitignore_added = missing
+    else:
         gitignore_path.write_text(GITIGNORE_CONTENT, encoding="utf-8")
+        gitignore_added = ["(created)"]
 
     if template:
-        # Load curated template config from templates/ directory
+        # Checked before anything is written. It used to run after the
+        # directories and .gitignore had already been created, so a bad
+        # template name left the destination half-scaffolded.
         template_path = Path(__file__).parent / "templates" / f"{template}.yaml"
         if not template_path.exists():
             click.echo(f"Error: template '{template}' not found", err=True)
             sys.exit(1)
 
-        shutil.copy2(template_path, evals_dir / "config.yaml")
+        config_path = evals_dir / "config.yaml"
+        overwrote = config_path.exists() and force
+        shutil.copy2(template_path, config_path)
 
         click.echo(f"✓ Scaffolded from {template} template at {evals_dir}/")
+        if overwrote:
+            click.echo(f"  ⚠ replaced the existing {config_path} with the {template} template")
         click.echo(f"  {evals_dir}/config.yaml       — fill in system, domain, tags")
         click.echo(f"  {evals_dir}/fixtures/golden/  — fixtures with expected outputs")
         click.echo(f"  {evals_dir}/fixtures/variations/ — fixtures without expected outputs")
-        click.echo(f"  {evals_dir}/.gitignore        — outputs/ excluded from git")
+        _echo_gitignore(evals_dir, gitignore_added)
         click.echo("")
         click.echo("Next steps:")
         click.echo(f"  1. Fill in system name and domain in {evals_dir}/config.yaml")
@@ -225,7 +266,7 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         click.echo(f"  {evals_dir}/config.yaml       — fill this out first")
         click.echo(f"  {evals_dir}/fixtures/golden/  — fixtures with expected outputs")
         click.echo(f"  {evals_dir}/fixtures/variations/ — fixtures without expected outputs")
-        click.echo(f"  {evals_dir}/.gitignore        — outputs/ excluded from git")
+        _echo_gitignore(evals_dir, gitignore_added)
         click.echo("")
         click.echo("Next steps:")
         click.echo(f"  1. Edit {evals_dir}/config.yaml")
@@ -310,7 +351,9 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         sys.exit(1)
 
     dest = Path(target_dir)
-    if dest.exists():
+    # is_symlink too: exists() is False for a dangling link, so the guard
+    # fell through and copytree raised FileExistsError as a traceback.
+    if dest.exists() or dest.is_symlink():
         click.echo(
             f"Error: '{dest}' already exists.\n"
             f"  Use --dir to choose a different directory, or remove '{dest}' first.",
