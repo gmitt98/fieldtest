@@ -567,8 +567,14 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # Accepted as a baseline, but the comparison carries a caveat: we cannot
     # tell whether the instrument was the same one.
     baseline_pre_judge = baseline_data.get("judge") is None
-    # Collapsed failure_rate values stay comparable across repetition counts;
-    # the judge spread fields do not. Keep the comparison, carry the caveat.
+    # Collapsed failure_rate values are roughly comparable across repetition
+    # counts — but not exactly, and not monotonically. collapse_verdicts
+    # resolves ties to fail (spec 06 §2.7), so the collapsed rate depends on the
+    # parity of judge_runs, not just its size. Independent judge, P(pass)=0.9,
+    # identical outputs: judge_runs 1 → 0.100, 2 → 0.190, 3 → 0.028, 4 → 0.052,
+    # 5 → 0.009. An even count biases toward fail. Judge spread fields are not
+    # comparable at all. Keep the comparison, carry the caveat — but a delta
+    # across a judge_runs change of different parity is not a system change.
     baseline_judge_runs = baseline_data.get("judge_runs", 1)
 
     # A baseline whose judge calls largely failed is a rate over whatever
