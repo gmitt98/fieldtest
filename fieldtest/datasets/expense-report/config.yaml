@@ -3,9 +3,9 @@
 # The artifacts are done: a prompt, source documents, and outputs as though a
 # generator had just written them. The evals are the part you write.
 #
-# Three are filled in, one per tag, so you can see the shape of each. The rest
-# are TODO. Every filled-in eval is deterministic, so `fieldtest score` works
-# with no API key before you have written anything.
+# Four are filled in — one per tag plus a reference eval — so you can see the
+# shape of each. The rest are TODO. Every filled-in eval is deterministic, so
+# `fieldtest score` works with no API key before you have written anything.
 
 schema_version: 2
 

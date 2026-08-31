@@ -21,15 +21,16 @@ pip install fieldtest
 fieldtest demo --offline
 ```
 
-You'll see a full scored eval report in the terminal — tag health across RIGHT / GOOD / SAFE, a fixture × eval matrix, and specific failure details. Then open the visual HTML report:
+You'll see a full scored eval report in the terminal — tag health across RIGHT / GOOD / SAFE, a fixture × eval matrix, and specific failure details. The demo scaffolds everything into `fieldtest-demo/`; step into it to open the visual HTML report:
 
 ```bash
+cd fieldtest-demo
 fieldtest view
 ```
 
 This opens a self-contained HTML report in your browser: color-coded matrix, label filter bar, click any cell to see per-run pass/fail detail.
 
-That's it. You just ran a structured eval suite with four eval types (rule, regex, LLM, reference), right/good/safe tags, and failure analysis — in two commands, no API key, no configuration.
+That's it. You just ran a structured eval suite with four eval types (rule, regex, LLM, reference), right/good/safe tags, and failure analysis — no API key, no configuration.
 
 ---
 
@@ -70,6 +71,7 @@ error.
 
 ```bash
 fieldtest demo --offline
+cd fieldtest-demo
 fieldtest view
 ```
 
@@ -79,6 +81,7 @@ Uses pre-scored results bundled with the package. Runs in under 2 seconds. Good 
 
 ```bash
 fieldtest demo --example extraction
+cd fieldtest-demo
 fieldtest view
 ```
 
@@ -91,6 +94,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 fieldtest demo                      # email example (default)
 fieldtest demo --example rag
 fieldtest demo --example extraction
+cd fieldtest-demo
 fieldtest view
 ```
 
@@ -766,8 +770,8 @@ fieldtest view 2026-03-24T14-30-00-a3f9   # specific run
 The HTML report is self-contained — no server, no external dependencies. It opens in your default browser and works offline. Features: color-coded fixture × eval matrix, label filter bar, click any cell to expand per-run detail with pass/fail reasoning.
 
 The `-report.md` looks like (abridged — a real report also shows Wilson
-confidence intervals on each pass rate, an `n` column, and a Failure Details
-section):
+confidence intervals on each pass rate, an `n` column, and rows for the
+`golden_regression` reference eval, omitted here):
 
 ```
 # Eval Report
@@ -781,8 +785,8 @@ section):
 | tag   | pass rate | passed / total |
 |-------|-----------|----------------|
 | RIGHT | 100%      | 18 / 18        |
-| GOOD  | 91%       | 33 / 36        |
-| SAFE  | 100%      | 54 / 54        |
+| GOOD  | 89%       | 16 / 18        |
+| SAFE  | 100%      | 18 / 18        |
 
 ### RIGHT
 | eval              | labels | pass rate | mean | floor hits | errors | vs prior |
@@ -794,7 +798,7 @@ section):
 | eval              | labels | pass rate | mean | floor hits | errors | vs prior |
 |-------------------|--------|-----------|------|-----------|--------|---------|
 | format_compliance | —      | 100%      | —    | 0          | 0      | ↔        |
-| bullet_quality    | —      | 91%       | —    | 0          | 0      | +3%      |
+| bullet_quality    | —      | 78%       | —    | 0          | 0      | +3%      |
 
 ### SAFE
 | eval                | labels | pass rate | mean | floor hits | errors | vs prior |
@@ -805,15 +809,15 @@ section):
 ### Fixture × Eval Matrix
 | fixture                     | no_fabrication | contact_preserved | format_compliance | bullet_quality | no_preamble | no_horizontal_rules |
 | ---                         | ---            | ---               | ---               | ---            | ---         | ---                 |
-| experienced-swe__senior-swe | 3/3            | 3/3               | 3/3               | 3/3            | 3/3         | 3/3                 |
-| recent-grad__data-scientist | 3/3            | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
-| marketing-manager__pm       | 3/3            | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
+| experienced-swe__senior-swe        | 3/3     | 3/3               | 3/3               | 3/3            | 3/3         | 3/3                 |
+| recent-grad__data-scientist        | 3/3     | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
+| marketing-manager__product-manager | 3/3     | 3/3               | 3/3               | 2/3            | 3/3         | 3/3                 |
 
 ### Failure Details
 
 **bullet_quality**
 - `recent-grad__data-scientist` run 2: Bullets omit available quantification from source
-- `marketing-manager__pm` run 1: "Responsible for managing" — filler phrase present
+- `marketing-manager__product-manager` run 1: "Responsible for managing" — filler phrase present
 ```
 
 **The tool reports distributions. You decide what's a regression.** `bullet_quality` failing on 2 of 9 runs might be acceptable or might need a prompt fix — you know your system's risk tolerance; the tool doesn't.
@@ -907,7 +911,7 @@ fixtures`), so it is worth reading before a run rather than after the bill.
 On error:
 
 ```
-Error: eval 'no_fabrication' (type: llm) missing required field: pass_criteria
+Config error at use_cases -> 0 -> evals -> 0: Value error, pass_criteria required for type: llm binary
 ```
 
 ---
@@ -986,7 +990,7 @@ fieldtest score --concurrency 1
   contact_preserved              experienced-swe__senior-swe  run 1  ✓ pass
   bullet_quality                 recent-grad__data-scientist  run 1  ✗ fail
   bullet_quality                 recent-grad__data-scientist  run 2  ✓ pass
-  no_fabrication                 marketing-manager__pm        run 1  ⚠ error
+  no_fabrication                 marketing-manager__product-manager  run 1  ⚠ error
   ...
 ```
 
@@ -1332,7 +1336,6 @@ The fields most commonly used for CI gating:
     "seed": null,
     "overrides": {},
     "blinded_evals": [],
-    "endpoints": {},
     "fingerprint": "a3f91c2e"
   },
   "summary": {
@@ -1380,7 +1383,7 @@ The fields most commonly used for CI gating:
   reports whatever the survivors did. Absent in runs from before v0.3, so test `!= true`
   rather than `== false` if your gate may still meet an older file.
 - `dataset_version` is optional; absent in older runs.
-- `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3.
+- `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3. An `endpoints` key (provider name → base URL) appears inside `judge` only when the judge reached a provider configured by endpoint; with the built-in providers it is absent.
 - `schema_version` is `2`. Runs written before v0.3 have no such key; treat a missing key as `1`.
 
 **Gating on a point estimate at `runs: 5` is gating on noise.** One flipped judgment moves `failure_rate` by 0.2 on its own. `failure_rate_ci[0]` is the conservative alternative — the rate the sample can actually support:
