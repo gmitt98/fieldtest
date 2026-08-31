@@ -651,9 +651,12 @@ def main():
     config    = yaml.safe_load(pathlib.Path("evals/config.yaml").read_text())
     set_name  = sys.argv[1] if len(sys.argv) > 1 else "full"
     base_dir  = pathlib.Path("evals")
-    runs      = config["defaults"]["runs"]
+    fixtures  = config["use_cases"][0]["fixtures"]
+    # fixtures.runs wins over defaults.runs — the same precedence
+    # `fieldtest score` uses when counting the run-N.txt files it expects.
+    runs      = fixtures.get("runs") or config.get("defaults", {}).get("runs", 5)
 
-    fixture_ids = config["use_cases"][0]["fixtures"]["sets"][set_name]
+    fixture_ids = fixtures["sets"][set_name]
     if fixture_ids == "all":
         fixture_ids = [p.stem for p in sorted((base_dir / "fixtures").rglob("*.yaml"))]
 
@@ -1020,6 +1023,17 @@ Unchanged: no_fabrication, contact_preserved, format_compliance, no_preamble, no
 
 Deltas use neutral language — "increased" means the failure rate went up, "decreased" means it went down. You decide if a change is a regression. A decrease in `education_placement` failure rate after a prompt fix is expected. An increase in `no_fabrication` is always worth investigating.
 
+**Dataset versioning.** When the fixture set itself changes, a delta against runs from the old set measures the dataset, not the system. Tag the snapshot:
+
+```yaml
+use_cases:
+  - id: tailor_resume
+    fixtures:
+      version: "2026-03"   # optional dataset snapshot tag
+```
+
+The tag is recorded in every run's `-data.json` as `dataset_version`. The automatic baseline lookup skips runs from a different version, and an explicit `--baseline` that crosses versions gets a warning. Configs that omit `version` are treated as unversioned — no filtering, no warning.
+
 ---
 
 ### `fieldtest clean`
@@ -1104,7 +1118,7 @@ A single quality score hides which category failed. `right` and `safe` failures 
 |------|-------------|---------|
 | `rule` | deterministic Python logic; can read fixture `inputs` | contact info check, section ordering |
 | `regex` | pattern matching; `match: true` = must match, `match: false` = must not match | forbidden strings, required format |
-| `llm` | semantic judgment that requires reading the output | fabrication, quality, keyword alignment |
+| `llm` | semantic judgment that requires reading the output; Pass/Fail by default, or a scored scale with `binary: false` | fabrication, quality, keyword alignment |
 | `reference` | compare against `expected` block in fixture file | golden output regression check |
 
 Writing rules:
@@ -1126,6 +1140,43 @@ def check_contact(output: str, inputs: dict) -> dict:
 ```
 
 Rules always return `{"passed": bool, "detail": str}`. The detail is shown in the HTML report when you click a cell — make it informative on both pass and fail.
+
+### Scored LLM evals (`binary: false`)
+
+An `llm` eval returns a Pass/Fail verdict by default. Set `binary: false` for a scored eval: the judge rates each output on an integer `scale`, with `anchors` saying what the points mean.
+
+```yaml
+- id: explanation_clarity
+  tag: good
+  type: llm
+  binary: false            # a number, not a verdict
+  description: How clearly the reductions are explained
+  scale: [1, 5]            # [min, max]
+  anchors:                 # what the points mean
+    1: No explanation, or one that does not say why an amount changed.
+    3: States what was reduced, but the reader still has to check the policy.
+    5: States what was reduced, by how much, and why.
+```
+
+A scored eval reports a mean, a stddev, and a count of floor hits (outputs at the bottom of the scale) instead of a failure rate — the distribution rather than the verdict. `scale` and `anchors` are required when `binary: false`; `pass_criteria` and `fail_criteria` are required when it is binary (the default).
+
+### Few-shot examples for the judge
+
+A binary `llm` eval can carry `examples` — labelled outputs rendered into the judge prompt, useful for pinning down a criterion the judge keeps reading differently than you do:
+
+```yaml
+- id: bullet_quality
+  # ...
+  examples:
+    - output: "Led migration of 40 services to Kubernetes, cutting deploy time 70%"
+      label: pass
+      reasoning: Specific, quantified, starts with an action verb.
+    - output: "Responsible for helping with various infrastructure tasks"
+      label: fail
+      reasoning: Filler phrase, no specifics, nothing quantified.
+```
+
+`examples` applies to binary evals only — a scored (`binary: false`) eval ignores it, since a pass/fail label does not map onto a scale.
 
 ---
 

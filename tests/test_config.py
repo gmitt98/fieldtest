@@ -961,3 +961,141 @@ def test_a_legal_kappa_threshold_is_accepted(tmp_path, value):
     )
     config = parse_and_validate(_write_config(tmp_path, yaml))
     assert config.calibration.kappa_threshold == float(value)
+# 0.3.0 audit: eval-level provider validation, judge_retry validation, and
+# README documenting what the config schema actually does.
+# ---------------------------------------------------------------------------
+
+MINIMAL_LLM_EVAL = """\
+    schema_version: 2
+    system:
+      name: test system
+      domain: test domain
+    use_cases:
+      - id: uc1
+        description: test use case
+        evals:
+          - id: ev1
+            tag: right
+            type: llm
+            description: checks something
+            pass_criteria: it is right
+            fail_criteria: it is wrong
+        fixtures:
+          directory: fixtures/
+          sets:
+            full: []
+    """
+
+
+def test_eval_level_unknown_provider_is_rejected(tmp_path):
+    """
+    Eval.provider had no validator, unlike Defaults.provider and
+    PanelJudge.provider — so `fieldtest validate` certified a config whose
+    per-eval override named a provider that does not exist.
+    """
+    yaml = MINIMAL_LLM_EVAL.replace(
+        "fail_criteria: it is wrong",
+        "fail_criteria: it is wrong\n            provider: totallybogus",
+    )
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "totallybogus" in str(exc.value)
+
+
+def test_eval_level_builtin_provider_still_accepted(tmp_path):
+    yaml = MINIMAL_LLM_EVAL.replace(
+        "fail_criteria: it is wrong",
+        "fail_criteria: it is wrong\n            provider: openai",
+    )
+    cfg = parse_and_validate(_write_config(tmp_path, yaml))
+    assert cfg.use_cases[0].evals[0].provider == "openai"
+
+
+def test_judge_retry_misspelled_key_is_rejected(tmp_path):
+    """
+    RetryPolicy does not forbid extra keys, so `max_attemtps:` was silently
+    dropped and the run retried on defaults the user thought were overridden.
+    """
+    yaml = MINIMAL_LLM_EVAL.rstrip(" ") + """\
+    defaults:
+      judge_retry:
+        max_attemtps: 20
+    """
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert "max_attemtps" in str(exc.value)
+    assert "max_attempts" in str(exc.value)   # the message names the valid keys
+
+
+@pytest.mark.parametrize("key,value", [
+    ("max_attempts", -1),     # range(0): the judge is never called, every row errors
+    ("initial_delay", -5.0),  # time.sleep(-x) crashes the first retry
+    ("max_delay", -1.0),
+    ("multiplier", -2.0),
+])
+def test_judge_retry_negative_values_are_rejected(tmp_path, key, value):
+    yaml = MINIMAL_LLM_EVAL.rstrip(" ") + f"""\
+    defaults:
+      judge_retry:
+        {key}: {value}
+    """
+    with pytest.raises(ConfigError) as exc:
+        parse_and_validate(_write_config(tmp_path, yaml))
+    assert key in str(exc.value)
+
+
+def test_judge_retry_zero_attempts_is_valid(tmp_path):
+    """0 means no retries — a legitimate fast-fail setting, not an error."""
+    yaml = MINIMAL_LLM_EVAL.rstrip(" ") + """\
+    defaults:
+      judge_retry:
+        max_attempts: 0
+    """
+    cfg = parse_and_validate(_write_config(tmp_path, yaml))
+    assert cfg.defaults.judge_retry.max_attempts == 0
+
+
+# --- README documents the schema it ships -----------------------------------
+
+def _readme() -> str:
+    return (Path(__file__).resolve().parent.parent / "README.md").read_text()
+
+
+def test_readme_shows_scored_eval_config_syntax():
+    """
+    The pitch sells "scored as distributions", but the README showed no way to
+    write one — `binary: false`, `scale` and `anchors` appeared nowhere.
+    """
+    readme = _readme()
+    assert "binary: false" in readme
+    assert "scale: [1, 5]" in readme
+    assert "anchors:" in readme
+
+
+def test_readme_shows_eval_examples_syntax():
+    """Eval.examples was implemented, wired into the binary judge prompt, and
+    documented nowhere user-facing."""
+    readme = _readme()
+    assert "examples:" in readme
+    assert "label: pass" in readme and "label: fail" in readme
+
+
+def test_readme_shows_fixtures_version_syntax():
+    """fixtures.version drives baseline filtering and diff warnings, but only
+    its output-side name (dataset_version) was documented."""
+    import re
+    readme = _readme()
+    assert re.search(r"^\s+version:", readme, re.M), \
+        "no fixtures-level `version:` input syntax shown in README"
+    assert "dataset_version" in readme
+
+
+def test_readme_generator_uses_the_run_count_score_expects():
+    """
+    The reference generator read config["defaults"]["runs"], but
+    resolve_runs() gives fixtures.runs precedence — a user tuning only
+    fixtures.runs generated the wrong number of run-N.txt files.
+    """
+    readme = _readme()
+    assert 'config["defaults"]["runs"]' not in readme
+    assert 'fixtures.get("runs")' in readme
