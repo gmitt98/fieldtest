@@ -1515,3 +1515,93 @@ def test_rule_with_a_proper_verdict_still_passes_through():
         assert row.detail == "banned phrase found"
     finally:
         _rule_registry.pop("ok", None)
+# ---------------------------------------------------------------------------
+# The report's numbers, read as a reader reads them
+#
+# Every existing format_report assertion targets a narrow substring — an error
+# banner, a "scored" marker, a heading. None reads the rate, the tag table or
+# the failure list, so those three could be inverted with the suite green:
+# the pass-rate cell could print the failure rate (75% shown as 25%, beside an
+# unchanged 30-95% interval), Tag Health could render its header and no body,
+# and Failure Details could list every passing run instead of the failing ones.
+# ---------------------------------------------------------------------------
+
+def _report_of_three_passes_and_one_failure() -> str:
+    """Two fixtures, four judged outputs, one failure. Pass rate is 75%."""
+    from fieldtest.results.report import format_report
+
+    config = _make_config()
+    rows = [
+        _row(passed=True,  fixture_id="f1", run=1, detail="cited the handbook"),
+        _row(passed=True,  fixture_id="f1", run=2, detail="cited the handbook"),
+        _row(passed=True,  fixture_id="f2", run=1, detail="cited the handbook"),
+        _row(passed=False, fixture_id="f2", run=2, detail="missed the citation"),
+    ]
+    return format_report(
+        rows=rows, summary=build_summary(rows, config), delta={},
+        config=config, run_id="test-run", set_name="full",
+    )
+
+
+def test_report_eval_row_shows_the_pass_rate_not_the_failure_rate():
+    """
+    The column is headed "pass rate" and the interval beside it is the failure
+    interval inverted. Print the failure rate there and the cell contradicts
+    its own interval: 25% with a 30-95% bound.
+    """
+    report = _report_of_three_passes_and_one_failure()
+
+    assert "| ev1 | — | 75% [30–95%] | 4 | — | 0 | 0 | — |" in report
+
+
+def test_report_tag_health_table_has_a_body():
+    """
+    A header with no rows still looks like a table. Skipped and errored rows
+    are outside the rate and must not reach the denominator.
+    """
+    from fieldtest.results.report import format_report
+
+    config = _make_config()
+    rows = [
+        _row(passed=True,  fixture_id="f1", run=1),
+        _row(passed=True,  fixture_id="f1", run=2),
+        _row(passed=True,  fixture_id="f2", run=1),
+        _row(passed=False, fixture_id="f2", run=2),
+        _row(passed=None,  fixture_id="f3", run=1, error="overloaded"),
+        _row(passed=None,  fixture_id="f4", run=1, skipped=True),
+    ]
+    report = format_report(
+        rows=rows, summary=build_summary(rows, config), delta={},
+        config=config, run_id="test-run", set_name="full",
+    )
+
+    assert "### Tag Health" in report
+    assert "| RIGHT | 75% | 3 / 4 |" in report
+
+
+def test_report_failure_details_lists_the_failures_and_only_those():
+    """The section that tells a user what broke must not list what worked."""
+    report = _report_of_three_passes_and_one_failure()
+
+    assert "### Failure Details" in report
+    assert "- `f2` run 2: missed the citation" in report
+    assert "cited the handbook" not in report
+
+
+def test_collapse_rows_collapses_at_two_repetitions():
+    """
+    The binary-collapse tests all use judge_runs: 3, so the boundary at 2 —
+    the cheaper and more common setting — was never crossed. At judge_runs: 2
+    an off-by-one in the identity guard hands the row-counting views two rows
+    per output, which is exactly the double-counting this function exists to
+    prevent.
+    """
+    from fieldtest.results.aggregator import collapse_rows
+
+    config = _make_config(judge_runs=2)
+    rows = _reps([True, True], run=1) + _reps([False, False], run=2)
+
+    collapsed = collapse_rows(rows, config)
+
+    assert len(collapsed) == 2
+    assert sorted(r.passed for r in collapsed) == [False, True]
