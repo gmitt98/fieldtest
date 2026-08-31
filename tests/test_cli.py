@@ -2833,3 +2833,173 @@ def test_score_succeeds_on_a_clean_offline_run(tmp_path, monkeypatch):
     _write_outputs(evals, "fix2", 2)
     result = _run_score(evals)
     assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# Round 3 — CLI findings
+# ---------------------------------------------------------------------------
+
+_NESTED_LABEL_CONFIG = """\
+schema_version: 2
+system:
+  name: test system
+  domain: test domain
+defaults:
+  runs: 2
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev1
+        tag: right
+        type: llm
+        description: checks something
+        pass_criteria: it is fine
+        fail_criteria: it is not
+    fixtures:
+      directory: fixtures/
+      sets:
+        regression: "golden/*"
+"""
+
+
+def test_validate_sees_labels_in_the_layout_init_scaffolds(tmp_path):
+    """
+    `fieldtest init` puts fixtures in fixtures/golden/ under `directory:
+    fixtures/`. validate_fixture_labels globbed the declared directory flat, so
+    it reported a clean config with no labels while `score` over the same
+    project printed a Judge vs Human Labels table.
+    """
+    evals_dir = _setup_project(tmp_path, config=_NESTED_LABEL_CONFIG)
+    golden = evals_dir / "fixtures" / "golden"
+    golden.mkdir(parents=True, exist_ok=True)
+    (golden / "g1.yaml").write_text(
+        "id: g1\ninputs:\n  q: x\nlabels:\n  ev1:\n    1: pass\n    2: fail\n"
+        "  nonexistent_eval:\n    1: pass\n"
+    )
+
+    result = CliRunner().invoke(
+        main, ["validate", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert "human labels:" in result.output, result.output
+    assert "ev1: 2 labeled run(s)" in result.output, result.output
+    assert "unknown eval 'nonexistent_eval'" in result.output, result.output
+
+
+def _one_run_project(tmp_path):
+    """A project with exactly one scored run."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    assert _run_score(evals_dir).exit_code == 0
+    return evals_dir
+
+
+def test_diff_says_there_is_no_baseline_rather_than_printing_none(tmp_path):
+    """
+    delta['baseline_run_id'] is present and None, so the '—' default was
+    unreachable and the line read `Baseline:  None`.
+    """
+    evals_dir = _one_run_project(tmp_path)
+    result = CliRunner().invoke(
+        main, ["diff", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Baseline:  None" not in result.output, result.output
+    assert "no earlier run" in result.output, result.output
+    # "No comparable evals found between runs" reads as two runs that shared
+    # nothing; there is only one run.
+    assert "No comparable evals found between runs" not in result.output, result.output
+    assert "only run" in result.output, result.output
+
+
+def test_diff_names_evals_present_in_only_one_run(tmp_path):
+    """
+    build_delta skips an eval missing from either side, so an added or removed
+    eval vanished from the diff without a word.
+    """
+    import time
+
+    evals_dir = _one_run_project(tmp_path)
+    cfg = evals_dir / "config.yaml"
+    cfg.write_text(cfg.read_text().replace(
+        """        match: true
+    fixtures:""",
+        """        match: true
+      - id: ev_added
+        tag: safe
+        type: regex
+        description: checks for love
+        pattern: "love"
+        match: true
+    fixtures:"""))
+    time.sleep(0.01)
+    assert _run_score(evals_dir).exit_code == 0
+
+    result = CliRunner().invoke(
+        main, ["diff", "--config", str(cfg)], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "uc1/ev_added" in result.output, (
+        f"an eval only in the current run was silently dropped:\n{result.output}")
+
+
+def test_history_does_not_call_a_calibration_file_an_old_format_result(tmp_path):
+    """
+    `fieldtest calibrate` writes {run_id}-calibration.json into results/.
+    history's legacy glob is every *.json that is not *-data.json, so it called
+    a file fieldtest had just written one that predates the current naming.
+    """
+    import json
+
+    evals_dir = _setup_project(tmp_path)
+    results = evals_dir / "results"
+    (results / "2026-01-01T00-00-00-aaaa-data.json").write_text(json.dumps({
+        "run_id": "2026-01-01T00-00-00-aaaa", "set": "full",
+        "fixture_count": 1, "summary": {},
+    }))
+    (results / "2026-01-02T00-00-00-bbbb-calibration.json").write_text(
+        json.dumps({"run_id": "2026-01-02T00-00-00-bbbb", "kind": "calibration"})
+    )
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "older result file" not in result.output, result.output
+    assert "1 calibration run(s)" in result.output, result.output
+
+
+def test_dataset_use_prints_a_next_step_that_works_for_a_custom_dest(tmp_path, monkeypatch):
+    """
+    `score` resolves evals/config.yaml, so the bare command printed after
+    --dest myevals failed with "Config not found: evals/config.yaml".
+    """
+    import re
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["dataset", "use", "expense-report", "--dest", "myevals"],
+        catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    m = re.search(r"Run it now \(no API key needed\):\s+fieldtest (.+)", result.output)
+    assert m, result.output
+    args = m.group(1).split()
+
+    # Run exactly what it printed.
+    run = CliRunner().invoke(main, args, catch_exceptions=False)
+    assert "Config not found" not in run.output, (
+        f"the printed next step cannot find the dataset it just copied:\n{run.output}")
+
+
+def test_dataset_use_keeps_the_bare_command_for_the_default_dest(tmp_path, monkeypatch):
+    """The default lands on evals/, where `fieldtest score` resolves it."""
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["dataset", "use", "expense-report"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "fieldtest score --set full" in result.output, result.output
+    assert "--config" not in result.output, result.output
