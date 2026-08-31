@@ -1857,7 +1857,6 @@ def test_a_gemini_client_error_is_not_retried():
 
 import re
 import shutil as _shutil
-import tomllib
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -1918,7 +1917,7 @@ def test_demo_does_not_copy_pycache_into_the_project(tmp_path, monkeypatch):
 def test_typed_classifier_is_backed_by_a_py_typed_marker():
     """PEP 561: 'Typing :: Typed' is a claim; without a shipped py.typed
     marker, mypy/pyright treat the package as untyped."""
-    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    pyproject = _pyproject()
     classifiers = pyproject["project"]["classifiers"]
     declared = "Typing :: Typed" in classifiers
     marker = (_REPO_ROOT / "fieldtest" / "py.typed").exists()
@@ -1935,7 +1934,7 @@ def test_anthropic_floor_is_usable_with_current_httpx():
     """anthropic<0.40 passes `proxies` to httpx.Client, removed in httpx 0.28;
     under default resolution client construction raises TypeError and every
     judge call becomes an errored row. The declared floor must be >=0.40."""
-    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    pyproject = _pyproject()
     deps = pyproject["project"]["dependencies"]
     anthropic_spec = next(d for d in deps if d.startswith("anthropic"))
     m = re.search(r">=\s*(\d+)\.(\d+)", anthropic_spec)
@@ -1964,6 +1963,37 @@ def test_publish_workflow_gates_on_tag_version_and_tests():
     test_at = workflow.find("pytest")
     assert test_at != -1, "no test gate in publish.yml"
     assert test_at < publish_at, "test gate must run before publishing"
+
+
+
+def _pyproject() -> dict:
+    """
+    pyproject.toml as a dict.
+
+    tomllib is 3.11+, and this project supports 3.10 — a module-level
+    `import tomllib` took the whole test file down there. tomli is not a
+    declared dependency, so on 3.10 the few fields these tests read are pulled
+    out with a regex rather than adding one.
+    """
+    import re as _re
+
+    text = (_REPO_ROOT / "pyproject.toml").read_text()
+    try:
+        import tomllib
+        return tomllib.loads(text)
+    except ModuleNotFoundError:
+        pass
+
+    project = text.split("[project]", 1)[1].split("\n[", 1)[0]
+    def _list(field):
+        m = _re.search(rf"^{field}\s*=\s*\[(.*?)\]", project, _re.S | _re.M)
+        return _re.findall(r'"([^"]+)"', m.group(1)) if m else []
+    m = _re.search(r'^requires-python\s*=\s*"([^"]+)"', project, _re.M)
+    return {"project": {
+        "classifiers": _list("classifiers"),
+        "dependencies": _list("dependencies"),
+        "requires-python": m.group(1) if m else "",
+    }}
 
 
 def test_the_publish_gate_installs_what_the_suite_needs():
@@ -2084,7 +2114,7 @@ def test_dependency_floors_are_installable_on_every_claimed_python():
     from packaging.requirements import Requirement
     from packaging.version import Version
 
-    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    pyproject = _pyproject()
     reqs = [Requirement(d) for d in pyproject["project"]["dependencies"]]
 
     def effective_floor(name: str, python_version: str) -> Version:

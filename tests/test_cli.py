@@ -3068,3 +3068,29 @@ def test_diff_reads_a_baseline_whose_filename_is_not_its_run_id(tmp_path, monkey
     assert result.exit_code == 0, result.output
     assert "predates judge tracking" not in result.output, (
         f"the baseline records its judge; diff could not find the file:\n{result.output}")
+
+
+def test_no_test_module_imports_a_python_311_only_stdlib_module():
+    """
+    `import tomllib` at module level takes a whole test file down on 3.10, which
+    this project supports and CI runs. It has now been introduced twice — once
+    by me, once by an agent — and each time CI caught it after the fact.
+    """
+    import ast
+
+    ONLY_311_PLUS = {"tomllib"}
+    offenders = []
+    for path in sorted((Path(fieldtest.__file__).resolve().parent.parent / "tests").glob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in tree.body:            # module level only; guarded imports are fine
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module.split(".")[0]]
+            for n in names:
+                if n in ONLY_311_PLUS:
+                    offenders.append(f"{path.name}:{node.lineno} imports {n}")
+
+    assert not offenders, (
+        "these are 3.11+ and the package supports 3.10:\n  " + "\n  ".join(offenders))
