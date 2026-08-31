@@ -318,3 +318,64 @@ def test_live_scored_judge_returns_a_score_inside_its_scale():
     )
     assert row.error is None, f"a real judge score was rejected: {row.error}"
     assert 1 <= row.score <= 5, row.score
+
+
+@needs_anthropic
+def test_the_site_repeatability_figures_still_match_a_real_run(tmp_path, monkeypatch):
+    """
+    The last figures on the site that were never checked against a run. They
+    matched when checked by hand; this keeps them matching.
+
+    Live rather than unit: the numbers come from an LLM judging the bundled
+    outputs twice. A drift here is a real signal — either the provider changed
+    or the site is now wrong — which is what the live tier is for.
+    """
+    import html
+    import re
+    import shutil
+    from pathlib import Path
+
+    import fieldtest
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.aggregator import build_summary
+    from fieldtest.results.report import format_report
+    from fieldtest.runner import score
+
+    site = (Path(fieldtest.__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    i = site.index("### Judge Repeatability")
+    shown = html.unescape(re.sub(r"<[^>]+>", "", site[i:site.index("</pre>", i)]))
+    site_rows = {
+        m.group(1): [c.strip() for c in m.group(2).split("|") if c.strip()]
+        for m in re.finditer(r"\|\s*(\w+)\s*\|([^\n]*)\|", shown)
+    }
+    assert len(site_rows) == 3, f"the site block changed shape: {site_rows}"
+
+    src = Path(fieldtest.__file__).resolve().parent / "datasets" / "expense-report"
+    dest = tmp_path / "evals"
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns("results", "__pycache__"))
+
+    cfg = dest / "reference-evals.yaml"
+    text = cfg.read_text()
+    assert "      sets:" in text, "reference-evals.yaml changed shape"
+    cfg.write_text(text.replace("      sets:", "      judge_runs: 2\n      sets:", 1))
+
+    from fieldtest.judges.registry import _loaded_rule_files, _rule_registry
+    _rule_registry.clear()
+    _loaded_rule_files.clear()
+
+    config = parse_and_validate(cfg)
+    _, rows = score(config=config, config_path=cfg, set_name="full",
+                    write_artifacts=False)
+    summary = build_summary(rows, config)
+    report = format_report(rows, summary, {}, config, "live-probe", "full")
+
+    j = report.index("### Judge Repeatability")
+    real = {
+        m.group(1): [c.strip() for c in m.group(2).split("|") if c.strip()]
+        for m in re.finditer(r"\|\s*(\w+)\s*\|([^\n]*)\|", report[j:j + 900])
+    }
+
+    for name, values in site_rows.items():
+        assert name in real, f"the site shows {name}, the run does not"
+        assert real[name] == values, (
+            f"{name}: the site says {values}, the run gives {real[name]}")
