@@ -1880,10 +1880,15 @@ def test_typed_classifier_is_backed_by_a_py_typed_marker():
     marker, mypy/pyright treat the package as untyped."""
     pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
     classifiers = pyproject["project"]["classifiers"]
-    if "Typing :: Typed" in classifiers:
-        assert (_REPO_ROOT / "fieldtest" / "py.typed").exists(), (
-            "'Typing :: Typed' declared but fieldtest/py.typed does not exist"
-        )
+    declared = "Typing :: Typed" in classifiers
+    marker = (_REPO_ROOT / "fieldtest" / "py.typed").exists()
+    # Both directions, unconditionally: the classifier without the marker is a
+    # false claim, and the marker without the classifier is a wasted one. As an
+    # `if`, dropping the classifier made this test assert nothing.
+    assert declared == marker, (
+        f"'Typing :: Typed' declared={declared} but fieldtest/py.typed "
+        f"exists={marker} — they must agree"
+    )
 
 
 def test_anthropic_floor_is_usable_with_current_httpx():

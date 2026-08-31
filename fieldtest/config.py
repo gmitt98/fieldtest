@@ -508,7 +508,6 @@ from fieldtest.fixtures import (  # noqa: E402
     validate_fixture_labels,
 )
 from fieldtest.resolve import (  # noqa: E402
-    fixture_path,
     resolve_dataset_version,
     resolve_judge_runs,
     resolve_runs,
@@ -523,6 +522,6 @@ __all__ = [
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
     "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
     "validate_fixture_labels",
-    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set", "fixture_path",
+    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
     "use_cases_with_fixtures",
 ]

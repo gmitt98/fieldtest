@@ -16,6 +16,8 @@ import sys
 
 import click
 
+from fieldtest.errors import ConfigError
+from fieldtest.fixtures import find_fixture_path
 from fieldtest.cli_common import (
     _default_config_path,
     _handle_error,
@@ -112,8 +114,6 @@ def validate(config_path: Optional[str]):
     # Coverage summary
     total_evals   = sum(len(uc.evals) for uc in config.use_cases)
     tag_counts    = {"right": 0, "good": 0, "safe": 0}
-    from fieldtest.config import fixture_path
-
     listed_fixtures: set = set()
     warnings      = []
 
@@ -154,13 +154,11 @@ def validate(config_path: Optional[str]):
                 listed_fixtures.update(set_val)
                 # Warn: fixtures referenced but not on disk
                 for fid in set_val:
-                    fixture_file = fixture_path(fid, base_dir / uc.fixtures.directory)
-                    if not fixture_file.exists():
-                    from fieldtest.errors import ConfigError as _ConfigError
-                    from fieldtest.fixtures import find_fixture_path
+                    # find_fixture_path reports both "missing" and "ambiguous",
+                    # so validate says which rather than only that it is absent.
                     try:
                         find_fixture_path(base_dir / uc.fixtures.directory, fid)
-                    except _ConfigError as e:
+                    except ConfigError as e:
                         warnings.append(
                             f"  ⚠ fixture '{fid}' referenced in '{uc.id}': "
                             f"{str(e).splitlines()[0]}"

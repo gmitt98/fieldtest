@@ -2552,7 +2552,7 @@ def test_a_fixture_in_a_subdirectory_can_be_scored(tmp_path, monkeypatch, set_va
 def test_two_fixtures_sharing_a_stem_are_refused_not_silently_merged(tmp_path):
     """Resolving to whichever sorts first would score one file twice."""
     from fieldtest.errors import ConfigError
-    from fieldtest.resolve import fixture_path
+    from fieldtest.fixtures import find_fixture_path
 
     fixtures = tmp_path / "fixtures"
     for sub in ("golden", "variations"):
@@ -2560,21 +2560,21 @@ def test_two_fixtures_sharing_a_stem_are_refused_not_silently_merged(tmp_path):
         (fixtures / sub / "dup.yaml").write_text("id: dup\ninputs: {}\n")
 
     with pytest.raises(ConfigError) as exc:
-        fixture_path("dup", fixtures)
+        find_fixture_path(fixtures, "dup")
     msg = str(exc.value)
-    assert "matches more than one file" in msg
+    assert "ambiguous" in msg
     assert "golden/dup.yaml" in msg and "variations/dup.yaml" in msg
 
 
 def test_a_top_level_fixture_still_wins_over_a_nested_one(tmp_path):
     """The direct path is checked first, so existing projects are unaffected."""
-    from fieldtest.resolve import fixture_path
+    from fieldtest.fixtures import find_fixture_path
 
     fixtures = tmp_path / "fixtures"
     (fixtures / "golden").mkdir(parents=True)
     (fixtures / "a.yaml").write_text("id: a\n")
     (fixtures / "golden" / "a.yaml").write_text("id: a\n")
-    assert fixture_path("a", fixtures) == fixtures / "a.yaml"
+    assert find_fixture_path(fixtures, "a") == fixtures / "a.yaml"
 
 
 def test_the_scaffold_init_writes_can_score_what_init_tells_you_to_put_there(tmp_path, monkeypatch):
@@ -3011,10 +3011,12 @@ def test_the_site_five_cards_are_explained_against_the_four_types():
     site = _site()
     cards = site.count('class="type-badge"')
     i = site.index("Four judges. Closed set.")
-    if cards != 4:
-        assert "not a fifth type" in site[i:i + 600], (
-            f"the site shows {cards} type cards under a four-judge heading "
-            "with no line reconciling the two counts")
+    reconciled = "not a fifth type" in site[i:i + 600]
+    # Unconditional: four cards need no note, more than four do. Written as an
+    # `if` this asserted nothing whenever the count happened to be four.
+    assert cards == 4 or reconciled, (
+        f"the site shows {cards} type cards under a four-judge heading "
+        "with no line reconciling the two counts")
 
 
 def test_the_site_report_preview_shows_the_bundled_rag_run():

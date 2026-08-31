@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 from fieldtest.config import (
-    fixture_path,
     Config,
     ResultRow,
     extract_labels,
@@ -134,10 +133,8 @@ def score(
         fixture_ids = resolve_set(set_name, uc, base_dir)
         runs        = resolve_runs(config, uc)
         for fid in fixture_ids:
-            fixture_file = fixture_path(fid, base_dir / uc.fixtures.directory)
+            fixture_file = find_fixture_path(base_dir / uc.fixtures.directory, fid)
             fixture      = load_fixture(fixture_file, base_dir)
-            fixture_path = find_fixture_path(base_dir / uc.fixtures.directory, fid)
-            fixture      = load_fixture(fixture_path, base_dir)
             for (eval_id, run_number), value in extract_labels(fixture).items():
                 # Keyed by the fixture's internal id, because every judge
                 # stamps rows with fixture["id"] — keying by filename stem
