@@ -156,9 +156,14 @@ def validate(config_path: Optional[str]):
                 for fid in set_val:
                     fixture_file = fixture_path(fid, base_dir / uc.fixtures.directory)
                     if not fixture_file.exists():
+                    from fieldtest.errors import ConfigError as _ConfigError
+                    from fieldtest.fixtures import find_fixture_path
+                    try:
+                        find_fixture_path(base_dir / uc.fixtures.directory, fid)
+                    except _ConfigError as e:
                         warnings.append(
-                            f"  ⚠ fixture '{fid}' referenced in '{uc.id}' "
-                            f"but not found at {fixture_file}"
+                            f"  ⚠ fixture '{fid}' referenced in '{uc.id}': "
+                            f"{str(e).splitlines()[0]}"
                         )
 
     # A set declared in one use case and not another cannot be scored at all:
@@ -390,7 +395,7 @@ def score(
     results_dir = path.resolve().parent / "results"
     md_path     = results_dir / f"{run_id}-report.md"
     if md_path.exists():
-        click.echo(md_path.read_text())
+        click.echo(md_path.read_text(encoding="utf-8"))
     click.echo(f"\nResults written to: {results_dir / run_id}")
 
 
@@ -430,12 +435,15 @@ def score(
 
 
 
-if __name__ == "__main__":
-    main()
-
-
 # Registered rather than decorated in place: defining them here would put every
 # command back in one file, and decorating them in their own modules would make
 # those modules import this one, which imports them.
+# Registration must precede the __main__ guard: `python -m fieldtest.cli` runs
+# this module as __main__, and main() never returns — with the loop below the
+# guard, `python -m fieldtest.cli demo` reported "No such command 'demo'".
 for _command in (history, diff, clean, init_cmd, view_cmd, demo_cmd, dataset):
     main.add_command(_command)
+
+
+if __name__ == "__main__":
+    main()

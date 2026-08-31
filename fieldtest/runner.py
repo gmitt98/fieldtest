@@ -23,7 +23,8 @@ from fieldtest.config import (
     resolve_runs,
     resolve_set,
 )
-from fieldtest.errors import OutputError
+from fieldtest.errors import ConfigError, OutputError
+from fieldtest.fixtures import find_fixture_path
 from fieldtest.judges.dispatch import dispatch_judge
 from fieldtest.judges.llm import get_unsupported_params, reset_unsupported_params
 from fieldtest.results.aggregator import (
@@ -60,6 +61,28 @@ def score(
       OutputError  — missing outputs (unless allow_partial)
       ConfigError  — rule registration issues, unknown types
     """
+    if concurrency < 1:
+        raise ConfigError(f"--concurrency must be at least 1, got {concurrency}.")
+
+    # runs: 0 would write a green result set that measured nothing, and
+    # judge_runs: 0 would silently drop every LLM eval from the run — both
+    # passed validation and exited 0 before this check existed.
+    for uc in config.use_cases:
+        runs_v = resolve_runs(config, uc)
+        if runs_v < 1:
+            raise ConfigError(
+                f"Config error at use_cases.{uc.id}.fixtures.runs: must be at "
+                f"least 1, got {runs_v}. A run that scores zero outputs would "
+                f"report a green, empty result set."
+            )
+        judge_runs_v = resolve_judge_runs(config, uc)
+        if judge_runs_v < 1:
+            raise ConfigError(
+                f"Config error at use_cases.{uc.id}.fixtures.judge_runs: must be "
+                f"at least 1, got {judge_runs_v}. judge_runs below 1 would "
+                f"silently drop every LLM eval from the run."
+            )
+
     base_dir     = config_path.resolve().parent
     outputs_dir  = base_dir / "outputs"
     results_dir  = base_dir / "results"
@@ -113,13 +136,28 @@ def score(
         for fid in fixture_ids:
             fixture_file = fixture_path(fid, base_dir / uc.fixtures.directory)
             fixture      = load_fixture(fixture_file, base_dir)
+            fixture_path = find_fixture_path(base_dir / uc.fixtures.directory, fid)
+            fixture      = load_fixture(fixture_path, base_dir)
             for (eval_id, run_number), value in extract_labels(fixture).items():
-                human_labels[(fid, eval_id, run_number)] = value
+                # Keyed by the fixture's internal id, because every judge
+                # stamps rows with fixture["id"] — keying by filename stem
+                # silently discarded every label when the two differed.
+                human_labels[(fixture["id"], eval_id, run_number)] = value
             run_outputs  = []
             for n in range(1, runs + 1):
                 p = outputs_dir / fid / f"run-{n}.txt"
                 if p.exists():
-                    run_outputs.append((n, p.read_text()))
+                    try:
+                        run_outputs.append((n, p.read_text(encoding="utf-8")))
+                    except UnicodeDecodeError as e:
+                        raise OutputError(
+                            f"Output file is not valid UTF-8 text: {p}\n"
+                            f"  ({e})\n"
+                            f"  fieldtest scores text outputs; re-run the runner "
+                            f"writing UTF-8, or remove the file."
+                        ) from e
+                    except OSError as e:
+                        raise OutputError(f"Cannot read output file {p}: {e}") from e
                 elif allow_partial:
                     pass  # skip missing — already warned
             judge_runs = resolve_judge_runs(config, uc)
@@ -176,6 +214,13 @@ def score(
                     flush=True,
                 )
 
+    # Threads complete in whatever order the scheduler picks, so two identical
+    # runs wrote their rows in different orders — spurious diffs in committed
+    # -data.json / -data.csv artifacts. Aggregates never cared; bytes did.
+    all_results.sort(
+        key=lambda r: (r.use_case, r.eval_id, r.fixture_id, r.run, r.judge_run)
+    )
+
     # -------------------------------------------------------------------
     # AGGREGATE
     # -------------------------------------------------------------------
@@ -208,17 +253,26 @@ def score(
     # -------------------------------------------------------------------
     # REPORT
     # -------------------------------------------------------------------
-    write_results(
-        rows=all_results,
-        summary=summary,
-        delta=delta,
-        config=config,
-        run_id=run_id,
-        output_dir=results_dir,
-        set_name=set_name,
-        partial=allow_partial and bool(partial_missing),
-        partial_details=partial_missing if allow_partial else None,
-        unsupported_params=get_unsupported_params(),
-    )
+    try:
+        write_results(
+            rows=all_results,
+            summary=summary,
+            delta=delta,
+            config=config,
+            run_id=run_id,
+            output_dir=results_dir,
+            set_name=set_name,
+            partial=allow_partial and bool(partial_missing),
+            partial_details=partial_missing if allow_partial else None,
+            unsupported_params=get_unsupported_params(),
+        )
+    except OSError as e:
+        # The judging is done and possibly paid for; a permissions problem on
+        # results/ is a user-fixable condition, not an internal bug.
+        raise OutputError(
+            f"Run {run_id} completed but its results could not be written to "
+            f"{results_dir}: {e}\n"
+            f"  Check the directory exists and is writable, then re-run."
+        ) from e
 
     return run_id, all_results
