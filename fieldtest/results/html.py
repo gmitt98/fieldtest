@@ -43,7 +43,7 @@ def _build_html(run_data: dict, config) -> str:
         judge_error_banner = (
             '<div class="judge-errors">'
             f"⚠ judge errors: {judge_errors['failed']} of {judge_errors['total']} "
-            f"calls failed after retry. Affected evals: {affected_str}"
+            f"calls failed after retry. Affected evals: {_esc_py(affected_str)}"
             "</div>"
         )
     else:
@@ -59,7 +59,7 @@ def _build_html(run_data: dict, config) -> str:
         partial_banner = (
             '<div class="partial-run">'
             f"⚠ partial run: {len(details)} output(s) missing and skipped"
-            + (f" — {shown}{more}" if details else "")
+            + (f" — {_esc_py(shown)}{more}" if details else "")
             + ". Rates below are over the outputs that were found."
             "</div>"
         )
@@ -139,7 +139,7 @@ def _build_html(run_data: dict, config) -> str:
         if judge.get("fingerprint"):
             bits.append(judge["fingerprint"])
         judge_meta = (
-            '<div class="meta">Judge: <span>' + " · ".join(bits) + "</span></div>"
+            '<div class="meta">Judge: <span>' + _esc_py(" · ".join(bits)) + "</span></div>"
         )
 
     delta_html = _build_delta_html(delta)
@@ -152,15 +152,18 @@ def _build_html(run_data: dict, config) -> str:
             continue
         uc_sections_html += _build_uc_section(uc, uc_rows, summary.get(uc.id, {}))
 
-    # Serialize run_data for JS (convert lists to ensure JSON-safe)
-    run_data_json = json.dumps(run_data, default=str)
+    # Serialize run_data for JS (convert lists to ensure JSON-safe).
+    # Every "<" is escaped to \\u003c — same string once parsed — so a literal
+    # "</script>" in a judge detail cannot terminate the script element,
+    # execute injected markup, and dump the rest of the page as text.
+    run_data_json = json.dumps(run_data, default=str).replace("<", "\\u003c")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>fieldtest — {run_id}</title>
+<title>fieldtest — {_esc_py(run_id)}</title>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
@@ -345,9 +348,9 @@ def _build_html(run_data: dict, config) -> str:
 
 <div class="header">
   <span class="brand">fieldtest</span>
-  <div class="meta">Run: <span>{run_id}</span></div>
+  <div class="meta">Run: <span>{_esc_py(run_id)}</span></div>
   <div class="meta">Time: <span>{timestamp}</span></div>
-  <div class="meta">Set: <span>{set_name}</span></div>
+  <div class="meta">Set: <span>{_esc_py(set_name)}</span></div>
   <div class="meta">Fixtures: <span>{fixture_count}</span>{uc_note}</div>
   <div class="meta">Runs/fixture: <span>{runs}</span></div>
   {judge_meta}
@@ -529,7 +532,10 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
     if all_labels:
         chips_html = '<span class="label-chip active" data-label="__all__">All</span>'
         for lbl in all_labels:
-            chips_html += f'<span class="label-chip" data-label="{lbl}">{lbl}</span>'
+            chips_html += (
+                f'<span class="label-chip" data-label="{_esc_py(lbl)}">'
+                f"{_esc_py(lbl)}</span>"
+            )
         label_bar_html = f"""
   <div class="label-bar">
     <span class="bar-title">Filter by label:</span>
@@ -566,13 +572,14 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
         tc = tag_class.get(ev.tag if ev else "", "")
         labels_str = "|".join(ev.labels) if ev and ev.labels else ""
         header_cells += (
-            f'<th class="{tc}" data-eval-id="{eid}" data-labels="{labels_str}">{eid}</th>'
+            f'<th class="{tc}" data-eval-id="{_esc_py(eid)}" '
+            f'data-labels="{_esc_py(labels_str)}">{_esc_py(eid)}</th>'
         )
 
     # Build rows
     body_rows_html = ""
     for fid in fixture_ids:
-        row_cells = f'<td class="fixture-cell">{fid}</td>'
+        row_cells = f'<td class="fixture-cell">{_esc_py(fid)}</td>'
         for eid in eval_order:
             d = cell[(fid, eid)]
             if d["scores"]:
@@ -596,8 +603,8 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
                 cls   = "cell-pass" if all_pass else "cell-fail"
                 label = f"{d['passed']}/{d['total']}"
             row_cells += (
-                f'<td class="{cls}" data-fixture-id="{fid}" data-eval-id="{eid}">'
-                f'{label}</td>'
+                f'<td class="{cls}" data-fixture-id="{_esc_py(fid)}" '
+                f'data-eval-id="{_esc_py(eid)}">{label}</td>'
             )
         body_rows_html += f"<tr>{row_cells}</tr>\n"
 
@@ -641,10 +648,10 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
     judge_tables_html = _build_judge_tables(uc_summary)
 
     return f"""
-<div class="uc-section" data-uc="{uc_id}">
+<div class="uc-section" data-uc="{_esc_py(uc_id)}">
   <div class="uc-header">
-    <h2>{uc_id}</h2>
-    <p>{uc.description}</p>
+    <h2>{_esc_py(uc_id)}</h2>
+    <p>{_esc_py(uc.description)}</p>
   </div>
   {label_bar_html}
   {matrix_html}
@@ -653,7 +660,14 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
 
 
 def _esc_py(text) -> str:
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    """HTML-escape user-controlled text. Quote-safe, so attribute values too."""
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 def _build_judge_tables(uc_summary: dict) -> str:
@@ -775,28 +789,28 @@ def _build_delta_html(delta: dict) -> str:
         return f"""
 <div class="delta-section">
   <h2>No baseline</h2>
-  <p class="delta-caveat">{reason[0].upper() + reason[1:]}. Every eval reads
+  <p class="delta-caveat">{_esc_py(reason[0].upper() + reason[1:])}. Every eval reads
   &#8212; against prior for that reason, not because nothing moved.</p>
 </div>"""
 
     rows_html = ""
     for item in increased:
         rows_html += (
-            f'<tr><td>{item["eval_id"]}</td>'
+            f'<tr><td>{_esc_py(item["eval_id"])}</td>'
             f'<td class="delta-up">+{round(item["delta"] * 100, 1)}%</td>'
             f'<td>{round(item.get("previous", 0) * 100, 1)}%</td>'
             f'<td>{round(item.get("current", 0) * 100, 1)}%</td></tr>'
         )
     for item in decreased:
         rows_html += (
-            f'<tr><td>{item["eval_id"]}</td>'
+            f'<tr><td>{_esc_py(item["eval_id"])}</td>'
             f'<td class="delta-down">{round(item["delta"] * 100, 1)}%</td>'
             f'<td>{round(item.get("previous", 0) * 100, 1)}%</td>'
             f'<td>{round(item.get("current", 0) * 100, 1)}%</td></tr>'
         )
     for eid in unchanged:
         rows_html += (
-            f'<tr><td>{eid}</td><td class="no-change">↔</td><td>—</td><td>—</td></tr>'
+            f'<tr><td>{_esc_py(eid)}</td><td class="no-change">↔</td><td>—</td><td>—</td></tr>'
         )
 
     if not rows_html:
@@ -804,7 +818,7 @@ def _build_delta_html(delta: dict) -> str:
 
     return f"""
 <div class="delta-section">
-  <h2>Delta vs prior run ({baseline_id})</h2>
+  <h2>Delta vs prior run ({_esc_py(baseline_id)})</h2>
   {caveat_html}
   <table class="delta-table">
     <thead><tr><th>eval</th><th>change</th><th>before</th><th>after</th></tr></thead>

@@ -64,7 +64,7 @@ def history(config_path: Optional[str]):
 
     for p in result_files:
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
 
@@ -161,7 +161,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo(f"Run not found: {current_path}", err=True)
         sys.exit(1)
 
-    current_data = json.loads(current_path.read_text())
+    current_data = json.loads(current_path.read_text(encoding="utf-8"))
 
     # An explicit --baseline has to actually recompute. The stored delta was
     # frozen at score time against whatever find_baseline() auto-detected then,
@@ -185,7 +185,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             sys.exit(1)
         from fieldtest.results.aggregator import build_delta
 
-        baseline_data = json.loads(baseline_path.read_text())
+        baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
         delta = build_delta(current_data.get("summary", {}), baseline_path)
     else:
         delta = current_data.get("delta", {})
@@ -194,7 +194,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             auto_path = results_dir / f"{base_id}-data.json"
             if auto_path.exists():
                 try:
-                    baseline_data = json.loads(auto_path.read_text())
+                    baseline_data = json.loads(auto_path.read_text(encoding="utf-8"))
                 except Exception:
                     baseline_data = {}
 

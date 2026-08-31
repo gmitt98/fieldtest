@@ -1818,7 +1818,9 @@ def test_an_unexpected_error_prints_a_traceback_and_where_to_file_it():
     assert result.exit_code == 1
     assert "Traceback" in result.output
     assert "something we did not anticipate" in result.output
-    assert "github.com/galenmittermann/fieldtest/issues" in result.output
+    # The URL must be the real repo: this printed galenmittermann/fieldtest
+    # (HTTP 404) while pyproject.toml pointed at gmitt98/fieldtest.
+    assert "github.com/gmitt98/fieldtest/issues" in result.output
 
     @_click.command()
     def expected():
@@ -2112,3 +2114,270 @@ def test_every_command_the_cli_offers_is_documented_somewhere():
 
     missing = sorted(commands - shown)
     assert not missing, f"the CLI offers these and no doc demonstrates them: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Edge-case error handling (0.3.0 adversarial audit — edges lens)
+#
+# The bar: a user error produces a clear message, never a traceback with
+# "please file a bug", and never a silently wrong result.
+# ---------------------------------------------------------------------------
+
+CONFIG_WITH_LLM_EVAL = """\
+schema_version: 1
+system:
+  name: test system
+  domain: test domain
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev_regex
+        tag: right
+        type: regex
+        description: checks for Go
+        pattern: "Go"
+        match: true
+      - id: never_leaks
+        tag: safe
+        type: llm
+        description: no pii
+        pass_criteria: no pii present
+        fail_criteria: pii present
+    fixtures:
+      directory: fixtures/
+      sets:
+        smoke: [fix1]
+        full: [fix1, fix2]
+      runs: 2
+      judge_runs: {judge_runs}
+defaults:
+  provider: anthropic
+  model: claude-haiku-4-5
+  runs: 2
+"""
+
+
+def test_judge_runs_zero_is_rejected_not_silently_dropped(tmp_path):
+    """judge_runs: 0 used to delete every LLM eval from the run — a declared
+    `safe` guardrail vanished from the report with exit 0."""
+    evals_dir = _setup_project(
+        tmp_path, config=CONFIG_WITH_LLM_EVAL.format(judge_runs=0)
+    )
+    _write_outputs(evals_dir, "fix1", runs=2)
+    result = _run_score(evals_dir, set_name="smoke")
+    assert result.exit_code == 1
+    assert "judge_runs" in result.output
+    assert "Please file a bug" not in result.output
+    # No green empty result set written
+    assert not list((evals_dir / "results").glob("*-data.json"))
+
+
+def test_runs_zero_is_rejected_not_a_green_empty_result(tmp_path):
+    """runs: 0 used to write a non-partial result set measuring nothing, which
+    passed every documented CI gate."""
+    config = MINIMAL_CONFIG.replace("      runs: 2\n", "      runs: 0\n")
+    evals_dir = _setup_project(tmp_path, config=config)
+    result = _run_score(evals_dir, set_name="full")
+    assert result.exit_code == 1
+    assert "runs" in result.output
+    assert "Please file a bug" not in result.output
+    assert not list((evals_dir / "results").glob("*-data.json"))
+
+
+def test_concurrency_zero_is_a_clean_error(tmp_path):
+    """--concurrency 0 used to reach ThreadPoolExecutor and print a raw
+    ValueError traceback plus the bug-report URL."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    result = _run_score(evals_dir, extra_args=["--concurrency", "0"])
+    assert result.exit_code == 1
+    assert "concurrency" in result.output
+    assert "Traceback" not in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_non_utf8_output_file_is_a_clean_error_naming_the_file(tmp_path):
+    """A binary/latin-1 output used to print a raw UnicodeDecodeError traceback
+    that never named the offending file."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    (evals_dir / "outputs" / "fix1" / "run-1.txt").write_bytes(b"hi \xff\xfe binary")
+    result = _run_score(evals_dir)
+    assert result.exit_code == 1
+    assert "run-1.txt" in result.output
+    assert "Traceback" not in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_readonly_results_dir_is_a_clean_error(tmp_path):
+    """A read-only results/ used to complete the whole run, then print a raw
+    PermissionError traceback and discard every judge verdict."""
+    import os
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    results_dir = evals_dir / "results"
+    results_dir.chmod(0o500)
+    try:
+        result = _run_score(evals_dir)
+    finally:
+        results_dir.chmod(0o700)
+    assert result.exit_code == 1
+    assert "could not be written" in result.output
+    assert "Traceback" not in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_glob_set_loads_fixtures_from_subdirectories(tmp_path):
+    """The scaffolded layout — directory: fixtures/ with a golden/* set — could
+    never load its fixtures: resolve_set returns bare stems and the runner
+    looked only at fixtures/<stem>.yaml."""
+    config = MINIMAL_CONFIG.replace(
+        "        smoke: [fix1]\n", "        smoke: [fix1]\n        regression: golden/*\n"
+    )
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "fixtures" / "golden").mkdir()
+    (evals_dir / "fixtures" / "golden" / "fix3.yaml").write_text(
+        "id: fix3\ninputs:\n  text: sub\n"
+    )
+    _write_outputs(evals_dir, "fix3", runs=2)
+    result = _run_score(evals_dir, set_name="regression")
+    assert result.exit_code == 0, result.output
+    assert "fix3" in result.output
+
+
+def test_duplicate_fixture_stem_across_subdirs_is_a_clean_error(tmp_path):
+    """Two fixtures with the same stem in different subdirectories cannot be
+    told apart by a bare id — say so instead of picking one."""
+    config = MINIMAL_CONFIG.replace(
+        "        smoke: [fix1]\n", "        smoke: [fix3]\n"
+    )
+    evals_dir = _setup_project(tmp_path, config=config)
+    for sub in ("golden", "variations"):
+        (evals_dir / "fixtures" / sub).mkdir()
+        (evals_dir / "fixtures" / sub / "fix3.yaml").write_text(
+            "id: fix3\ninputs:\n  text: dup\n"
+        )
+    _write_outputs(evals_dir, "fix3", runs=2)
+    result = _run_score(evals_dir, set_name="smoke")
+    assert result.exit_code == 1
+    assert "ambiguous" in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_labels_survive_a_fixture_id_that_differs_from_its_filename(tmp_path):
+    """Labels were keyed by filename stem while every judge stamps rows with
+    the fixture's internal id — a renamed file silently discarded every human
+    label that validate had just counted."""
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: totally-different\n"
+        "inputs:\n"
+        "  text: hello world\n"
+        "labels:\n"
+        "  ev_regex:\n"
+        "    1: fail\n"
+        "    2: fail\n"
+    )
+    _write_outputs(evals_dir, "fix1", runs=2)  # contains "Go" → judge passes
+    result = _run_score(evals_dir, set_name="smoke")
+    assert result.exit_code == 0
+    data = json.loads(
+        next((evals_dir / "results").glob("*-data.json")).read_text(encoding="utf-8")
+    )
+    stats = data["summary"]["uc1"]["right"]["ev_regex"]
+    assert stats.get("labeled_runs") == 2
+    assert stats.get("judge_false_pass") == 2
+
+
+def test_html_report_survives_a_script_tag_in_a_judge_detail(tmp_path):
+    """A literal </script> in a rule/judge detail used to terminate the
+    embedded RUN_DATA block, execute the injected markup, and dump the rest of
+    the page's JS as visible text."""
+    evals_dir = _setup_project(tmp_path, config=MINIMAL_CONFIG_RULE)
+    payload = "</scr" + "ipt><scr" + "ipt>window.PWNED=1</scr" + "ipt><b>x</b>"
+    (evals_dir / "rules.py").write_text(
+        "from fieldtest import rule\n"
+        "@rule('has_content')\n"
+        "def check(output, inputs):\n"
+        f"    return {{'passed': False, 'detail': {payload!r}}}\n"
+    )
+    _write_outputs(evals_dir, "fix1", runs=1)
+    result = _run_score(evals_dir)
+    assert result.exit_code == 0
+    html = next((evals_dir / "results").glob("*-report.html")).read_text(
+        encoding="utf-8"
+    )
+    # Exactly one script element: the injected close tag must not survive raw.
+    closer = "</scr" + "ipt>"
+    assert html.count(closer) == 1
+    assert "<scr" + "ipt>window.PWNED" not in html
+
+
+def test_html_report_escapes_config_text(tmp_path):
+    """A use-case description containing markup landed verbatim in the DOM."""
+    config = MINIMAL_CONFIG.replace(
+        "    description: test use case\n",
+        "    description: desc <script>window.UC_PWNED=1</script> end\n",
+    )
+    evals_dir = _setup_project(tmp_path, config=config)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    result = _run_score(evals_dir)
+    assert result.exit_code == 0
+    html = next((evals_dir / "results").glob("*-report.html")).read_text(
+        encoding="utf-8"
+    )
+    assert "<script>window.UC_PWNED" not in html
+    assert "&lt;script&gt;window.UC_PWNED" in html
+
+
+def test_result_rows_are_written_in_deterministic_order(tmp_path):
+    """Rows landed in thread-completion order, so two identical runs produced
+    byte-different -data.json/-data.csv artifacts. A rule that finishes run 2
+    before run 1 forces the completion order to invert."""
+    evals_dir = _setup_project(tmp_path, config=MINIMAL_CONFIG_RULE.replace(
+        "      runs: 1\n", "      runs: 2\n"
+    ))
+    (evals_dir / "rules.py").write_text(
+        "import time\n"
+        "from fieldtest import rule\n"
+        "@rule('has_content')\n"
+        "def check(output, inputs):\n"
+        "    time.sleep(float(output.strip()))\n"
+        "    return {'passed': True, 'detail': 'ok'}\n"
+    )
+    out_dir = evals_dir / "outputs" / "fix1"
+    out_dir.mkdir(parents=True)
+    (out_dir / "run-1.txt").write_text("0.5")   # run 1 finishes last
+    (out_dir / "run-2.txt").write_text("0.0")
+    result = _run_score(evals_dir)
+    assert result.exit_code == 0
+    data = json.loads(
+        next((evals_dir / "results").glob("*-data.json")).read_text(encoding="utf-8")
+    )
+    runs_in_order = [r["run"] for r in data["rows"]]
+    assert runs_in_order == sorted(runs_in_order)
+
+
+def test_python_dash_m_offers_every_command(tmp_path):
+    """Command registration sat below the __main__ guard, so
+    `python -m fieldtest.cli demo` reported "No such command 'demo'" while
+    the console script offered it."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(Path(fieldtest.__file__).resolve().parents[1])
+    proc = subprocess.run(
+        [sys.executable, "-m", "fieldtest.cli", "demo", "--help"],
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert "demo" in proc.stdout

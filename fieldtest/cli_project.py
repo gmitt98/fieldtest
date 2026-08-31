@@ -127,7 +127,7 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
 
     gitignore_path = evals_dir / ".gitignore"
     if not gitignore_path.exists() or force:
-        gitignore_path.write_text(GITIGNORE_CONTENT)
+        gitignore_path.write_text(GITIGNORE_CONTENT, encoding="utf-8")
 
     if template:
         # Load curated template config from templates/ directory
@@ -153,7 +153,7 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
     else:
         config_path = evals_dir / "config.yaml"
         if not config_path.exists() or force:
-            config_path.write_text(STARTER_CONFIG)
+            config_path.write_text(STARTER_CONFIG, encoding="utf-8")
 
         click.echo(f"✓ Scaffolded eval structure at {evals_dir}/")
         click.echo(f"  {evals_dir}/config.yaml       — fill this out first")
@@ -268,7 +268,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
             try:
                 from fieldtest.config import parse_and_validate
                 from fieldtest.results.html import write_html
-                run_data = json.loads(json_files[0].read_text())
+                run_data = json.loads(json_files[0].read_text(encoding="utf-8"))
                 config   = parse_and_validate(evals_dir / "config.yaml")
                 run_id   = json_files[0].name.replace("-data.json", "")
                 write_html(run_data, config, dest_results / f"{run_id}-report.html")
@@ -278,7 +278,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         # Print pre-rendered markdown report if available
         md_files = list(dest_results.glob("*-report.md"))
         if md_files:
-            click.echo(md_files[0].read_text())
+            click.echo(md_files[0].read_text(encoding="utf-8"))
         else:
             click.echo("Offline results loaded. No markdown report found.")
 
@@ -346,7 +346,7 @@ def dataset_list():
         readme = _datasets_root() / name / "README.md"
         summary = ""
         if readme.is_file():
-            for line in readme.read_text().splitlines():
+            for line in readme.read_text(encoding="utf-8").splitlines():
                 if line.strip() and not line.startswith("#"):
                     summary = f" — {line.strip()}"
                     break
