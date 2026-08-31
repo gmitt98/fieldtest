@@ -1278,7 +1278,7 @@ Five files per run, named `[run-id]-data.*` or `[run-id]-report.*`:
 
 ## CI gating
 
-`fieldtest score` exits 0 on success, 1 on error. It does **not** exit non-zero on high failure rates — the tool measures; you judge. Hardcoding thresholds in the tool would convert a measurement practice into a test suite. Thresholds belong in your CI config, where they stay versioned and team-owned.
+`fieldtest score` exits 0 on success, 1 on error. It does **not** exit non-zero on high failure rates — the tool measures; you judge. It *does* exit 1 when **every** judge call errored, because that run has no rate to read: nothing was measured, and a green CI job would be reporting a measurement that never happened. A run with some errors and some verdicts still exits 0 and names the errors in the report. `fieldtest calibrate` follows the same rule. Hardcoding thresholds in the tool would convert a measurement practice into a test suite. Thresholds belong in your CI config, where they stay versioned and team-owned.
 
 To gate CI on specific failure rates, parse the `-data.json` summary:
 

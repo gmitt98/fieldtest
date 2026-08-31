@@ -2751,3 +2751,85 @@ def test_history_tag_rates_are_the_pass_rates_the_report_shows(tmp_path, monkeyp
     assert pct[0] == "95", (
         f"history shows {pct[0]}% where the pooled pass rate is 95% — "
         f"it is printing the failure rate")
+
+
+# ---------------------------------------------------------------------------
+# A run that measured nothing must not report success
+# ---------------------------------------------------------------------------
+
+def _llm_only_project(tmp_path: Path) -> Path:
+    evals = tmp_path / "evals"
+    (evals / "fixtures").mkdir(parents=True)
+    (evals / "outputs" / "f1").mkdir(parents=True)
+    (evals / "fixtures" / "f1.yaml").write_text("id: f1\ndescription: d\ninputs:\n  q: hi\n")
+    (evals / "outputs" / "f1" / "run-1.txt").write_text("hello there")
+    (evals / "config.yaml").write_text("""schema_version: 1
+system:
+  name: s
+  domain: d
+use_cases:
+  - id: uc1
+    description: only llm evals, so nothing scores without a key
+    evals:
+      - id: is_polite
+        tag: good
+        type: llm
+        description: is the output polite
+        pass_criteria: it is polite
+        fail_criteria: it is rude
+    fixtures:
+      directory: fixtures/
+      runs: 1
+      sets:
+        full: [f1]
+""")
+    return evals
+
+
+def test_score_fails_when_every_judge_call_errored(tmp_path, monkeypatch):
+    """
+    The README declines to fail on a high failure rate — the tool measures, you
+    judge. But a run where every judge call errored has no rate at all; nothing
+    was measured, and exiting 0 told CI that it had been.
+    """
+    evals = _llm_only_project(tmp_path)
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    result = CliRunner().invoke(
+        main, ["score", "--config", str(evals / "config.yaml"), "--set", "full"],
+        catch_exceptions=False)
+    assert result.exit_code == 1, f"a run that scored nothing exited 0:\n{result.output}"
+    assert "nothing was scored" in result.output
+
+
+def test_score_still_succeeds_when_only_some_calls_errored(tmp_path, monkeypatch):
+    """A partial failure is a measurement with holes, and still exits 0."""
+    evals = _llm_only_project(tmp_path)
+    cfg = evals / "config.yaml"
+    cfg.write_text(cfg.read_text().replace("""      - id: is_polite""",
+"""      - id: says_hello
+        tag: right
+        type: regex
+        description: greets
+        pattern: hello
+        match: true
+
+      - id: is_polite"""))
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    result = CliRunner().invoke(
+        main, ["score", "--config", str(cfg), "--set", "full"],
+        catch_exceptions=False)
+    assert result.exit_code == 0, (
+        f"a run where the regex eval scored should still succeed:\n{result.output}")
+
+
+def test_score_succeeds_on_a_clean_offline_run(tmp_path, monkeypatch):
+    """The ordinary case must not have become a failure."""
+    evals = _setup_project(tmp_path)
+    _write_outputs(evals, "fix1", 2)
+    _write_outputs(evals, "fix2", 2)
+    result = _run_score(evals)
+    assert result.exit_code == 0, result.output
