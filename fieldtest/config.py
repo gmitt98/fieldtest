@@ -67,6 +67,16 @@ class Eval(BaseModel):
     model:    Optional[str] = None
     provider: Optional[str] = None
 
+    @field_validator("provider")
+    @classmethod
+    def provider_must_be_supported(cls, v: Optional[str]) -> Optional[str]:
+        # Same check Defaults.provider and PanelJudge.provider run. Without it,
+        # a typo here passed `fieldtest validate` and only surfaced as errored
+        # rows twenty judge calls into a paid run.
+        if v is None:
+            return v
+        return validate_provider_name(v, "use_cases[].evals[].provider in config.yaml")
+
     @model_validator(mode="after")
     def regex_type_required_fields(self) -> "Eval":
         # A model validator, not a field validator on `pattern`/`match`: pydantic
@@ -163,6 +173,44 @@ class Defaults(BaseModel):
     # error this whole project exists to argue against. No judge is asked
     # anything here; the interval comes from arithmetic on the verdicts.
     confidence_level: float = 0.95
+
+    @field_validator("judge_retry", mode="before")
+    @classmethod
+    def judge_retry_keys_must_be_real(cls, v):
+        # RetryPolicy itself does not forbid extra keys, so a misspelled
+        # `max_attemtps:` was silently dropped and the run retried on the
+        # defaults the user thought they had overridden.
+        if isinstance(v, dict):
+            unknown = set(v) - set(RetryPolicy.model_fields)
+            if unknown:
+                valid = ", ".join(RetryPolicy.model_fields)
+                raise ValueError(
+                    f"unrecognised key(s) under defaults.judge_retry: "
+                    f"{', '.join(sorted(unknown))}. Valid keys: {valid}."
+                )
+        return v
+
+    @field_validator("judge_retry")
+    @classmethod
+    def judge_retry_values_must_be_non_negative(cls, v: RetryPolicy) -> RetryPolicy:
+        # Negative values load cleanly but break at runtime: max_attempts of -1
+        # makes with_retry() skip the judge call entirely (every row errors),
+        # and a negative delay crashes the first retry inside time.sleep().
+        if v.max_attempts < 0:
+            raise ValueError(
+                f"defaults.judge_retry.max_attempts must be 0 or more, got "
+                f"{v.max_attempts}. 0 means no retries; a negative count would "
+                f"skip the judge call itself."
+            )
+        for name in ("initial_delay", "max_delay", "multiplier"):
+            value = getattr(v, name)
+            if value < 0:
+                raise ValueError(
+                    f"defaults.judge_retry.{name} must be 0 or more, got {value}. "
+                    f"A negative value produces a negative retry delay, which "
+                    f"crashes the run at the first retry."
+                )
+        return v
 
     @field_validator("confidence_level")
     @classmethod
@@ -460,7 +508,6 @@ from fieldtest.fixtures import (  # noqa: E402
     validate_fixture_labels,
 )
 from fieldtest.resolve import (  # noqa: E402
-    fixture_path,
     resolve_dataset_version,
     resolve_judge_runs,
     resolve_runs,
@@ -475,6 +522,6 @@ __all__ = [
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
     "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
     "validate_fixture_labels",
-    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set", "fixture_path",
+    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
     "use_cases_with_fixtures",
 ]

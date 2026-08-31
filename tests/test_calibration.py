@@ -601,3 +601,47 @@ def test_write_artifacts_false_writes_nothing_through_the_real_score_path(tmp_pa
         set_name="full", write_artifacts=True,
     )
     assert list(results_dir.glob("*-data.json"))
+
+
+# ---------------------------------------------------------------------------
+# The other side of the agreement statistics
+#
+# Every kappa assertion above sits on a fixed point of the formula — 1.0, 0.0,
+# None — which almost any miscount reproduces, and below_threshold is only ever
+# asserted True. So a statistic could be wrong everywhere in between, and every
+# judge pair on every eval could carry the "agrees no better than chance" mark,
+# with the suite green.
+# ---------------------------------------------------------------------------
+
+def test_fleiss_kappa_between_its_fixed_points():
+    """
+    A panel that half agrees: one judge passes everything, two pass the first
+    half and fail the second. That is fair agreement, not perfect and not none,
+    and kappa is a coefficient — a value outside [-1, 1] is not a rate at all.
+    """
+    a = {("f1", i): True for i in range(1, 5)}
+    b = {("f1", 1): True, ("f1", 2): True, ("f1", 3): False, ("f1", 4): False}
+    c = dict(b)
+
+    k = fleiss_kappa([a, b, c])
+
+    assert k == 0.25
+    assert -1.0 <= k <= 1.0
+
+
+def test_kappa_at_or_above_threshold_is_not_flagged():
+    """
+    The flag drives the ⚠ marker and its footnote. Asserted True and never
+    False, it could be set on every pair and the report would mark a panel in
+    total agreement as agreeing no better than chance.
+    """
+    config = _config()
+    verdicts = [True] * 4 + [False] * 4
+    judge_rows = [("j1", _rows(verdicts)), ("j2", _rows(verdicts))]
+
+    stats = analyze(config, judge_rows, labels={})["evals"]["ev1"]
+    pair = stats["pairwise"][0]
+
+    assert pair["agreement"] == 1.0
+    assert pair["kappa"] == 1.0
+    assert pair["below_threshold"] is False

@@ -568,12 +568,14 @@ def test_history_no_results(tmp_path):
 
 def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
                baseline_run_id: str | None = None,
-               judge: dict | None = None) -> None:
+               judge: dict | None = None,
+               summary: dict | None = None,
+               fixture_count: int | None = None) -> None:
     """Plant a fake -data.json that the diff command will read."""
     data: dict = {
         "run_id": run_id,
         "set":    "full",
-        "summary": {},
+        "summary": summary if summary is not None else {},
         "delta":   {
             "baseline_run_id": baseline_run_id,
             "increased": [],
@@ -585,6 +587,8 @@ def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
         data["dataset_version"] = dataset_version
     if judge is not None:
         data["judge"] = judge
+    if fixture_count is not None:
+        data["fixture_count"] = fixture_count
     (evals_dir / "results" / f"{run_id}-data.json").write_text(json.dumps(data))
 
 
@@ -1818,7 +1822,9 @@ def test_an_unexpected_error_prints_a_traceback_and_where_to_file_it():
     assert result.exit_code == 1
     assert "Traceback" in result.output
     assert "something we did not anticipate" in result.output
-    assert "github.com/galenmittermann/fieldtest/issues" in result.output
+    # The URL must be the real repo: this printed galenmittermann/fieldtest
+    # (HTTP 404) while pyproject.toml pointed at gmitt98/fieldtest.
+    assert "github.com/gmitt98/fieldtest/issues" in result.output
 
     @_click.command()
     def expected():
@@ -2178,3 +2184,496 @@ def test_every_command_resolves_its_config_default_the_same_way():
 
     assert not offenders, (
         f"these read Path(config_path) without the None fallback: {offenders}")
+# The numbers `fieldtest history` prints
+#
+# The history tests assert the header and two judge model names. None reads a
+# rate, so the RIGHT / GOOD / SAFE columns could go blank on every row.
+# ---------------------------------------------------------------------------
+
+def _history_row(output: str, run_id: str) -> list[str]:
+    """The one line for a run, split into columns."""
+    line = next(l for l in output.splitlines() if l.startswith(run_id))
+    return line.split()
+
+
+def test_history_prints_the_tag_failure_rates(tmp_path):
+    """
+    The three columns are average failure rates per tag (README: "the rates
+    shown are average failure rates across all evals with that tag"). An eval
+    whose rate is None — every judge call errored — has no rate to average and
+    must stay out of the mean rather than emptying the column.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(
+        evals_dir, "2026-08-27T10-39-43-e327", None,
+        summary={
+            "uc1": {
+                "right": {"ev1": {"failure_rate": 0.2},
+                          "ev_all_errored": {"failure_rate": None}},
+                "good":  {"ev2": {"failure_rate": 0.0}},
+                "safe":  {"ev3": {"failure_rate": 0.5}},
+            }
+        },
+    )
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    columns = _history_row(result.output, "2026-08-27T10-39-43-e327")
+    assert columns[-3:] == ["20%", "0%", "50%"]
+
+
+def test_history_dashes_a_tag_with_no_rates(tmp_path):
+    """A dash has to keep meaning "nothing to report" for a rate to mean anything."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(
+        evals_dir, "2026-08-27T10-39-43-e327", None,
+        summary={"uc1": {"right": {"ev1": {"failure_rate": 0.5}}}},
+    )
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+    columns = _history_row(result.output, "2026-08-27T10-39-43-e327")
+    assert columns[-3:] == ["50%", "—", "—"]
+
+
+def test_allow_partial_on_a_complete_run_is_not_reported_as_partial(tmp_path):
+    """
+    --allow-partial is permission to continue, not a claim that something was
+    missing. The negative HTML case only ever ran without the flag, so the
+    conjunction that decides this was never evaluated with both operands set.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+
+    result = _run_score(evals_dir, extra_args=["--allow-partial"])
+    assert result.exit_code == 0
+
+    data = json.loads(
+        next((evals_dir / "results").glob("*-data.json")).read_text()
+    )
+    assert data["partial"] is False
+    assert data["partial_details"] == []
+
+    report = next((evals_dir / "results").glob("*-report.md")).read_text()
+    assert "PARTIAL" not in report
+# Edge-case error handling (0.3.0 adversarial audit — edges lens)
+#
+# The bar: a user error produces a clear message, never a traceback with
+# "please file a bug", and never a silently wrong result.
+# ---------------------------------------------------------------------------
+
+CONFIG_WITH_LLM_EVAL = """\
+schema_version: 1
+system:
+  name: test system
+  domain: test domain
+use_cases:
+  - id: uc1
+    description: test use case
+    evals:
+      - id: ev_regex
+        tag: right
+        type: regex
+        description: checks for Go
+        pattern: "Go"
+        match: true
+      - id: never_leaks
+        tag: safe
+        type: llm
+        description: no pii
+        pass_criteria: no pii present
+        fail_criteria: pii present
+    fixtures:
+      directory: fixtures/
+      sets:
+        smoke: [fix1]
+        full: [fix1, fix2]
+      runs: 2
+      judge_runs: {judge_runs}
+defaults:
+  provider: anthropic
+  model: claude-haiku-4-5
+  runs: 2
+"""
+
+
+def test_judge_runs_zero_is_rejected_not_silently_dropped(tmp_path):
+    """judge_runs: 0 used to delete every LLM eval from the run — a declared
+    `safe` guardrail vanished from the report with exit 0."""
+    evals_dir = _setup_project(
+        tmp_path, config=CONFIG_WITH_LLM_EVAL.format(judge_runs=0)
+    )
+    _write_outputs(evals_dir, "fix1", runs=2)
+    result = _run_score(evals_dir, set_name="smoke")
+    assert result.exit_code == 1
+    assert "judge_runs" in result.output
+    assert "Please file a bug" not in result.output
+    # No green empty result set written
+    assert not list((evals_dir / "results").glob("*-data.json"))
+
+
+def test_runs_zero_is_rejected_not_a_green_empty_result(tmp_path):
+    """runs: 0 used to write a non-partial result set measuring nothing, which
+    passed every documented CI gate."""
+    config = MINIMAL_CONFIG.replace("      runs: 2\n", "      runs: 0\n")
+    evals_dir = _setup_project(tmp_path, config=config)
+    result = _run_score(evals_dir, set_name="full")
+    assert result.exit_code == 1
+    assert "runs" in result.output
+    assert "Please file a bug" not in result.output
+    assert not list((evals_dir / "results").glob("*-data.json"))
+
+
+def test_concurrency_zero_is_a_clean_error(tmp_path):
+    """--concurrency 0 used to reach ThreadPoolExecutor and print a raw
+    ValueError traceback plus the bug-report URL."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    result = _run_score(evals_dir, extra_args=["--concurrency", "0"])
+    assert result.exit_code == 1
+    assert "concurrency" in result.output
+    assert "Traceback" not in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_non_utf8_output_file_is_a_clean_error_naming_the_file(tmp_path):
+    """A binary/latin-1 output used to print a raw UnicodeDecodeError traceback
+    that never named the offending file."""
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    (evals_dir / "outputs" / "fix1" / "run-1.txt").write_bytes(b"hi \xff\xfe binary")
+    result = _run_score(evals_dir)
+    assert result.exit_code == 1
+    assert "run-1.txt" in result.output
+    assert "Traceback" not in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_readonly_results_dir_is_a_clean_error(tmp_path):
+    """A read-only results/ used to complete the whole run, then print a raw
+    PermissionError traceback and discard every judge verdict."""
+    import os
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    results_dir = evals_dir / "results"
+    results_dir.chmod(0o500)
+    try:
+        result = _run_score(evals_dir)
+    finally:
+        results_dir.chmod(0o700)
+    assert result.exit_code == 1
+    assert "could not be written" in result.output
+    assert "Traceback" not in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_glob_set_loads_fixtures_from_subdirectories(tmp_path):
+    """The scaffolded layout — directory: fixtures/ with a golden/* set — could
+    never load its fixtures: resolve_set returns bare stems and the runner
+    looked only at fixtures/<stem>.yaml."""
+    config = MINIMAL_CONFIG.replace(
+        "        smoke: [fix1]\n", "        smoke: [fix1]\n        regression: golden/*\n"
+    )
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "fixtures" / "golden").mkdir()
+    (evals_dir / "fixtures" / "golden" / "fix3.yaml").write_text(
+        "id: fix3\ninputs:\n  text: sub\n"
+    )
+    _write_outputs(evals_dir, "fix3", runs=2)
+    result = _run_score(evals_dir, set_name="regression")
+    assert result.exit_code == 0, result.output
+    assert "fix3" in result.output
+
+
+def test_duplicate_fixture_stem_across_subdirs_is_a_clean_error(tmp_path):
+    """Two fixtures with the same stem in different subdirectories cannot be
+    told apart by a bare id — say so instead of picking one."""
+    config = MINIMAL_CONFIG.replace(
+        "        smoke: [fix1]\n", "        smoke: [fix3]\n"
+    )
+    evals_dir = _setup_project(tmp_path, config=config)
+    for sub in ("golden", "variations"):
+        (evals_dir / "fixtures" / sub).mkdir()
+        (evals_dir / "fixtures" / sub / "fix3.yaml").write_text(
+            "id: fix3\ninputs:\n  text: dup\n"
+        )
+    _write_outputs(evals_dir, "fix3", runs=2)
+    result = _run_score(evals_dir, set_name="smoke")
+    assert result.exit_code == 1
+    assert "ambiguous" in result.output
+    assert "Please file a bug" not in result.output
+
+
+def test_labels_survive_a_fixture_id_that_differs_from_its_filename(tmp_path):
+    """Labels were keyed by filename stem while every judge stamps rows with
+    the fixture's internal id — a renamed file silently discarded every human
+    label that validate had just counted."""
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "fixtures" / "fix1.yaml").write_text(
+        "id: totally-different\n"
+        "inputs:\n"
+        "  text: hello world\n"
+        "labels:\n"
+        "  ev_regex:\n"
+        "    1: fail\n"
+        "    2: fail\n"
+    )
+    _write_outputs(evals_dir, "fix1", runs=2)  # contains "Go" → judge passes
+    result = _run_score(evals_dir, set_name="smoke")
+    assert result.exit_code == 0
+    data = json.loads(
+        next((evals_dir / "results").glob("*-data.json")).read_text(encoding="utf-8")
+    )
+    stats = data["summary"]["uc1"]["right"]["ev_regex"]
+    assert stats.get("labeled_runs") == 2
+    assert stats.get("judge_false_pass") == 2
+
+
+def test_html_report_survives_a_script_tag_in_a_judge_detail(tmp_path):
+    """A literal </script> in a rule/judge detail used to terminate the
+    embedded RUN_DATA block, execute the injected markup, and dump the rest of
+    the page's JS as visible text."""
+    evals_dir = _setup_project(tmp_path, config=MINIMAL_CONFIG_RULE)
+    payload = "</scr" + "ipt><scr" + "ipt>window.PWNED=1</scr" + "ipt><b>x</b>"
+    (evals_dir / "rules.py").write_text(
+        "from fieldtest import rule\n"
+        "@rule('has_content')\n"
+        "def check(output, inputs):\n"
+        f"    return {{'passed': False, 'detail': {payload!r}}}\n"
+    )
+    _write_outputs(evals_dir, "fix1", runs=1)
+    result = _run_score(evals_dir)
+    assert result.exit_code == 0
+    html = next((evals_dir / "results").glob("*-report.html")).read_text(
+        encoding="utf-8"
+    )
+    # Exactly one script element: the injected close tag must not survive raw.
+    closer = "</scr" + "ipt>"
+    assert html.count(closer) == 1
+    assert "<scr" + "ipt>window.PWNED" not in html
+
+
+def test_html_report_escapes_config_text(tmp_path):
+    """A use-case description containing markup landed verbatim in the DOM."""
+    config = MINIMAL_CONFIG.replace(
+        "    description: test use case\n",
+        "    description: desc <script>window.UC_PWNED=1</script> end\n",
+    )
+    evals_dir = _setup_project(tmp_path, config=config)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+    result = _run_score(evals_dir)
+    assert result.exit_code == 0
+    html = next((evals_dir / "results").glob("*-report.html")).read_text(
+        encoding="utf-8"
+    )
+    assert "<script>window.UC_PWNED" not in html
+    assert "&lt;script&gt;window.UC_PWNED" in html
+
+
+def test_result_rows_are_written_in_deterministic_order(tmp_path):
+    """Rows landed in thread-completion order, so two identical runs produced
+    byte-different -data.json/-data.csv artifacts. A rule that finishes run 2
+    before run 1 forces the completion order to invert."""
+    evals_dir = _setup_project(tmp_path, config=MINIMAL_CONFIG_RULE.replace(
+        "      runs: 1\n", "      runs: 2\n"
+    ))
+    (evals_dir / "rules.py").write_text(
+        "import time\n"
+        "from fieldtest import rule\n"
+        "@rule('has_content')\n"
+        "def check(output, inputs):\n"
+        "    time.sleep(float(output.strip()))\n"
+        "    return {'passed': True, 'detail': 'ok'}\n"
+    )
+    out_dir = evals_dir / "outputs" / "fix1"
+    out_dir.mkdir(parents=True)
+    (out_dir / "run-1.txt").write_text("0.5")   # run 1 finishes last
+    (out_dir / "run-2.txt").write_text("0.0")
+    result = _run_score(evals_dir)
+    assert result.exit_code == 0
+    data = json.loads(
+        next((evals_dir / "results").glob("*-data.json")).read_text(encoding="utf-8")
+    )
+    runs_in_order = [r["run"] for r in data["rows"]]
+    assert runs_in_order == sorted(runs_in_order)
+
+
+def test_python_dash_m_offers_every_command(tmp_path):
+    """Command registration sat below the __main__ guard, so
+    `python -m fieldtest.cli demo` reported "No such command 'demo'" while
+    the console script offered it."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(Path(fieldtest.__file__).resolve().parents[1])
+    proc = subprocess.run(
+        [sys.executable, "-m", "fieldtest.cli", "demo", "--help"],
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert "demo" in proc.stdout
+
+
+def test_the_demos_closing_instructions_actually_work(tmp_path, monkeypatch):
+    """
+    Twice now the demo has ended by naming a command that fails from the
+    directory it leaves you in: first `fieldtest view` crashed outright, then it
+    resolved config from the wrong place and found nothing. The closing lines
+    are the most-followed instructions the tool prints; run them.
+    """
+    import re
+
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["demo", "--example", "rag", "--offline"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    tail = result.output.strip().splitlines()[-6:]
+    cd_line = next((l for l in tail if l.strip().startswith("cd ")), None)
+    assert cd_line, f"the demo does not tell you where to cd:\n{tail}"
+
+    target = tmp_path / cd_line.strip().removeprefix("cd ").strip()
+    assert target.is_dir(), f"the demo says 'cd {target.name}' and it does not exist"
+
+    commands = [re.match(r"\s*(fieldtest [a-z]+)", l).group(1).split()[1]
+                for l in tail if re.match(r"\s*fieldtest [a-z]+", l)]
+    assert commands, f"the demo names no commands to run:\n{tail}"
+
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+    monkeypatch.chdir(target)
+    for cmd in commands:
+        r = runner.invoke(main, [cmd], catch_exceptions=False)
+        assert "Traceback" not in r.output, f"'{cmd}' raised:\n{r.output}"
+        assert "No results found" not in r.output, (
+            f"the demo tells you to run '{cmd}' and it finds nothing:\n{r.output}")
+        assert r.exit_code == 0, f"'{cmd}' exited {r.exit_code}:\n{r.output}"
+
+
+# ---------------------------------------------------------------------------
+# Destroying the user's work (third audit round)
+#
+# `clean` deleted more than it named, and did it in directories that were not
+# fieldtest projects at all. `outputs/` is gitignored by `init`, so what it took
+# was unrecoverable.
+# ---------------------------------------------------------------------------
+
+def test_clean_refuses_a_directory_that_is_not_a_fieldtest_project(tmp_path, monkeypatch):
+    """
+    _default_config_path() falls back to ./config.yaml, and `config.yaml` beside
+    an `outputs/` directory describes most ML projects ever written.
+    `clean --outputs` deleted their checkpoints and exited 0.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("database:\n  host: localhost\n")
+    (tmp_path / "outputs" / "checkpoints").mkdir(parents=True)
+    weights = tmp_path / "outputs" / "checkpoints" / "model.bin"
+    weights.write_text("model weights")
+
+    result = CliRunner().invoke(main, ["clean", "--outputs"], catch_exceptions=False)
+    assert result.exit_code == 1, result.output
+    assert weights.exists(), "clean deleted a non-fieldtest project's outputs"
+    assert "not a usable fieldtest config" in result.output
+
+
+def test_clean_names_every_file_it_will_delete(tmp_path, monkeypatch):
+    """It counted only *.txt and then rmtree'd the whole tree."""
+    evals = _setup_project(tmp_path)
+    outputs = evals / "outputs"
+    (outputs / "fix1").mkdir(parents=True, exist_ok=True)
+    (outputs / "fix1" / "run-1.txt").write_text("a run")
+    (outputs / "notes.md").write_text("MY NOTES")
+    (outputs / "manual").mkdir(exist_ok=True)
+    (outputs / "manual" / "day1.json").write_text("precious")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["clean"], input="n\n", catch_exceptions=False)
+    out = result.output
+    assert "3 file(s)" in out, f"the count does not match reality:\n{out}"
+    for named in ("notes.md", "day1.json", "run-1.txt"):
+        assert named in out, f"clean does not name {named} before deleting it:\n{out}"
+    assert (outputs / "notes.md").exists(), "declining still deleted"
+
+
+def test_clean_results_removes_only_the_five_artifacts_of_a_run(tmp_path, monkeypatch):
+    """Globbing {run_id}-* took a write-up the user had named after a run."""
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    for i in range(1, 26):
+        rid = f"2026-01-{i:02d}T10-00-00-aaaa"
+        for suffix in ("data.json", "data.csv", "report.md", "report.csv", "report.html"):
+            (results / f"{rid}-{suffix}").write_text("{}")
+    writeup = results / "2026-01-01T10-00-00-aaaa-my-writeup.md"
+    writeup.write_text("MY ANALYSIS")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["clean", "--results", "--keep", "20"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert writeup.exists(), "clean deleted a file it never counted or named"
+
+
+def test_clean_refuses_a_symlinked_outputs_directory(tmp_path, monkeypatch):
+    evals = _setup_project(tmp_path)
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "important.txt").write_text("PRECIOUS")
+    outputs = evals / "outputs"
+    if outputs.exists():
+        import shutil
+        shutil.rmtree(outputs)
+    outputs.symlink_to(real)
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["clean", "--outputs"], catch_exceptions=False)
+    assert "Traceback" not in result.output
+    assert "symlink" in result.output
+    assert (real / "important.txt").read_text() == "PRECIOUS"
+
+
+def test_dataset_use_dest_naming_a_file_says_so(tmp_path, monkeypatch):
+    """exists() is true for a file; iterdir() then raised NotADirectoryError."""
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "myevals"
+    target.write_text("my config")
+
+    result = CliRunner().invoke(
+        main, ["dataset", "use", "expense-report", "--dest", "myevals"],
+        catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "is a file, not a directory" in result.output
+    assert target.read_text() == "my config"
+
+
+def test_init_force_says_it_replaced_your_config(tmp_path, monkeypatch):
+    """The output was byte-identical to scaffolding an empty directory."""
+    monkeypatch.chdir(tmp_path)
+    evals = tmp_path / "evals"
+    evals.mkdir()
+    (evals / "config.yaml").write_text("# 300 lines of my carefully written evals\n")
+
+    result = CliRunner().invoke(main, ["init", "--force"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "replaced the existing" in result.output, (
+        f"--force overwrote a config and said nothing:\n{result.output}")

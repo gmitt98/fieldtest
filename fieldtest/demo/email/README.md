@@ -50,8 +50,9 @@ eval that checks for a signature sign-off:
 Re-run `fieldtest score` — the new eval appears as a column in the report.
 
 **4. Add a new fixture**
-Create `evals/fixtures/variations/cancellation-request.yaml` with `id: cancellation-request`
+Create `evals/fixtures/golden/cancellation-request.yaml` with `id: cancellation-request`
 and an `inputs.customer_email` field containing a cancellation scenario.
-Add `cancellation-request` to the `full:` set in `config.yaml`.
+(The config's `fixtures.directory` is `fixtures/golden`, and its `full: all`
+set picks up every fixture there — no set edit needed.)
 Add `evals/outputs/cancellation-request/run-1.txt` (and run-2, run-3) with sample replies.
 Re-run `fieldtest score` — the new fixture appears as a row in the matrix.

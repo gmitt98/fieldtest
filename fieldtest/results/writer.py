@@ -71,10 +71,10 @@ def write_results(
     run_data["rows"] = [r.model_dump() for r in view_rows]
 
     # Write all five
-    json_path.write_text(json_content)
-    data_csv_path.write_text(data_csv_content)
-    md_path.write_text(md_content)
-    report_csv_path.write_text(report_csv_content)
+    json_path.write_text(json_content, encoding="utf-8")
+    data_csv_path.write_text(data_csv_content, encoding="utf-8")
+    md_path.write_text(md_content, encoding="utf-8")
+    report_csv_path.write_text(report_csv_content, encoding="utf-8")
     write_html(run_data, config, html_path)
 
 

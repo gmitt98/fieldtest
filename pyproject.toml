@@ -51,7 +51,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "anthropic>=0.20.0",
+    # 0.40.0 is the first release compatible with httpx>=0.28 (older releases
+    # pass `proxies` to httpx.Client, which 0.28 removed — client construction
+    # fails under default resolution).
+    "anthropic>=0.40.0",
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "click>=8.0",

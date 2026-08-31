@@ -716,18 +716,18 @@ hr.divider {
         <div class="mode-req" style="margin-top: 4px;">Add <code>--offline</code> flag</div>
       </div>
       <div class="mode-card live">
-        <div class="mode-badge">Live (rule)</div>
-        <div class="mode-title">Run rule + regex evals</div>
-        <div class="mode-desc">Re-scores the pre-built outputs using only deterministic evals (rule, regex, reference). No LLM calls, no API key.</div>
+        <div class="mode-badge">Live extraction</div>
+        <div class="mode-title">Real scoring, no key</div>
+        <div class="mode-desc">Re-scores the bundled outputs for real. The extraction example's rule and regex evals run fully; its two LLM evals are marked as errors and excluded from rates.</div>
         <div class="mode-req">No API key needed</div>
-        <div class="mode-req" style="margin-top: 4px;">Omit <code>--offline</code></div>
+        <div class="mode-req" style="margin-top: 4px;"><code>--example extraction</code>, omit <code>--offline</code></div>
       </div>
       <div class="mode-card full">
         <div class="mode-badge">Full live</div>
-        <div class="mode-title">Call your system + all judges</div>
-        <div class="mode-desc">Run your own model against the demo fixtures. All eval types including LLM judges fire. Requires an Anthropic, OpenAI, or Gemini API key.</div>
+        <div class="mode-title">All evals, LLM judges included</div>
+        <div class="mode-desc">Re-scores the bundled demo outputs with every eval type firing, LLM judges included. fieldtest never calls your system — the demo scores the outputs it ships.</div>
         <div class="mode-req">ANTHROPIC_API_KEY required</div>
-        <div class="mode-req" style="margin-top: 4px;">Add your runner script</div>
+        <div class="mode-req" style="margin-top: 4px;">Omit <code>--offline</code></div>
       </div>
     </div>
 
@@ -807,7 +807,7 @@ hr.divider {
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset use expense-report</span>
 <span class="t-out">Copied 'expense-report' to evals/
   evals/README.md   what is in it and what to write
-  evals/config.yaml your evals — three are TODO</span>
+  evals/config.yaml your evals — 3 are TODO</span>
 
 <span class="t-green">Run it now (no API key needed):  fieldtest score --set full</span></pre>
       </div>
@@ -1060,7 +1060,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       </div>
 <div class="terminal-body">
 <pre class="tabular"><span class="t-bold t-out"># Eval Report</span>
-<span class="t-dim">2026-08-29 21:36 | set: full | 3 fixtures × 3 runs = 9 evaluations per eval</span>
+<span class="t-dim">2026-08-29 21:36 | set: full | 3 fixtures × 3 runs = 9 scored output(s) per eval</span>
 
 <span class="t-bold t-out">### Tag Health</span>
 <span class="t-out">| tag   | pass rate | passed / total |
@@ -1120,7 +1120,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="of-icon">🗝️</div>
         <div class="of-body">
           <div class="of-name">An answer key that is wrong on purpose</div>
-          <div class="of-desc"><code>reference-evals.yaml</code> covers all five judge types. Its <code>caps_applied</code> eval says in writing to judge two daily caps and ignore everything else, and the judge still flags unrelated defects. Human labels ship alongside, so the report scores the judge: 100% agreement on every rule and regex eval, 66.7% on that one.</div>
+          <div class="of-desc"><code>reference-evals.yaml</code> covers all four judge types. Its <code>caps_applied</code> eval says in writing to judge two daily caps and ignore everything else, and the judge still flags unrelated defects. Human labels ship alongside, so the report scores the judge: 100% agreement on every rule and regex eval, 66.7% on that one.</div>
         </div>
       </div>
     </div>
@@ -1140,10 +1140,10 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       <!-- Header -->
       <div class="rp-header">
         <div class="rp-brand">fieldtest</div>
-        <div class="rp-meta">run <span>demo-offline-0000</span></div>
-        <div class="rp-meta">example <span>rag</span> — Handbook Q&amp;A Assistant</div>
+        <div class="rp-meta">run <span>2026-08-27T10-39-43-e327</span></div>
+        <div class="rp-meta">example <span>rag</span> — Meridian Handbook Assistant</div>
         <div class="rp-meta">4 fixtures · 6 evals · 3 runs each</div>
-        <div class="rp-meta" style="margin-left: auto;">2026-03-31</div>
+        <div class="rp-meta" style="margin-left: auto;">2026-08-27</div>
       </div>
 
       <div class="rp-body">
@@ -1151,7 +1151,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="tag-row">
           <div class="tag-card right">
             <div class="tname">RIGHT</div>
-            <div class="trate">83%</div>
+            <div class="trate">76%</div>
             <div class="tdesc">correctness</div>
           </div>
           <div class="tag-card good">
@@ -1161,7 +1161,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
           </div>
           <div class="tag-card safe">
             <div class="tname">SAFE</div>
-            <div class="trate">92%</div>
+            <div class="trate">79%</div>
             <div class="tdesc">guardrails</div>
           </div>
           <div style="flex: 1; min-width: 180px; display: flex; flex-direction: column; justify-content: center; padding: 14px 16px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
@@ -1175,7 +1175,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
           <span class="lbar-title">Filter by label:</span>
           <span class="lchip active">all</span>
           <span class="lchip">accuracy</span>
-          <span class="lchip">completeness</span>
+          <span class="lchip">format</span>
           <span class="lchip">grounding</span>
         </div>
 
@@ -1197,7 +1197,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
               <tr>
                 <td class="fixture-cell">
                   vacation-policy
-                  <div class="fx-desc">Employee asking about PTO accrual</div>
+                  <div class="fx-desc">Employee asking about vacation days for new hires</div>
                 </td>
                 <td><span class="pill pass">3/3 PASS</span></td>
                 <td><span class="pill pass">3/3 PASS</span></td>
@@ -1209,31 +1209,31 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
               <tr>
                 <td class="fixture-cell">
                   remote-work
-                  <div class="fx-desc">Employee asking about remote work policy</div>
+                  <div class="fx-desc">Employee asking about remote work availability expectations</div>
                 </td>
                 <td><span class="pill fail">2/3 FAIL</span></td>
                 <td><span class="pill fail">2/3 FAIL</span></td>
                 <td><span class="pill pass">3/3 PASS</span></td>
                 <td><span class="pill pass">3/3 PASS</span></td>
                 <td><span class="pill fail">2/3 FAIL</span></td>
-                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
               </tr>
               <tr>
                 <td class="fixture-cell">
                   expense-reimbursement
-                  <div class="fx-desc">Employee asking about reimbursement limits</div>
+                  <div class="fx-desc">Employee asking about expense approval thresholds</div>
                 </td>
-                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
                 <td><span class="pill fail">2/3 FAIL</span></td>
                 <td><span class="pill pass">3/3 PASS</span></td>
                 <td><span class="pill pass">3/3 PASS</span></td>
-                <td><span class="pill pass">3/3 PASS</span></td>
+                <td><span class="pill fail">2/3 FAIL</span></td>
                 <td><span class="pill pass">3/3 PASS</span></td>
               </tr>
               <tr>
                 <td class="fixture-cell">
                   out-of-scope
-                  <div class="fx-desc">Question not answerable from context</div>
+                  <div class="fx-desc">Employee asking a question the provided handbook excerpt cannot answer</div>
                 </td>
                 <td><span class="pill fail">2/3 FAIL</span></td>
                 <td><span class="pill skip">—</span></td>
@@ -1251,15 +1251,15 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
           <div class="det-title">↓ out-of-scope / no-hallucination — click any cell to expand</div>
           <div class="det-run">
             <div class="det-run-badge"><span class="pill pass">Run 1 PASS</span></div>
-            <div class="det-run-text">Response correctly states it cannot answer from the provided context and directs to HR. <em>type: llm · grounding label</em></div>
+            <div class="det-run-text">The output correctly acknowledges that the requested information is not in the provided context and does not introduce unsupported claims about remote work or core hours policies. <em>type: llm · grounding label</em></div>
           </div>
           <div class="det-run">
             <div class="det-run-badge"><span class="pill pass">Run 2 PASS</span></div>
-            <div class="det-run-text">Correctly declines. Mentions "a different section of the handbook" — appropriate deflection, no hallucinated policy. <em>type: llm · grounding label</em></div>
+            <div class="det-run-text">The output correctly acknowledges that the provided context does not contain information about remote work or core hours, and appropriately directs the user to other resources rather than inventing unsupported claims. <em>type: llm · grounding label</em></div>
           </div>
           <div class="det-run">
             <div class="det-run-badge"><span class="pill fail">Run 3 FAIL</span></div>
-            <div class="det-run-text">Fabricates "9:00 AM to 5:00 PM standard hours, 10:00 AM to 3:00 PM core hours" — hours that appear in the remote-work fixture context but are absent from the PTO section provided. Cross-fixture contamination. <em>type: llm · grounding label</em></div>
+            <div class="det-run-text">The output introduces remote work policies, core hours, and business hour requirements that are not mentioned anywhere in the provided handbook excerpt, which only covers paid time off policies. <em>type: llm · grounding label</em></div>
           </div>
         </div>
 
@@ -1270,7 +1270,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
     </div>
 
     <div class="callout info" style="margin-top: 24px;">
-      <strong>What you're looking at:</strong> The <code>out-of-scope</code> fixture catches a real and common failure — run 3 fabricates specific policy details that weren't in the provided context. The model saw those hours in a different fixture but hallucinated them into an unanswerable question. The <code>stays-in-scope</code> and <code>no-hallucination</code> evals both catch this; the <code>grounding</code> label groups them for filtering.
+      <strong>What you're looking at:</strong> The <code>out-of-scope</code> fixture catches a real and common failure — run 3 invents remote-work and core-hours policy that the provided excerpt (which covers only paid time off) never mentions. The <code>stays-in-scope</code>, <code>no-hallucination</code>, and <code>answers-from-context</code> evals all catch it; the <code>grounding</code> label groups the two SAFE evals for filtering.
     </div>
   </div>
 </section>
@@ -1342,18 +1342,18 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 
     <div class="config-panel">
       <div class="config-tabs">
-        <div class="config-tab active">config.yaml (rag example)</div>
+        <div class="config-tab active">config.yaml (rag example — the shipped file, comments added)</div>
       </div>
       <div class="config-body">
 <pre><span class="cy">schema_version:</span> <span class="cv">1</span>
 
 <span class="cy">system:</span>
-  <span class="cy">name:</span> <span class="cs">Handbook Q&A Assistant</span>          <span class="cc"># what does your system do?</span>
-  <span class="cy">domain:</span> <span class="cs">Employee handbook Q&A with RAG</span>
+  <span class="cy">name:</span> <span class="cs">Meridian Handbook Assistant</span>          <span class="cc"># what does your system do?</span>
+  <span class="cy">domain:</span> <span class="cs">Employee Q&A grounded in the Meridian Corp employee handbook</span>
 
 <span class="cy">use_cases:</span>
   - <span class="cy">id:</span> <span class="cs">handbook_qa</span>
-    <span class="cy">description:</span> <span class="cs">Answer employee policy questions from handbook context</span>
+    <span class="cy">description:</span> <span class="cs">Employee questions answered accurately from the handbook</span>
 
     <span class="cy">evals:</span>
 
@@ -1362,23 +1362,29 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <span class="cy">tag:</span> <span class="ct">right</span>                                <span class="cc"># diagnostic lens</span>
         <span class="cy">labels:</span> <span class="cs">[accuracy]</span>                         <span class="cc"># analytics grouping</span>
         <span class="cy">type:</span> <span class="ct">llm</span>
-        <span class="cy">description:</span> <span class="cs">Answer is supported by the provided context</span>
-        <span class="cy">pass_criteria:</span> <span class="cs">Every claim is directly supported by the excerpt</span>
-        <span class="cy">fail_criteria:</span> <span class="cs">Answer makes claims not in the provided context</span>
+        <span class="cy">description:</span> <span class="cs">Answer is grounded in the provided handbook excerpt</span>
+        <span class="cy">pass_criteria:</span> <span class="cs">The answer is directly supported by the text provided in the context</span>
+        <span class="cy">fail_criteria:</span> <span class="cs">The answer makes claims not found in the provided context, or contradicts it</span>
 
       - <span class="cy">id:</span> <span class="cs">known-answer</span>
         <span class="cy">tag:</span> <span class="ct">right</span>
         <span class="cy">labels:</span> <span class="cs">[accuracy]</span>
-        <span class="cy">type:</span> <span class="ct">reference</span>                            <span class="cc"># exact string match</span>
-        <span class="cy">description:</span> <span class="cs">Golden fixture exact check</span>
+        <span class="cy">type:</span> <span class="ct">reference</span>                            <span class="cc"># checks the fixture's expected block</span>
+        <span class="cy">description:</span> <span class="cs">Golden fixture expected answer content check</span>
 
       <span class="cc"># ── GOOD evals — quality ─────────────────────</span>
+      - <span class="cy">id:</span> <span class="cs">answer-length</span>
+        <span class="cy">tag:</span> <span class="ct">good</span>
+        <span class="cy">labels:</span> <span class="cs">[format]</span>
+        <span class="cy">type:</span> <span class="ct">rule</span>                                 <span class="cc"># your Python, in evals/rules.py</span>
+        <span class="cy">description:</span> <span class="cs">Answer is between 20 and 250 words</span>
+
       - <span class="cy">id:</span> <span class="cs">cites-source</span>
         <span class="cy">tag:</span> <span class="ct">good</span>
-        <span class="cy">labels:</span> <span class="cs">[completeness]</span>
-        <span class="cy">description:</span> <span class="cs">Answers cite the handbook section they came from</span>
+        <span class="cy">labels:</span> <span class="cs">[format]</span>
         <span class="cy">type:</span> <span class="ct">regex</span>
-        <span class="cy">pattern:</span> <span class="cs">"(?i)(section|handbook|policy|per the)"</span>
+        <span class="cy">description:</span> <span class="cs">Response references the source document</span>
+        <span class="cy">pattern:</span> <span class="cs">"(?i)(according to|per the|the handbook (states|says|indicates)|based on the)"</span>
         <span class="cy">match:</span> <span class="cv">true</span>
 
       <span class="cc"># ── SAFE evals — guardrails ──────────────────</span>
@@ -1386,17 +1392,17 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <span class="cy">tag:</span> <span class="ct">safe</span>
         <span class="cy">labels:</span> <span class="cs">[grounding]</span>
         <span class="cy">type:</span> <span class="ct">llm</span>
-        <span class="cy">description:</span> <span class="cs">All details traceable to the provided handbook excerpt</span>
-        <span class="cy">pass_criteria:</span> <span class="cs">Every specific claim can be found in the context</span>
-        <span class="cy">fail_criteria:</span> <span class="cs">Any detail appears invented or added beyond the source</span>
+        <span class="cy">description:</span> <span class="cs">No claims beyond what the provided context supports</span>
+        <span class="cy">pass_criteria:</span> <span class="cs">Every factual claim in the answer can be traced to the provided handbook excerpt</span>
+        <span class="cy">fail_criteria:</span> <span class="cs">The answer introduces facts, policies, or details not present in the provided context</span>
 
       - <span class="cy">id:</span> <span class="cs">stays-in-scope</span>
         <span class="cy">tag:</span> <span class="ct">safe</span>
         <span class="cy">labels:</span> <span class="cs">[grounding]</span>
         <span class="cy">type:</span> <span class="ct">llm</span>
-        <span class="cy">description:</span> <span class="cs">System declines questions not answerable from context</span>
-        <span class="cy">pass_criteria:</span> <span class="cs">Redirects to HR or acknowledges missing context</span>
-        <span class="cy">fail_criteria:</span> <span class="cs">Fabricates an answer for out-of-scope questions</span>
+        <span class="cy">description:</span> <span class="cs">Declines to answer questions outside the handbook scope</span>
+        <span class="cy">pass_criteria:</span> <span class="cs">If the question cannot be answered from the context, the response clearly says so and does not speculate</span>
+        <span class="cy">fail_criteria:</span> <span class="cs">The response attempts to answer a question it doesn't have context for, or speculates about policy</span>
 
     <span class="cy">fixtures:</span>
       <span class="cy">directory:</span> <span class="cs">fixtures/golden</span>
@@ -1406,7 +1412,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       <span class="cy">runs:</span> <span class="cv">3</span>                                       <span class="cc"># N runs per fixture → distributions</span>
 
 <span class="cy">defaults:</span>
-  <span class="cy">provider:</span> <span class="cs">anthropic</span>                            <span class="cc"># or openai, gemini</span>
+  <span class="cy">provider:</span> <span class="cs">anthropic</span>                            <span class="cc"># or openai, gemini, openai_compatible</span>
   <span class="cy">model:</span> <span class="cs">claude-haiku-4-5</span>              <span class="cc"># judge model</span></pre>
       </div>
     </div>
@@ -1415,6 +1421,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 
     <div class="section-label" style="margin-top: 0;">Eval types</div>
     <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.3px;">Four judges. Closed set.</h3>
+    <p class="section-sub" style="margin-bottom: 16px;">Five cards, four <code>type:</code> values — the scored judge is <code>llm</code> with <code>binary: false</code>, not a fifth type.</p>
     <div class="types-grid">
       <div class="type-card">
         <div class="type-badge">rule</div>
@@ -1522,7 +1529,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
-        <span class="terminal-label">$ fieldtest score --config reference-evals.yaml --set full &nbsp;<em>(with judge_runs: 2)</em></span>
+        <span class="terminal-label">$ fieldtest score --config evals/reference-evals.yaml --set full &nbsp;<em>(with judge_runs: 2)</em></span>
       </div>
 <div class="terminal-body">
 <pre class="tabular"><span class="t-bold t-out">### Judge Repeatability (judge_runs: 2)</span>
@@ -1643,7 +1650,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 <span class="t-cmd">fieldtest view</span>                   <span class="t-comment"># open the latest HTML report</span>
 <span class="t-cmd">fieldtest history</span>                <span class="t-comment"># past runs, newest first, with judge fingerprint</span>
 <span class="t-cmd">fieldtest diff</span>                   <span class="t-comment"># most recent against the one before</span>
-<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># delete results, keep outputs</span></pre>
+<span class="t-cmd">fieldtest clean</span>                  <span class="t-comment"># offers to clear outputs/ and prune old results — asks first</span></pre>
       </div>
     </div>
 

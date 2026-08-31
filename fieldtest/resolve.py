@@ -47,37 +47,6 @@ def resolve_dataset_version(config: Config) -> Optional[str]:
     return config.use_cases[0].fixtures.version
 
 
-def fixture_path(fixture_id: str, fixture_dir: Path) -> Path:
-    """
-    The file for a fixture id, wherever it lives under fixtures/.
-
-    `fieldtest init` creates fixtures/golden/ and fixtures/variations/ and ships
-    `regression: golden/*` in the config it writes. resolve_set returned bare
-    stems and every caller joined them as fixtures/<id>.yaml, so a fixture put
-    where the scaffold says to put it could never be loaded — by `dir/*` or by
-    `all`. The tool's own scaffold did not work.
-
-    Fixture ids are globally unique (config.py enforces it), so a recursive
-    search is unambiguous. Two files sharing a stem is a genuine ambiguity and
-    is refused rather than silently resolved to whichever sorts first.
-    """
-    direct = fixture_dir / f"{fixture_id}.yaml"
-    if direct.is_file():
-        return direct
-
-    matches = sorted(p for p in fixture_dir.rglob(f"{fixture_id}.yaml") if p.is_file())
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        rel = ", ".join(str(m.relative_to(fixture_dir)) for m in matches)
-        raise ConfigError(
-            f"Config error at {fixture_dir}: fixture id '{fixture_id}' matches "
-            f"more than one file ({rel}). Fixture ids must be unique — rename "
-            f"one, or list the set explicitly."
-        )
-    return direct   # caller reports the missing file, naming the path it wanted
-
-
 def resolve_set(set_name: str, use_case: UseCase, base_dir: Path) -> list[str]:
     """
     Resolve a named fixture set to a flat list of fixture IDs.

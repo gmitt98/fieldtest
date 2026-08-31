@@ -60,7 +60,7 @@ def resolve_file_inputs(
                 f"  looked in {base_dir}"
             )
         try:
-            out[key] = target.read_text()
+            out[key] = target.read_text(encoding="utf-8")
         except Exception as e:
             raise ConfigError(
                 f"Config error at {where}: inputs.{key} could not read '{rel}': {e}"
@@ -125,6 +125,36 @@ def _check_expected(data: dict, where: Path) -> None:
             )
 
 
+def find_fixture_path(fixture_dir: Path, fixture_id: str) -> Path:
+    """
+    Locate `{fixture_id}.yaml` under fixture_dir, searching subdirectories.
+
+    The scaffolded layout (`directory: fixtures/` with fixtures in
+    fixtures/golden/ and fixtures/variations/) puts fixture files one level
+    below the declared directory, while glob sets like `golden/*` resolve to
+    bare stems — so a flat `fixture_dir / f"{id}.yaml"` lookup could never load
+    them. Flat path wins when it exists; otherwise the tree is searched.
+
+    Raises ConfigError when the fixture is missing, or when the same stem
+    exists in more than one subdirectory (which stem was meant is ambiguous).
+    """
+    flat = fixture_dir / f"{fixture_id}.yaml"
+    if flat.is_file():
+        return flat
+    matches = sorted(p for p in fixture_dir.rglob(f"{fixture_id}.yaml") if p.is_file())
+    if not matches:
+        raise ConfigError(
+            f"Fixture '{fixture_id}' not found: no {fixture_id}.yaml under {fixture_dir}"
+        )
+    if len(matches) > 1:
+        listed = ", ".join(str(p.relative_to(fixture_dir)) for p in matches)
+        raise ConfigError(
+            f"Fixture id '{fixture_id}' is ambiguous: found {listed} under "
+            f"{fixture_dir}. Rename one — fixture ids must be unique."
+        )
+    return matches[0]
+
+
 def load_fixture(fixture_path: Path, base_dir: Optional[Path] = None) -> dict:
     """
     Load a YAML fixture file. Raises ConfigError if the id field is missing.
@@ -135,7 +165,7 @@ def load_fixture(fixture_path: Path, base_dir: Optional[Path] = None) -> dict:
     eval and an LLM eval are handed the same thing.
     """
     try:
-        data = yaml.safe_load(fixture_path.read_text())
+        data = yaml.safe_load(fixture_path.read_text(encoding="utf-8"))
     except Exception as e:
         raise ConfigError(f"Config error at {fixture_path}: {e}") from e
     if not isinstance(data, dict) or "id" not in data:

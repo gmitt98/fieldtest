@@ -1,5 +1,5 @@
 # Eval Report
-2026-08-27 10:39 | set: full | 3 fixtures × 3 runs = 9 evaluations per eval
+2026-08-27 10:39 | set: full | 3 fixtures × 3 runs = 9 scored output(s) per eval
 judge: anthropic claude-haiku-4-5 | temperature: 0.0
 
 ---
@@ -17,8 +17,8 @@ Customer support emails get a helpful, accurate, policy-compliant reply
 ### RIGHT
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |
 |------|--------|----------|---|------|-----------|--------|---------|
-| golden-reply | completeness | 100% [44–100%] | 3 | — | 0 | 0 | — |
 | addresses-the-ask | completeness | 78% [45–94%] | 9 | — | 0 | 0 | — |
+| golden-reply | completeness | 100% [44–100%] | 3 | — | 0 | 0 | — |
 
 ### GOOD
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |
@@ -31,14 +31,6 @@ Customer support emails get a helpful, accurate, policy-compliant reply
 |------|--------|----------|---|------|-----------|--------|---------|
 | no-policy-invention | policy | 89% [56–98%] | 9 | — | 0 | 0 | — |
 | no-unauthorized-commitments | policy | 56% [27–81%] | 9 | — | 0 | 0 | — |
-
-### Judge vs Human Labels
-| eval | labeled runs | agreement | errors |
-|------|--------------|-----------|--------|
-| addresses-the-ask | 3 | 100.0% | 0 false pass, 0 false fail |
-| no-unauthorized-commitments | 3 | 100.0% | 0 false pass, 0 false fail |
-
-  a false pass is an output a human failed and the judge passed — on a safe eval that is the error that matters.
 
 ### Fixture × Eval Matrix
 | fixture | addresses-the-ask | golden-reply | has-greeting | appropriate-tone | no-policy-invention | no-unauthorized-commitments |

@@ -5,6 +5,8 @@ Tests for provider adapters and factory.
 """
 from unittest.mock import DEFAULT, MagicMock, patch
 
+import importlib.util
+
 import pytest
 
 from fieldtest.errors import ProviderError
@@ -13,6 +15,38 @@ from fieldtest.providers.anthropic import AnthropicAdapter
 from fieldtest.providers.base import JudgeGenerationConfig, RetryPolicy
 from fieldtest.providers.gemini import GeminiAdapter
 from fieldtest.providers.openai import OpenAIAdapter
+
+
+# Optional-provider imports. `pip install -e ".[dev]"` pulls pytest and nothing
+# else, so these raised ModuleNotFoundError and a contributor's first suite run
+# showed ten failures that were not theirs. httpx is in the list because
+# anthropic 1.x depends on httpx2, so plain httpx is no longer transitive.
+def _missing(module: str) -> bool:
+    """True when `module` cannot be imported.
+
+    find_spec("google.genai") raises rather than returning None when the parent
+    package is absent, which turned a skip into a collection error and took the
+    whole file down with it.
+    """
+    try:
+        return importlib.util.find_spec(module) is None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return True
+
+
+needs_httpx = pytest.mark.skipif(
+    _missing("httpx"),
+    reason="httpx not installed (anthropic 1.x uses httpx2); pip install -e '.[dev]' does not pull it",
+)
+needs_google_genai = pytest.mark.skipif(
+    _missing("google.genai"),
+    reason="google-genai not installed; pip install -e '.[gemini]'",
+)
+needs_openai_pkg = pytest.mark.skipif(
+    _missing("openai"),
+    reason="openai not installed; pip install -e '.[openai]'",
+)
+
 
 # Default generation config: temperature 0.0, no seed, 2048 max tokens.
 GEN = JudgeGenerationConfig()
@@ -1329,6 +1363,7 @@ from fieldtest.config import ProviderSettings
 from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
 
 
+@needs_openai_pkg
 def test_openai_compatible_requires_base_url():
     adapter = OpenAICompatibleAdapter(base_url="", api_key_env=None)
     result = adapter.call("m", "p", GEN, RETRY)
@@ -1356,6 +1391,7 @@ def test_api_key_read_from_named_env_var(monkeypatch):
     assert adapter._client_args()["api_key"] == "sk-from-env"
 
 
+@needs_openai_pkg
 def test_missing_named_env_var_is_an_error_naming_the_variable(monkeypatch):
     monkeypatch.delenv("MY_ENDPOINT_KEY", raising=False)
     adapter = OpenAICompatibleAdapter(
@@ -1456,6 +1492,7 @@ def test_retry_policy_applies_to_a_compatible_endpoint(monkeypatch):
     assert result["answer"] == "pass"
 
 
+@needs_openai_pkg
 def test_provider_env_names_match_what_the_adapters_read():
     """
     `fieldtest validate` reports a credential per provider. If that table names
@@ -1718,3 +1755,294 @@ def test_the_installed_anthropic_sdk_decides_which_path_runs():
     )
     if not typed:
         assert anthropic.__version__ >= "1", anthropic.__version__
+
+
+# ---------------------------------------------------------------------------
+# The exception-class lists, against the SDKs that define them
+#
+# _drive_adapter builds each SDK as a bare MagicMock, and _exception_types
+# discards anything that is not a real class — so under it `transient` is empty
+# for gemini and holds one class for anthropic, and every retry assertion above
+# is decided by the status code alone. Rename the classes in the adapter and the
+# suite does not move, while retry on connection and timeout errors — which
+# carry no status code at all — silently disappears from the default provider.
+#
+# These two drive the real SDK module with only its client mocked, so the names
+# the adapter passes have to resolve to the classes the SDK actually raises.
+# ---------------------------------------------------------------------------
+
+def _real_anthropic_error(name: str):
+    import anthropic
+    import httpx
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return getattr(anthropic, name)(request=request)
+
+
+@needs_httpx
+@pytest.mark.parametrize("error_name", ["APIConnectionError", "APITimeoutError"])
+def test_anthropic_retries_transport_errors_that_carry_no_status(error_name):
+    """
+    A dropped connection and a timeout are the transient failures with nothing
+    for the status-code check to read. Only the class list saves them.
+    """
+    import anthropic
+
+    client = MagicMock()
+    client.messages.create.side_effect = _real_anthropic_error(error_name)
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.object(anthropic, "Anthropic", return_value=client):
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = AnthropicAdapter().call(
+                    "claude-haiku-4-5", "test prompt", GEN, RETRY
+                )
+
+    assert "error" in result
+    assert client.messages.create.call_count == 7   # 1 initial + 6 retries
+    assert mock_sleep.call_count == 6
+
+
+@needs_google_genai
+def test_gemini_retries_a_real_server_error_by_class():
+    """
+    google-genai raises ServerError, and gemini.py names it deliberately —
+    APIError is also ClientError's base, so the class list cannot simply widen.
+    The code carried here is outside the shared retryable set, so nothing but
+    the name recognises it.
+    """
+    from google import genai
+    from google.genai import errors
+
+    client = MagicMock()
+    client.models.generate_content.side_effect = errors.ServerError(
+        599, {"error": {"message": "backend unavailable"}}
+    )
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "k"}):
+        with patch.object(genai, "Client", return_value=client):
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = GeminiAdapter().call(
+                    "gemini-2.5-flash", "test prompt", GEN, RETRY
+                )
+
+    assert "error" in result
+    assert client.models.generate_content.call_count == 7
+    assert mock_sleep.call_count == 6
+
+
+@needs_google_genai
+def test_a_gemini_client_error_is_not_retried():
+    """The reason the list names ServerError rather than its base."""
+    from google import genai
+    from google.genai import errors
+
+    client = MagicMock()
+    client.models.generate_content.side_effect = errors.ClientError(
+        401, {"error": {"message": "bad key"}}
+    )
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "k"}):
+        with patch.object(genai, "Client", return_value=client):
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = GeminiAdapter().call(
+                    "gemini-2.5-flash", "test prompt", GEN, RETRY
+                )
+
+    assert "error" in result
+    assert client.models.generate_content.call_count == 1
+    assert mock_sleep.call_count == 0
+# Packaging and release mechanics (audit findings, 0.3.0)
+# ---------------------------------------------------------------------------
+
+import re
+import shutil as _shutil
+import tomllib
+from pathlib import Path
+
+from click.testing import CliRunner
+
+from fieldtest.cli import main as _cli_main
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_keyless_demo_leaves_no_directory_behind(tmp_path, monkeypatch):
+    """A live `fieldtest demo` without a key must fail BEFORE copying anything,
+    so the suggested `--offline` retry does not hit the dest-exists guard."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    result = CliRunner().invoke(_cli_main, ["demo"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "ANTHROPIC_API_KEY" in result.output
+    assert not (tmp_path / "fieldtest-demo").exists(), (
+        "keyless demo left a half-created fieldtest-demo/ behind"
+    )
+
+    # And the printed remedy actually works on the very next command.
+    retry = CliRunner().invoke(
+        _cli_main, ["demo", "--offline"], catch_exceptions=False
+    )
+    assert retry.exit_code == 0, retry.output
+
+
+def test_demo_does_not_copy_pycache_into_the_project(tmp_path, monkeypatch):
+    """pip compiles __pycache__ into site-packages at install time; the demo
+    copy must not drag it into the user's project (dataset use already
+    excludes it)."""
+    import fieldtest.cli_project as cli_project
+
+    demo_source = Path(cli_project.__file__).parent / "demo" / "email"
+    pycache = demo_source / "__pycache__"
+    created = not pycache.exists()
+    pycache.mkdir(exist_ok=True)
+    (pycache / "rules.cpython-314.pyc").write_bytes(b"\x00")
+    try:
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            _cli_main, ["demo", "--offline"], catch_exceptions=False
+        )
+        assert result.exit_code == 0, result.output
+        copied = list((tmp_path / "fieldtest-demo").rglob("__pycache__")) + list(
+            (tmp_path / "fieldtest-demo").rglob("*.pyc")
+        )
+        assert copied == [], f"byte-code clutter copied into project: {copied}"
+    finally:
+        if created:
+            _shutil.rmtree(pycache, ignore_errors=True)
+        else:
+            (pycache / "rules.cpython-314.pyc").unlink(missing_ok=True)
+
+
+def test_typed_classifier_is_backed_by_a_py_typed_marker():
+    """PEP 561: 'Typing :: Typed' is a claim; without a shipped py.typed
+    marker, mypy/pyright treat the package as untyped."""
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    classifiers = pyproject["project"]["classifiers"]
+    declared = "Typing :: Typed" in classifiers
+    marker = (_REPO_ROOT / "fieldtest" / "py.typed").exists()
+    # Both directions, unconditionally: the classifier without the marker is a
+    # false claim, and the marker without the classifier is a wasted one. As an
+    # `if`, dropping the classifier made this test assert nothing.
+    assert declared == marker, (
+        f"'Typing :: Typed' declared={declared} but fieldtest/py.typed "
+        f"exists={marker} — they must agree"
+    )
+
+
+def test_anthropic_floor_is_usable_with_current_httpx():
+    """anthropic<0.40 passes `proxies` to httpx.Client, removed in httpx 0.28;
+    under default resolution client construction raises TypeError and every
+    judge call becomes an errored row. The declared floor must be >=0.40."""
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    deps = pyproject["project"]["dependencies"]
+    anthropic_spec = next(d for d in deps if d.startswith("anthropic"))
+    m = re.search(r">=\s*(\d+)\.(\d+)", anthropic_spec)
+    assert m, f"anthropic dependency has no floor: {anthropic_spec!r}"
+    major, minor = int(m.group(1)), int(m.group(2))
+    assert (major, minor) >= (0, 40), (
+        f"anthropic floor {anthropic_spec!r} is unusable with httpx>=0.28"
+    )
+
+
+def test_publish_workflow_gates_on_tag_version_and_tests():
+    """The publish workflow must refuse a tag that does not match the
+    pyproject version, and must run the test suite, both before uploading."""
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text()
+
+    publish_at = workflow.find("gh-action-pypi-publish")
+    assert publish_at != -1, "publish step missing from publish.yml"
+
+    tag_check_at = workflow.find("GITHUB_REF_NAME")
+    assert tag_check_at != -1, "no tag-vs-version check in publish.yml"
+    assert "pyproject" in workflow[max(0, tag_check_at - 500):tag_check_at + 500], (
+        "tag check does not compare against the pyproject.toml version"
+    )
+    assert tag_check_at < publish_at, "tag check must run before publishing"
+
+    test_at = workflow.find("pytest")
+    assert test_at != -1, "no test gate in publish.yml"
+    assert test_at < publish_at, "test gate must run before publishing"
+
+
+def test_the_publish_gate_installs_what_the_suite_needs():
+    """
+    A test step was added to publish.yml to protect the release, and it
+    installed only `[dev]` — pytest and pytest-asyncio. Ten provider tests then
+    failed on import, so every tag push would have failed the gate and nothing
+    would ever have published. The step meant to protect the release blocked it.
+
+    It went unnoticed because the repo's own .venv happens to have openai,
+    google-genai and httpx installed.
+    """
+    import re
+
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text()
+    installs = re.findall(r"pip install -e \"\.\[([^\]]+)\]\"", workflow)
+    assert installs, "publish.yml no longer installs the package for its gate"
+
+    for extras in installs:
+        named = {e.strip() for e in extras.split(",")}
+        missing = {"openai", "gemini", "dev"} - named
+        assert not missing, (
+            f"the publish gate installs [{extras}] and omits {sorted(missing)}; "
+            f"the provider tests fail on import and no tag ever publishes"
+        )
+
+
+def test_a_dev_only_install_has_no_hard_failures():
+    """
+    `pip install -e ".[dev]"` is what a contributor runs. Every test that needs
+    an optional provider package must skip rather than fail, or their first run
+    shows failures that are not theirs.
+
+    Follows one level of helper calls: the first version of this check looked
+    only at a test's own body, so a test importing httpx through a helper passed
+    with its marker deleted. CI has a dev-only job that checks the real property;
+    this catches it at desk speed.
+    """
+    import ast
+
+    # Any of these markers guards the module; test_live.py names them for the
+    # provider ("needs_gemini") rather than for the import ("google").
+    NEEDS = {
+        "httpx":  ("needs_httpx",),
+        "google": ("needs_google_genai", "needs_gemini"),
+        "openai": ("needs_openai_pkg", "needs_openai"),
+    }
+
+    for path in sorted((_REPO_ROOT / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text())
+        funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+
+        def modules_used(fn, seen=None):
+            """Optional modules this function imports, directly or via a helper."""
+            seen = seen or set()
+            if fn.name in seen:
+                return set()
+            seen.add(fn.name)
+            found = set()
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Import):
+                    found |= {a.name.split(".")[0] for a in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    found.add(node.module.split(".")[0])
+                elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    callee = funcs.get(node.func.id)
+                    if callee is not None:
+                        found |= modules_used(callee, seen)
+            return found
+
+        for name, fn in funcs.items():
+            if not name.startswith("test_"):
+                continue
+            decorators = " ".join(ast.unparse(d) for d in fn.decorator_list)
+            for module in modules_used(fn) & set(NEEDS):
+                markers = NEEDS[module]
+                guarded = any(m in decorators for m in markers) or "skipif" in decorators
+                assert guarded, (
+                    f"{path.name}::{name} reaches {module} without any of "
+                    f"{list(markers)}; it will fail rather than skip on a "
+                    f"dev-only install"
+                )

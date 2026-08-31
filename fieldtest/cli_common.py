@@ -26,7 +26,7 @@ def _handle_error(e: Exception) -> None:
     else:
         click.echo(traceback.format_exc(), err=True)
         click.echo(
-            "Please file a bug at https://github.com/galenmittermann/fieldtest/issues",
+            "Please file a bug at https://github.com/gmitt98/fieldtest/issues",
             err=True,
         )
         sys.exit(1)

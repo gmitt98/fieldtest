@@ -102,7 +102,7 @@ Runs all four eval types including LLM judges. Each example uses `claude-haiku-4
 |---------|--------|----------------------|
 | `email` | Clearbook Support Assistant | LLM judge (tone, policy compliance), rule (greeting check), regex (forbidden terms), reference (golden fixture) |
 | `rag` | Meridian Handbook Assistant | RAG grounding eval, hallucination detection, answer-length rule, citation regex |
-| `extraction` | Invoice Data Extractor | JSON structure rules, field-presence rules, regex forbidden-field check — runs fully without an API key |
+| `extraction` | Invoice Data Extractor | JSON structure rules, field-presence rules, regex forbidden-field check — its deterministic evals run without an API key; its two LLM evals are skipped as errors (see Mode 2) |
 
 ### Demo flags
 
@@ -387,8 +387,12 @@ means the eval's criteria are ambiguous.
 
 **This multiplies your bill.** `runs × judge_runs × llm evals × fixtures` judge calls;
 `fieldtest validate` prints the projection for the full set so you meet the number before paying
-it. `failure_rate` is computed from collapsed verdicts (majority, ties resolved to fail), so rates
-stay comparable no matter how many repetitions you run.
+it. `failure_rate` is computed from collapsed verdicts (majority, ties resolved to fail), so it
+always counts outputs rather than judge calls. The *unit* is stable; the number is not. Ties go
+to fail, so an even `judge_runs` is stricter than an odd one — at a true 0.9 pass rate the
+reported failure rate is 0.100 at `judge_runs: 1`, 0.190 at 2, and 0.028 at 3. Change
+`judge_runs` and you have changed the instrument, not the system: compare runs that share a
+setting, and read a jump across a change as an artefact until proven otherwise.
 
 ### Judge retries
 
@@ -502,6 +506,11 @@ use_cases:
         type: rule
         description: Name and email in output match the base resume
 
+      - id: golden_regression
+        tag: right
+        type: reference
+        description: Output contains the fixture's expected strings
+
       # GOOD — quality evals
       # Failure → prompt engineering or format problem; iterate instructions
 
@@ -605,6 +614,9 @@ inputs:
 # The expected block makes this a "golden" fixture.
 # These are deterministic string checks — no API cost.
 # Base them on actual outputs you've reviewed and accepted.
+# The block is read only by evals with `type: reference` (the
+# `golden_regression` eval in the step-2 config). With no reference
+# eval declared, an expected block is silently ignored.
 expected:
   contains:
     - "alex.rivera@email.com"
@@ -617,7 +629,7 @@ expected:
     - "---"
 ```
 
-A fixture without an `expected` block is a **variation fixture** — only rule, regex, and LLM evals run on it. Use variations when you don't have reviewed expected output yet. Add them to `golden/` once you've reviewed outputs and written the `expected` block.
+A fixture without an `expected` block is a **variation fixture** — only rule, regex, and LLM evals run on it (reference evals show `—` for it in the matrix). Use variations when you don't have reviewed expected output yet. Add them to `golden/` once you've reviewed outputs and written the `expected` block.
 
 The `inputs` block is yours to define. Whatever your generator needs — file paths, flags, metadata — put it here. Your generator reads `inputs` directly.
 
@@ -643,17 +655,25 @@ def tailor_resume(resume_text, job_text):
         model=MODEL,
         max_tokens=4096,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": job_text}],
+        messages=[{"role": "user", "content": f"JOB DESCRIPTION:\n{job_text}\n\nBASE RESUME:\n{resume_text}"}],
     )
     return message.content[0].text
+
+def read_input(base_dir, value):
+    # fixtures mark file inputs with a `file:` prefix (see step 3);
+    # fieldtest resolves it for judges, your generator resolves it here
+    return (base_dir / value.removeprefix("file:")).read_text()
 
 def main():
     config    = yaml.safe_load(pathlib.Path("evals/config.yaml").read_text())
     set_name  = sys.argv[1] if len(sys.argv) > 1 else "full"
     base_dir  = pathlib.Path("evals")
-    runs      = config["defaults"]["runs"]
+    fixtures  = config["use_cases"][0]["fixtures"]
+    # fixtures.runs wins over defaults.runs — the same precedence
+    # `fieldtest score` uses when counting the run-N.txt files it expects.
+    runs      = fixtures.get("runs") or config.get("defaults", {}).get("runs", 5)
 
-    fixture_ids = config["use_cases"][0]["fixtures"]["sets"][set_name]
+    fixture_ids = fixtures["sets"][set_name]
     if fixture_ids == "all":
         fixture_ids = [p.stem for p in sorted((base_dir / "fixtures").rglob("*.yaml"))]
 
@@ -661,8 +681,8 @@ def main():
         fixture = yaml.safe_load((base_dir / "fixtures" / f"{fixture_id}.yaml").read_text())
         inputs  = fixture["inputs"]
 
-        resume_text = (base_dir / inputs["resume"]).read_text()
-        job_text    = (base_dir / inputs["job"]).read_text()
+        resume_text = read_input(base_dir, inputs["resume"])
+        job_text    = read_input(base_dir, inputs["job"])
 
         out_dir = base_dir / "outputs" / fixture_id
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -684,17 +704,46 @@ python3 evals/generate.py smoke    # run only the smoke set
 python3 evals/generate.py full     # run everything
 ```
 
-### 5. Score
+### 5. Register your rule evals
+
+The config declares two `type: rule` evals — `contact_preserved` and
+`format_compliance`. Each needs a matching Python function, or
+`fieldtest score` stops with `No rule registered for eval 'contact_preserved'`.
+Create **`evals/rules.py`**:
+
+```python
+from fieldtest import rule
+
+@rule("contact_preserved")
+def check_contact(output: str, inputs: dict) -> dict:
+    header = "\n".join(output.splitlines()[:3])
+    missing = [v for v in (inputs.get("expected_name", ""), inputs.get("expected_email", "")) if v and v not in header]
+    if missing:
+        return {"passed": False, "detail": f"{missing} not in first 3 lines"}
+    return {"passed": True, "detail": "name and email present"}
+
+@rule("format_compliance")
+def check_format(output: str, inputs: dict) -> dict:
+    required = ["## EXPERIENCE", "## EDUCATION"]
+    missing = [s for s in required if s not in output]
+    if missing:
+        return {"passed": False, "detail": f"missing sections: {missing}"}
+    return {"passed": True, "detail": "required sections present"}
+```
+
+Rules return `{"passed": bool, "detail": str}` — see [Eval types](#eval-types) for the full contract.
+
+### 6. Score
 
 ```bash
 fieldtest score
 ```
 
-Output:
+`fieldtest score` prints the full markdown report to stdout and ends with the
+absolute path it wrote:
 
 ```
-scoring tailor_resume: 3 fixtures × 3 runs = 9 evaluations per eval
-✓ results written to evals/results/2026-03-24T14-30-00-a3f9
+Results written to: /path/to/your/project/evals/results/2026-03-24T14-30-00-a3f9
 ```
 
 Five files are written to `evals/results/` on every run:
@@ -716,11 +765,13 @@ fieldtest view 2026-03-24T14-30-00-a3f9   # specific run
 
 The HTML report is self-contained — no server, no external dependencies. It opens in your default browser and works offline. Features: color-coded fixture × eval matrix, label filter bar, click any cell to expand per-run detail with pass/fail reasoning.
 
-The `-report.md` looks like:
+The `-report.md` looks like (abridged — a real report also shows Wilson
+confidence intervals on each pass rate, an `n` column, and a Failure Details
+section):
 
 ```
 # Eval Report
-2026-03-24 14:30 | set: full | 3 fixtures × 3 runs = 9 evaluations per eval
+2026-03-24 14:30 | set: full | 3 fixtures × 3 runs = 9 scored output(s) per eval
 
 ---
 
@@ -906,10 +957,12 @@ By default, `fieldtest score` exits with an error if any expected output file is
 fieldtest score --allow-partial
 ```
 
+The printed report's header flags the run and names what was skipped:
+
 ```
+# Eval Report
+2026-03-24 14:30 | set: full | 3 fixtures × 3 runs (PARTIAL — 2 outputs missing, skipped)
 ⚠ partial results: recent-grad__data-scientist run 2, recent-grad__data-scientist run 3 not found — excluded from rates
-scoring tailor_resume: 2 fixtures × 3 runs (PARTIAL — 2 outputs missing, skipped)
-✓ results written to evals/results/2026-03-24T14-30-00-a3f9
 ```
 
 Skipped runs are excluded from failure rates — they don't count as passes or failures. The report header flags the run as partial so you know the rates are based on incomplete data. All available outputs are still scored normally.
@@ -984,10 +1037,10 @@ fieldtest history
 ```
 
 ```
-RUN ID                      TIMESTAMP           SET           FIXTURES    RIGHT     GOOD      SAFE
-2026-03-24T14-30-00-a3f9    2026-03-24 14:30    full          11          0%        9%        0%
-2026-03-24T11-31-00-da96    2026-03-24 11:31    full          11          0%        18%       0%
-2026-03-23T18-52-00-79fb    2026-03-23 18:52    smoke         6           0%        12%       0%
+RUN ID                      TIMESTAMP           SET           FIXTURES    JUDGE                         RIGHT     GOOD      SAFE
+2026-03-24T14-30-00-a3f9    2026-03-24 14:30    full          11          claude-haiku-4-5              0%        9%        0%
+2026-03-24T11-31-00-da96    2026-03-24 11:31    full          11          claude-haiku-4-5              0%        18%       0%
+2026-03-23T18-52-00-79fb    2026-03-23 18:52    smoke         6           claude-haiku-4-5              0%        12%       0%
 ```
 
 The rates shown are average failure rates across all evals with that tag. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
@@ -1010,7 +1063,7 @@ Comparing: 2026-03-24T14-30-00-a3f9
 Baseline:  2026-03-23T18-52-00-79fb
 
 Increased:
-  bullet_quality: 0.180 → 0.090 (+0.090)
+  bullet_quality: 0.090 → 0.180 (+0.090)
 
 Decreased:
   education_placement: 0.240 → 0.180 (-0.060)
@@ -1019,6 +1072,17 @@ Unchanged: no_fabrication, contact_preserved, format_compliance, no_preamble, no
 ```
 
 Deltas use neutral language — "increased" means the failure rate went up, "decreased" means it went down. You decide if a change is a regression. A decrease in `education_placement` failure rate after a prompt fix is expected. An increase in `no_fabrication` is always worth investigating.
+
+**Dataset versioning.** When the fixture set itself changes, a delta against runs from the old set measures the dataset, not the system. Tag the snapshot:
+
+```yaml
+use_cases:
+  - id: tailor_resume
+    fixtures:
+      version: "2026-03"   # optional dataset snapshot tag
+```
+
+The tag is recorded in every run's `-data.json` as `dataset_version`. The automatic baseline lookup skips runs from a different version, and an explicit `--baseline` that crosses versions gets a warning. Configs that omit `version` are treated as unversioned — no filtering, no warning.
 
 ---
 
@@ -1040,14 +1104,30 @@ fieldtest clean --results --keep 10
 fieldtest clean --outputs --results --keep 5
 ```
 
-Interactive mode:
+Interactive mode names every file it will delete, then asks:
 
 ```
 Would remove:
-  outputs/: 33 run files
-  results/: 8 old result sets (keeping 20)
+  outputs/ — 9 file(s), and the directory's contents:
+    outputs/june-trip/run-1.txt
+    outputs/june-trip/run-2.txt
+    outputs/march-trip/run-1.txt
+    … and 6 more
+  results/ — 15 file(s) from old runs (keeping 20):
+    results/2026-01-02T10-00-00-aaaa-data.json
+    … and 14 more
 Proceed? [y/N]:
 ```
+
+`--outputs` clears the whole `outputs/` directory, not only the `run-N.txt`
+files fieldtest wrote — anything you put there goes too, and `fieldtest init`
+gitignores it, so it is not recoverable. `--results` removes only the five
+artifacts of each pruned run; a file of your own named after a run id is left
+alone.
+
+`clean` refuses to run unless it is looking at a valid fieldtest config. A bare
+`config.yaml` beside an `outputs/` directory describes most projects, and
+deleting one of those was not worth the convenience.
 
 Only what's listed in the prompt gets removed. If only results need pruning, outputs are untouched.
 
@@ -1104,7 +1184,7 @@ A single quality score hides which category failed. `right` and `safe` failures 
 |------|-------------|---------|
 | `rule` | deterministic Python logic; can read fixture `inputs` | contact info check, section ordering |
 | `regex` | pattern matching; `match: true` = must match, `match: false` = must not match | forbidden strings, required format |
-| `llm` | semantic judgment that requires reading the output | fabrication, quality, keyword alignment |
+| `llm` | semantic judgment that requires reading the output; Pass/Fail by default, or a scored scale with `binary: false` | fabrication, quality, keyword alignment |
 | `reference` | compare against `expected` block in fixture file | golden output regression check |
 
 Writing rules:
@@ -1126,6 +1206,43 @@ def check_contact(output: str, inputs: dict) -> dict:
 ```
 
 Rules always return `{"passed": bool, "detail": str}`. The detail is shown in the HTML report when you click a cell — make it informative on both pass and fail.
+
+### Scored LLM evals (`binary: false`)
+
+An `llm` eval returns a Pass/Fail verdict by default. Set `binary: false` for a scored eval: the judge rates each output on an integer `scale`, with `anchors` saying what the points mean.
+
+```yaml
+- id: explanation_clarity
+  tag: good
+  type: llm
+  binary: false            # a number, not a verdict
+  description: How clearly the reductions are explained
+  scale: [1, 5]            # [min, max]
+  anchors:                 # what the points mean
+    1: No explanation, or one that does not say why an amount changed.
+    3: States what was reduced, but the reader still has to check the policy.
+    5: States what was reduced, by how much, and why.
+```
+
+A scored eval reports a mean, a stddev, and a count of floor hits (outputs at the bottom of the scale) instead of a failure rate — the distribution rather than the verdict. `scale` and `anchors` are required when `binary: false`; `pass_criteria` and `fail_criteria` are required when it is binary (the default).
+
+### Few-shot examples for the judge
+
+A binary `llm` eval can carry `examples` — labelled outputs rendered into the judge prompt, useful for pinning down a criterion the judge keeps reading differently than you do:
+
+```yaml
+- id: bullet_quality
+  # ...
+  examples:
+    - output: "Led migration of 40 services to Kubernetes, cutting deploy time 70%"
+      label: pass
+      reasoning: Specific, quantified, starts with an action verb.
+    - output: "Responsible for helping with various infrastructure tasks"
+      label: fail
+      reasoning: Filler phrase, no specifics, nothing quantified.
+```
+
+`examples` applies to binary evals only — a scored (`binary: false`) eval ignores it, since a pass/fail label does not map onto a scale.
 
 ---
 
@@ -1249,9 +1366,11 @@ The fields most commonly used for CI gating:
 - `total_runs` counts scored **outputs**; `judge_calls` counts judge invocations. They
   differ exactly when `judge_runs > 1`.
 - `failure_rate` is per output, not per row: the repetitions are collapsed to one verdict
-  by majority, ties resolved to fail. Rates therefore stay comparable across `judge_runs`
-  settings — turning repetition on measures the judge without moving the number it reports
-  about your system.
+  by majority, ties resolved to fail. That keeps the denominator in outputs at any
+  `judge_runs`, but it does **not** make the rates comparable across settings. Because ties
+  resolve to fail, even settings are stricter than odd ones: a true 0.9 pass rate reports 0.100
+  at 1, 0.190 at 2 and 0.028 at 3. `find_baseline()` does not know this, so a `judge_runs`
+  change reads as a system movement in the delta — change it in its own run and say so.
 - `failure_rate_ci` is a two-sided Wilson score interval at `confidence_level`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `judge_calls` is judge calls attempted and `outputs_attempted` is outputs attempted. At `judge_runs: 1` they are equal and both equal `total_runs + error_count`; above 1 they diverge, and `failure_rate`'s denominator is `total_runs` in outputs, not calls.

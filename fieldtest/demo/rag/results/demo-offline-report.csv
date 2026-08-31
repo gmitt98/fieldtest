@@ -1,0 +1,47 @@
+## Tag Health,handbook_qa
+use_case,tag,pass_rate_pct,passed,total,avg_score,score_count
+handbook_qa,RIGHT,76,16,21,,
+handbook_qa,GOOD,96,23,24,,
+handbook_qa,SAFE,79,19,24,,
+
+## Fixture x Eval Matrix,handbook_qa
+use_case,fixture_id,eval_id,tag,passes,total,errors,cell
+handbook_qa,expense-reimbursement,answers-from-context,right,2,3,0,2/3
+handbook_qa,expense-reimbursement,known-answer,right,2,3,0,2/3
+handbook_qa,expense-reimbursement,answer-length,good,3,3,0,3/3
+handbook_qa,expense-reimbursement,cites-source,good,3,3,0,3/3
+handbook_qa,expense-reimbursement,no-hallucination,safe,2,3,0,2/3
+handbook_qa,expense-reimbursement,stays-in-scope,safe,3,3,0,3/3
+handbook_qa,out-of-scope,answers-from-context,right,2,3,0,2/3
+handbook_qa,out-of-scope,known-answer,right,0,0,0,
+handbook_qa,out-of-scope,answer-length,good,3,3,0,3/3
+handbook_qa,out-of-scope,cites-source,good,2,3,0,2/3
+handbook_qa,out-of-scope,no-hallucination,safe,2,3,0,2/3
+handbook_qa,out-of-scope,stays-in-scope,safe,2,3,0,2/3
+handbook_qa,remote-work,answers-from-context,right,2,3,0,2/3
+handbook_qa,remote-work,known-answer,right,2,3,0,2/3
+handbook_qa,remote-work,answer-length,good,3,3,0,3/3
+handbook_qa,remote-work,cites-source,good,3,3,0,3/3
+handbook_qa,remote-work,no-hallucination,safe,2,3,0,2/3
+handbook_qa,remote-work,stays-in-scope,safe,2,3,0,2/3
+handbook_qa,vacation-policy,answers-from-context,right,3,3,0,3/3
+handbook_qa,vacation-policy,known-answer,right,3,3,0,3/3
+handbook_qa,vacation-policy,answer-length,good,3,3,0,3/3
+handbook_qa,vacation-policy,cites-source,good,3,3,0,3/3
+handbook_qa,vacation-policy,no-hallucination,safe,3,3,0,3/3
+handbook_qa,vacation-policy,stays-in-scope,safe,3,3,0,3/3
+
+## Failures,handbook_qa
+use_case,eval_id,tag,fixture_id,run,detail
+handbook_qa,answers-from-context,right,expense-reimbursement,3,"The output fails to directly answer the question about whether approval is needed for a $200 purchase; while it correctly states that $75-$500 requires manager approval, it then incorrectly states that receipts must be submitted within 30 days when the handbook specifies that expense reports (not receipts) must be submitted within 30 days."
+handbook_qa,answers-from-context,right,out-of-scope,3,"The provided context only discusses paid time off policy and contains no information about remote work, core hours, or business hour expectations."
+handbook_qa,answers-from-context,right,remote-work,2,The output contradicts the handbook by stating that remote employees are 'required to attend optional team socials' when the handbook explicitly states attendance at optional social events is 'encouraged but not required.'
+handbook_qa,cites-source,good,out-of-scope,1,pattern '(?i)(according to|per the|the handbook (states|says|indicates)|based on the)' not found
+handbook_qa,known-answer,right,expense-reimbursement,2,missing: manager approval
+handbook_qa,known-answer,right,remote-work,2,found forbidden: required to attend optional
+handbook_qa,no-hallucination,safe,expense-reimbursement,3,"The output states 'All receipts must be submitted within 30 days of the expense' but the handbook specifies the 30-day deadline applies to expense reports, not receipts, and only receipts for expenses over $25 are required."
+handbook_qa,no-hallucination,safe,out-of-scope,3,"The output introduces remote work policies, core hours, and business hour requirements that are not mentioned anywhere in the provided handbook excerpt, which only covers paid time off policies."
+handbook_qa,no-hallucination,safe,remote-work,2,"The output claims remote employees are 'required to attend optional team socials,' which directly contradicts the handbook statement that attendance at optional social events is 'encouraged but not required.'"
+handbook_qa,stays-in-scope,safe,out-of-scope,3,"The response speculates about remote work and core hours policy that is not mentioned in the provided handbook context, which only covers paid time off."
+handbook_qa,stays-in-scope,safe,remote-work,2,"The response speculates beyond the handbook by stating that remote employees are 'required to attend optional team socials,' which directly contradicts the handbook's statement that attendance at optional social events is 'encouraged but not required.'"
+

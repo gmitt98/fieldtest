@@ -12,6 +12,7 @@ no cycle exists.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -31,61 +32,116 @@ from fieldtest.templates import AVAILABLE_TEMPLATES
               help="Path to config.yaml (default: evals/config.yaml)")
 def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
     """Clean up accumulated run artifacts."""
-    path        = Path(config_path) if config_path else _default_config_path()
-    base_dir    = path.resolve().parent
+    import shutil
+
+    from fieldtest.config import parse_and_validate
+
+    path     = Path(config_path) if config_path else _default_config_path()
+    base_dir = path.resolve().parent
+
+    # Refuse to delete anything until this is confirmed to be a fieldtest
+    # project. `_default_config_path()` falls back to ./config.yaml, and
+    # `config.yaml` beside an `outputs/` directory describes most ML projects
+    # ever written — `clean --outputs` in one of those silently deleted the
+    # user's checkpoints and exited 0.
+    if not path.exists():
+        click.echo(
+            f"No config found at {path}.\n"
+            f"  clean removes files from a fieldtest project; run it from one, "
+            f"or pass --config.",
+            err=True,
+        )
+        sys.exit(1)
+    try:
+        parse_and_validate(path)
+    except Exception as e:
+        click.echo(
+            f"{path} is not a usable fieldtest config, so there is nothing here "
+            f"clean can safely remove.\n  {str(e).splitlines()[0]}",
+            err=True,
+        )
+        sys.exit(1)
+
     outputs_dir = base_dir / "outputs"
     results_dir = base_dir / "results"
 
+    def output_victims() -> list:
+        """Everything rmtree would take — not just the files we recognise."""
+        if not outputs_dir.is_dir():
+            return []
+        return sorted(p for p in outputs_dir.rglob("*") if p.is_file())
+
+    def result_victims() -> list:
+        """The five artifacts of each pruned run, named exactly."""
+        if not results_dir.is_dir():
+            return []
+        runs = sorted(results_dir.glob("*-data.json"), reverse=True)[keep:]
+        out = []
+        for p in runs:
+            run_id = p.stem.removesuffix("-data")
+            for suffix in ("-data.json", "-data.csv",
+                           "-report.md", "-report.csv", "-report.html"):
+                f = results_dir / f"{run_id}{suffix}"
+                if f.is_file():
+                    out.append(f)
+        return out
+
+    def describe(files: list, root: Path) -> list:
+        shown = [f"    {f.relative_to(root.parent)}" for f in files[:8]]
+        if len(files) > 8:
+            shown.append(f"    … and {len(files) - 8} more")
+        return shown
+
     if not outputs and not results:
-        # Interactive mode — show only what actually needs cleaning,
-        # then set flags based on what was shown (not unconditionally).
-        to_remove = []
-        output_files: list = []
-        old_results: list  = []
-
-        if outputs_dir.exists():
-            output_files = list(outputs_dir.rglob("*.txt"))
-            if output_files:
-                to_remove.append(f"  outputs/: {len(output_files)} run files")
-
-        if results_dir.exists():
-            result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
-            old_results  = result_files[keep:]
-            if old_results:
-                to_remove.append(
-                    f"  results/: {len(old_results)} old result sets (keeping {keep})"
-                )
-
-        if not to_remove:
+        out_files = output_victims()
+        res_files = result_victims()
+        if not out_files and not res_files:
             click.echo("Nothing to clean.")
             return
 
         click.echo("Would remove:")
-        for line in to_remove:
-            click.echo(line)
-        if click.confirm("Proceed?"):
-            # Only act on what was described in the prompt above
-            outputs = bool(output_files)
-            results = bool(old_results)
-        else:
+        if out_files:
+            # Count every file, and say plainly that the directory goes with
+            # them. Counting only *.txt announced "1 run files" and then took a
+            # hand-written notes.md and a whole subdirectory with it.
+            click.echo(f"  outputs/ — {len(out_files)} file(s), and the directory's contents:")
+            for line in describe(out_files, outputs_dir):
+                click.echo(line)
+        if res_files:
+            click.echo(f"  results/ — {len(res_files)} file(s) from old runs (keeping {keep}):")
+            for line in describe(res_files, results_dir):
+                click.echo(line)
+
+        if not click.confirm("Proceed?"):
             click.echo("Cancelled.")
             return
+        outputs = bool(out_files)
+        results = bool(res_files)
 
     if outputs and outputs_dir.exists():
-        import shutil
+        if outputs_dir.is_symlink():
+            click.echo(
+                f"outputs/ is a symlink to {os.readlink(outputs_dir)} — refusing to "
+                f"clear it. Remove the link yourself if that is what you meant.",
+                err=True,
+            )
+            sys.exit(1)
+        victims = output_victims()
         shutil.rmtree(outputs_dir)
         outputs_dir.mkdir(parents=True, exist_ok=True)
-        click.echo("✓ outputs/ cleared")
+        click.echo(f"✓ outputs/ cleared — {len(victims)} file(s) removed")
 
     if results and results_dir.exists():
-        result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
-        removed = 0
-        for p in result_files[keep:]:
-            run_id = p.stem.removesuffix("-data")
-            for fp in results_dir.glob(f"{run_id}-*"):
-                fp.unlink()
-            removed += 1
-        click.echo(f"✓ results/ pruned — kept {min(keep, len(result_files))}, removed {removed}")
+        # Only the five known artifacts per run. Globbing `{run_id}-*` swept up
+        # anything a user had named after a run — a write-up beside the results
+        # was deleted and never appeared in the count.
+        victims = result_victims()
+        runs = len({f.name.rsplit("-", 1)[0] for f in victims})
+        for f in victims:
+            f.unlink()
+        kept = len(sorted(results_dir.glob("*-data.json")))
+        click.echo(f"✓ results/ pruned — kept {kept}, removed {runs} run(s)")
+
 
 @click.command("init")
 @click.option("--dir", "target_dir", default="evals", show_default=True,
@@ -127,7 +183,7 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
 
     gitignore_path = evals_dir / ".gitignore"
     if not gitignore_path.exists() or force:
-        gitignore_path.write_text(GITIGNORE_CONTENT)
+        gitignore_path.write_text(GITIGNORE_CONTENT, encoding="utf-8")
 
     if template:
         # Load curated template config from templates/ directory
@@ -152,10 +208,16 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         click.echo("  5. fieldtest score")
     else:
         config_path = evals_dir / "config.yaml"
+        # --force overwrites an existing config in place, and the output was
+        # byte-identical to scaffolding an empty directory — nothing named the
+        # file that had just been replaced.
+        overwrote = config_path.exists() and force
         if not config_path.exists() or force:
-            config_path.write_text(STARTER_CONFIG)
+            config_path.write_text(STARTER_CONFIG, encoding="utf-8")
 
         click.echo(f"✓ Scaffolded eval structure at {evals_dir}/")
+        if overwrote:
+            click.echo(f"  ⚠ replaced the existing {config_path} with the starter template")
         click.echo(f"  {evals_dir}/config.yaml       — fill this out first")
         click.echo(f"  {evals_dir}/fixtures/golden/  — fixtures with expected outputs")
         click.echo(f"  {evals_dir}/fixtures/variations/ — fixtures without expected outputs")
@@ -242,11 +304,26 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         )
         sys.exit(1)
 
-    # Copy demo source tree (excluding results/ — we handle that separately)
-    def _ignore_results(src, names):
-        return ["results"] if "results" in names else []
+    # Live mode needs a key (except extraction, which uses rules only).
+    # Check BEFORE copying anything, so a failed run leaves nothing behind —
+    # otherwise the suggested retry with --offline hits the dest-exists guard.
+    if not offline and example != "extraction":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            click.echo(
+                "Error: ANTHROPIC_API_KEY not set.\n"
+                "  Set it with: export ANTHROPIC_API_KEY=sk-...\n"
+                "  Or use --offline to view pre-scored results without an API key.",
+                err=True,
+            )
+            sys.exit(1)
 
-    shutil.copytree(demo_source, dest, ignore=_ignore_results)
+    # Copy demo source tree, excluding results/ (handled separately) and
+    # install-time byte-code clutter (__pycache__ is compiled into
+    # site-packages by pip and must not land in the user's project).
+    shutil.copytree(
+        demo_source, dest,
+        ignore=shutil.ignore_patterns("results", "__pycache__", ".DS_Store"),
+    )
 
     # Rename demo's evals-style dirs to expected layout under dest/evals/
     # The demo source ships as: config.yaml, rules.py, fixtures/, outputs/
@@ -274,7 +351,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
             try:
                 from fieldtest.config import parse_and_validate
                 from fieldtest.results.html import write_html
-                run_data = json.loads(json_files[0].read_text())
+                run_data = json.loads(json_files[0].read_text(encoding="utf-8"))
                 config   = parse_and_validate(evals_dir / "config.yaml")
                 run_id   = json_files[0].name.replace("-data.json", "")
                 write_html(run_data, config, dest_results / f"{run_id}-report.html")
@@ -284,24 +361,20 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         # Print pre-rendered markdown report if available
         md_files = list(dest_results.glob("*-report.md"))
         if md_files:
-            click.echo(md_files[0].read_text())
+            click.echo(md_files[0].read_text(encoding="utf-8"))
         else:
             click.echo("Offline results loaded. No markdown report found.")
 
-        click.echo(f"\nFiles saved to {dest}/ — edit evals/outputs/ to experiment, then run fieldtest score")
-        click.echo("Run 'fieldtest view' to open the HTML report in your browser.")
+        # Both commands resolve config from the current directory, so naming
+        # them without the cd sent every reader of this line into "No results
+        # found" — or, before the config default was fixed, into a traceback.
+        click.echo(f"\nFiles saved to {dest}/. To explore:")
+        click.echo(f"  cd {dest}")
+        click.echo("  fieldtest view            # open the HTML report")
+        click.echo("  fieldtest score           # re-score after editing evals/outputs/")
         return
 
-    # Live mode — check API key (not required for extraction which uses rules only)
-    if example != "extraction":
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            click.echo(
-                "Error: ANTHROPIC_API_KEY not set.\n"
-                "  Set it with: export ANTHROPIC_API_KEY=sk-...\n"
-                "  Or use --offline to view pre-scored results without an API key.",
-                err=True,
-            )
-            sys.exit(1)
+    # Live mode — the API key was already checked before anything was copied.
 
     # Run fieldtest score from the demo directory
     click.echo(f"Running fieldtest score in {dest}/evals/ ...")
@@ -316,7 +389,10 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
     except Exception as e:
         _handle_error(e)
 
-    click.echo(f"\nFiles saved to {dest}/ — edit evals/outputs/ to experiment, then run fieldtest score")
+    click.echo(f"\nFiles saved to {dest}/. To explore:")
+    click.echo(f"  cd {dest}")
+    click.echo("  fieldtest view            # open the HTML report")
+    click.echo("  fieldtest score           # re-score after editing evals/outputs/")
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +428,7 @@ def dataset_list():
         readme = _datasets_root() / name / "README.md"
         summary = ""
         if readme.is_file():
-            for line in readme.read_text().splitlines():
+            for line in readme.read_text(encoding="utf-8").splitlines():
                 if line.strip() and not line.startswith("#"):
                     summary = f" — {line.strip()}"
                     break
@@ -376,6 +452,17 @@ def dataset_use(name: str, dest: str, force: bool):
         sys.exit(1)
 
     target = Path(dest)
+    if target.exists() and not target.is_dir():
+        # exists() is True for a file, and iterdir() then raises
+        # NotADirectoryError straight through click — a typo in --dest produced
+        # a stack trace instead of a sentence.
+        click.echo(
+            f"{target} is a file, not a directory. --dest names a directory to "
+            f"copy the dataset into.",
+            err=True,
+        )
+        sys.exit(1)
+
     if target.exists() and any(target.iterdir()) and not force:
         # Copying over someone's evals is not recoverable, and a dataset is
         # exactly what a new project directory looks like.
@@ -393,5 +480,7 @@ def dataset_use(name: str, dest: str, force: bool):
     )
     click.echo(f"Copied '{name}' to {target}/")
     click.echo(f"  {target}/README.md   what is in it and what to write")
-    click.echo(f"  {target}/config.yaml your evals — three are TODO")
+    todos = Path(target, "config.yaml").read_text(encoding="utf-8").count("# TODO")
+    plural = "is" if todos == 1 else "are"
+    click.echo(f"  {target}/config.yaml your evals — {todos} {plural} TODO")
     click.echo("\nRun it now (no API key needed):  fieldtest score --set full")

@@ -15,6 +15,8 @@
   "fixture_count": 3,
   "runs": 3,
   "judge_runs": 1,
+  "partial": false,
+  "partial_details": [],
   "rows": [
     {
       "use_case": "email_response",
@@ -1046,6 +1048,19 @@
   "summary": {
     "email_response": {
       "right": {
+        "addresses-the-ask": {
+          "failure_rate": 0.222222,
+          "failure_rate_ci": [
+            0.0632,
+            0.5474
+          ],
+          "confidence_level": 0.95,
+          "floor_hits": 0,
+          "total_runs": 9,
+          "error_count": 0,
+          "judge_calls": 9,
+          "outputs_attempted": 9
+        },
         "golden-reply": {
           "failure_rate": 0.0,
           "failure_rate_ci": [
@@ -1058,23 +1073,6 @@
           "error_count": 0,
           "judge_calls": 3,
           "outputs_attempted": 3
-        },
-        "addresses-the-ask": {
-          "failure_rate": 0.222222,
-          "failure_rate_ci": [
-            0.0632,
-            0.5474
-          ],
-          "confidence_level": 0.95,
-          "floor_hits": 0,
-          "total_runs": 9,
-          "error_count": 0,
-          "judge_calls": 9,
-          "outputs_attempted": 9,
-          "labeled_runs": 3,
-          "judge_agreement": 1.0,
-          "judge_false_pass": 0,
-          "judge_false_fail": 0
         }
       },
       "good": {
@@ -1130,11 +1128,7 @@
           "total_runs": 9,
           "error_count": 0,
           "judge_calls": 9,
-          "outputs_attempted": 9,
-          "labeled_runs": 3,
-          "judge_agreement": 1.0,
-          "judge_false_pass": 0,
-          "judge_false_fail": 0
+          "outputs_attempted": 9
         }
       }
     }
