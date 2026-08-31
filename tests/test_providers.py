@@ -2046,3 +2046,96 @@ def test_a_dev_only_install_has_no_hard_failures():
                     f"{list(markers)}; it will fail rather than skip on a "
                     f"dev-only install"
                 )
+
+
+def test_config_module_survives_pep484_type_comment_parsing():
+    """py.typed ships, so downstream mypy reads fieldtest's sources with PEP 484
+    type-comment parsing on. A bare `# type: <words>` comment (e.g. the old
+    `# type: regex` section markers in config.py) parses as an invalid type
+    comment and aborts the whole check — the consumer's own code goes
+    unchecked. ast.parse(type_comments=True) applies the same rules."""
+    import ast as _ast
+
+    for path in sorted((_REPO_ROOT / "fieldtest").rglob("*.py")):
+        # datasets/ holds project templates exec'd from user projects, not
+        # modules mypy follows from `import fieldtest`. (expense-report/rules.py
+        # currently carries a `type: rule` line inside a commented YAML example
+        # that would trip this check — a user running mypy over a copied
+        # template hits it, but that is the datasets area's to fix.)
+        if "datasets" in path.parts:
+            continue
+        try:
+            _ast.parse(path.read_text(), filename=str(path), type_comments=True)
+        except SyntaxError as e:
+            raise AssertionError(
+                f"{path.relative_to(_REPO_ROOT)}:{e.lineno} breaks PEP 484 "
+                f"type-comment parsing ({e.msg}) — reword any bare '# type:' "
+                f"comment so typed consumers can run mypy at all"
+            ) from None
+
+
+def test_dependency_floors_are_installable_on_every_claimed_python():
+    """The classifiers claim 3.10-3.14. pyyaml 6.0's sdist cannot build under
+    Cython 3 and has no wheels for 3.12+; pydantic-core only gains wheels for a
+    new CPython in later releases and its sdist needs Rust. A floor below these
+    minima makes lowest-resolution installs (uv --resolution lowest,
+    constraints files) fail on the very interpreters the package claims.
+    Minima verified against PyPI wheel availability (see pyproject comments)."""
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    reqs = [Requirement(d) for d in pyproject["project"]["dependencies"]]
+
+    def effective_floor(name: str, python_version: str) -> Version:
+        env = {
+            "python_version": python_version,
+            "python_full_version": python_version + ".0",
+        }
+        floors = []
+        for r in reqs:
+            if r.name.lower() != name:
+                continue
+            if r.marker is not None and not r.marker.evaluate(env):
+                continue
+            for spec in r.specifier:
+                if spec.operator in (">=", "==", "~="):
+                    floors.append(Version(spec.version))
+        assert floors, f"no applicable floor for {name} on Python {python_version}"
+        return max(floors)
+
+    pydantic_minima = {
+        "3.10": "2.0",
+        "3.11": "2.0",
+        "3.12": "2.5",   # first pydantic-core cp312 wheels
+        "3.13": "2.9",   # first pydantic-core cp313 wheels
+        "3.14": "2.12",  # first pydantic-core cp314 wheels
+    }
+    for py, minimum in pydantic_minima.items():
+        floor = effective_floor("pydantic", py)
+        assert floor >= Version(minimum), (
+            f"pydantic floor {floor} is not installable on Python {py}; "
+            f"needs >={minimum}"
+        )
+        yaml_floor = effective_floor("pyyaml", py)
+        assert yaml_floor >= Version("6.0.1"), (
+            f"pyyaml floor {yaml_floor} on Python {py}: 6.0's sdist cannot "
+            f"build under Cython 3 and has no wheels for 3.12+"
+        )
+
+
+def test_changelog_documents_the_clean_data_loss_fixes():
+    """The project's release-notes bar is 'what stopped going wrong'. The
+    clean guards (refusing non-fieldtest projects, honest deletion prompts,
+    --results scoped to known artifacts) are the most user-protective fixes in
+    0.3.0 and shipped undocumented — this pins their presence."""
+    changelog = (_REPO_ROOT / "CHANGELOG.md").read_text()
+    section = changelog.split("## Changes from v0.2.2")[0]
+    assert re.search(r"`fieldtest clean`", section), (
+        "CHANGELOG's 0.3.0 notes never mention the fieldtest clean "
+        "data-loss fixes"
+    )
+    assert "refuses" in section and "fieldtest project" in section, (
+        "CHANGELOG should say clean now refuses to run outside a "
+        "fieldtest project"
+    )
