@@ -566,7 +566,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         return empty
 
     try:
-        baseline_data = json.loads(baseline_path.read_text())
+        baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
     except Exception:
         return empty
 
@@ -746,7 +746,7 @@ def find_baseline_with_reason(
         if p.stem.removesuffix("-data") == current_run_id:
             continue
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
 

@@ -40,7 +40,7 @@ fieldtest dataset use expense-report
 ```
 Copied 'expense-report' to evals/
   evals/README.md   what is in it and what to write
-  evals/config.yaml your evals — three are TODO
+  evals/config.yaml your evals — 3 are TODO
 
 Run it now (no API key needed):  fieldtest score --set full
 ```

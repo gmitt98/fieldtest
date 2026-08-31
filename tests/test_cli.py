@@ -2528,3 +2528,42 @@ def test_python_dash_m_offers_every_command(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
     assert "demo" in proc.stdout
+
+
+def test_the_demos_closing_instructions_actually_work(tmp_path, monkeypatch):
+    """
+    Twice now the demo has ended by naming a command that fails from the
+    directory it leaves you in: first `fieldtest view` crashed outright, then it
+    resolved config from the wrong place and found nothing. The closing lines
+    are the most-followed instructions the tool prints; run them.
+    """
+    import re
+
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["demo", "--example", "rag", "--offline"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    tail = result.output.strip().splitlines()[-6:]
+    cd_line = next((l for l in tail if l.strip().startswith("cd ")), None)
+    assert cd_line, f"the demo does not tell you where to cd:\n{tail}"
+
+    target = tmp_path / cd_line.strip().removeprefix("cd ").strip()
+    assert target.is_dir(), f"the demo says 'cd {target.name}' and it does not exist"
+
+    commands = [re.match(r"\s*(fieldtest [a-z]+)", l).group(1).split()[1]
+                for l in tail if re.match(r"\s*fieldtest [a-z]+", l)]
+    assert commands, f"the demo names no commands to run:\n{tail}"
+
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+    monkeypatch.chdir(target)
+    for cmd in commands:
+        r = runner.invoke(main, [cmd], catch_exceptions=False)
+        assert "Traceback" not in r.output, f"'{cmd}' raised:\n{r.output}"
+        assert "No results found" not in r.output, (
+            f"the demo tells you to run '{cmd}' and it finds nothing:\n{r.output}")
+        assert r.exit_code == 0, f"'{cmd}' exited {r.exit_code}:\n{r.output}"

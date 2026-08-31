@@ -198,7 +198,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
                 except Exception:
                     baseline_data = {}
 
-    click.echo(f"Comparing: {current_path.stem}")
+    # .stem leaves the -data suffix, and `fieldtest view <that>` then fails.
+    click.echo(f"Comparing: {current_path.stem.removesuffix('-data')}")
     click.echo(f"Baseline:  {delta.get('baseline_run_id', '—')}")
     click.echo("")
 

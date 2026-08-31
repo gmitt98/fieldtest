@@ -1,0 +1,39 @@
+## Tag Health,invoice_extraction
+use_case,tag,pass_rate_pct,passed,total,avg_score,score_count
+invoice_extraction,RIGHT,95,20,21,,
+invoice_extraction,GOOD,33,3,9,,
+invoice_extraction,SAFE,89,16,18,,
+
+## Fixture x Eval Matrix,invoice_extraction
+use_case,fixture_id,eval_id,tag,passes,total,errors,cell
+invoice_extraction,invoice-complex,valid-json,right,3,3,0,3/3
+invoice_extraction,invoice-complex,required-fields-present,right,3,3,0,3/3
+invoice_extraction,invoice-complex,known-extraction,right,0,0,0,
+invoice_extraction,invoice-complex,extraction-quality,good,2,3,0,2/3
+invoice_extraction,invoice-complex,no-invented-fields,safe,2,3,0,2/3
+invoice_extraction,invoice-complex,no-fabrication,safe,2,3,0,2/3
+invoice_extraction,invoice-simple,valid-json,right,3,3,0,3/3
+invoice_extraction,invoice-simple,required-fields-present,right,3,3,0,3/3
+invoice_extraction,invoice-simple,known-extraction,right,2,3,0,2/3
+invoice_extraction,invoice-simple,extraction-quality,good,1,3,0,1/3
+invoice_extraction,invoice-simple,no-invented-fields,safe,3,3,0,3/3
+invoice_extraction,invoice-simple,no-fabrication,safe,3,3,0,3/3
+invoice_extraction,receipt,valid-json,right,3,3,0,3/3
+invoice_extraction,receipt,required-fields-present,right,3,3,0,3/3
+invoice_extraction,receipt,known-extraction,right,0,0,0,
+invoice_extraction,receipt,extraction-quality,good,0,3,0,0/3
+invoice_extraction,receipt,no-invented-fields,safe,3,3,0,3/3
+invoice_extraction,receipt,no-fabrication,safe,3,3,0,3/3
+
+## Failures,invoice_extraction
+use_case,eval_id,tag,fixture_id,run,detail
+invoice_extraction,extraction-quality,good,invoice-complex,3,"The discount field shows '10%' but no discount is mentioned in the source text, and the amount is missing the currency symbol ($) that was present in the source."
+invoice_extraction,extraction-quality,good,invoice-simple,1,"The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source."
+invoice_extraction,extraction-quality,good,invoice-simple,3,"The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source."
+invoice_extraction,extraction-quality,good,receipt,1,"The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source."
+invoice_extraction,extraction-quality,good,receipt,2,"The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source."
+invoice_extraction,extraction-quality,good,receipt,3,"The amount field is missing the currency symbol ($) that was present in the source text, violating the requirement that amounts include currency where present in source."
+invoice_extraction,known-extraction,right,invoice-simple,2,missing: 3420
+invoice_extraction,no-fabrication,safe,invoice-complex,3,The discount value of '10%' does not appear anywhere in the source invoice text and appears to be invented rather than extracted.
+invoice_extraction,no-invented-fields,safe,invoice-complex,3,"pattern '(?i)(""discount""|""tax_rate""|""notes""|""payment_terms""|""late_fee"")' found"
+

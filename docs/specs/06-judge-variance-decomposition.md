@@ -36,8 +36,18 @@ it is the instrument.
 3. `build_summary()` reports system spread and judge spread as separate figures.
 4. For binary evals, judge instability is reported as a disagreement rate: the fraction of
    outputs for which the judge did not return the same verdict on every repetition.
-5. For scored evals, judge spread is the mean within-output standard deviation across
-   repetitions, and system spread is the standard deviation of per-output means.
+5. For scored evals, the two spreads are the variance components of a one-way random-effects
+   model: judge spread is the pooled within-output sample standard deviation, and system spread
+   is `sqrt(max(0, var(per-output means) - judge_var * mean(1/R_i)))`.
+
+   **Amended after implementation.** This clause originally specified the mean of the
+   per-output standard deviations and the standard deviation of the per-output means. Both are
+   biased, in the same direction, and by enough to invert the verdict the decomposition exists
+   to give: each per-output mean carries its own judge noise, so their SD estimates
+   `sqrt(s² + j²/R)` rather than `s`; and averaging SDs rather than variances understates `j`
+   twice over (Jensen, plus a population denominator on a sample of R). Monte Carlo over 2000
+   outputs at R=3 reported true `s=5, j=5` as system 5.72 / judge 3.59 — "the system is noisy"
+   when the judge was. The estimator above returns 4.96 / 4.95 on the same data.
 6. When `judge_runs: 1`, output is byte-identical to today's, and no judge spread fields appear.
    The default is 1, so nobody pays for this unless they ask.
 7. A collapsed verdict per output is defined for binary evals so downstream consumers have one

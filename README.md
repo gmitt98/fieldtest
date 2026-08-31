@@ -387,8 +387,12 @@ means the eval's criteria are ambiguous.
 
 **This multiplies your bill.** `runs × judge_runs × llm evals × fixtures` judge calls;
 `fieldtest validate` prints the projection for the full set so you meet the number before paying
-it. `failure_rate` is computed from collapsed verdicts (majority, ties resolved to fail), so rates
-stay comparable no matter how many repetitions you run.
+it. `failure_rate` is computed from collapsed verdicts (majority, ties resolved to fail), so it
+always counts outputs rather than judge calls. The *unit* is stable; the number is not. Ties go
+to fail, so an even `judge_runs` is stricter than an odd one — at a true 0.9 pass rate the
+reported failure rate is 0.100 at `judge_runs: 1`, 0.190 at 2, and 0.028 at 3. Change
+`judge_runs` and you have changed the instrument, not the system: compare runs that share a
+setting, and read a jump across a change as an artefact until proven otherwise.
 
 ### Judge retries
 
@@ -1346,9 +1350,11 @@ The fields most commonly used for CI gating:
 - `total_runs` counts scored **outputs**; `judge_calls` counts judge invocations. They
   differ exactly when `judge_runs > 1`.
 - `failure_rate` is per output, not per row: the repetitions are collapsed to one verdict
-  by majority, ties resolved to fail. Rates therefore stay comparable across `judge_runs`
-  settings — turning repetition on measures the judge without moving the number it reports
-  about your system.
+  by majority, ties resolved to fail. That keeps the denominator in outputs at any
+  `judge_runs`, but it does **not** make the rates comparable across settings. Because ties
+  resolve to fail, even settings are stricter than odd ones: a true 0.9 pass rate reports 0.100
+  at 1, 0.190 at 2 and 0.028 at 3. `find_baseline()` does not know this, so a `judge_runs`
+  change reads as a system movement in the delta — change it in its own run and say so.
 - `failure_rate_ci` is a two-sided Wilson score interval at `confidence_level`, and `null` whenever `failure_rate` is. Scored evals do not carry one — `stddev` already conveys their spread.
 - `error_count` counts judge-call errors, which are **excluded** from `failure_rate`'s denominator. Gate on this separately if you want CI to fail when too many judge calls error out.
 - `judge_calls` is judge calls attempted and `outputs_attempted` is outputs attempted. At `judge_runs: 1` they are equal and both equal `total_runs + error_count`; above 1 they diverge, and `failure_rate`'s denominator is `total_runs` in outputs, not calls.

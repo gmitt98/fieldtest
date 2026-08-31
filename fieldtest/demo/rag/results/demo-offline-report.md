@@ -1,5 +1,5 @@
 # Eval Report
-2026-08-27 10:39 | set: full | 4 fixtures × 3 runs = 12 evaluations per eval
+2026-08-27 10:39 | set: full | 4 fixtures × 3 runs = 12 scored output(s) per eval
 judge: anthropic claude-haiku-4-5 | temperature: 0.0
 
 ---
@@ -17,8 +17,8 @@ Employee questions answered accurately from the handbook
 ### RIGHT
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |
 |------|--------|----------|---|------|-----------|--------|---------|
-| known-answer | accuracy | 78% [45–94%] | 9 | — | 0 | 0 | — |
 | answers-from-context | accuracy | 75% [47–91%] | 12 | — | 0 | 0 | — |
+| known-answer | accuracy | 78% [45–94%] | 9 | — | 0 | 0 | — |
 
 ### GOOD
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |

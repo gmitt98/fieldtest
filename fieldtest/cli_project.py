@@ -303,8 +303,13 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         else:
             click.echo("Offline results loaded. No markdown report found.")
 
-        click.echo(f"\nFiles saved to {dest}/ — edit evals/outputs/ to experiment, then run fieldtest score")
-        click.echo("Run 'fieldtest view' to open the HTML report in your browser.")
+        # Both commands resolve config from the current directory, so naming
+        # them without the cd sent every reader of this line into "No results
+        # found" — or, before the config default was fixed, into a traceback.
+        click.echo(f"\nFiles saved to {dest}/. To explore:")
+        click.echo(f"  cd {dest}")
+        click.echo("  fieldtest view            # open the HTML report")
+        click.echo("  fieldtest score           # re-score after editing evals/outputs/")
         return
 
     # Live mode — the API key was already checked before anything was copied.
@@ -322,7 +327,10 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
     except Exception as e:
         _handle_error(e)
 
-    click.echo(f"\nFiles saved to {dest}/ — edit evals/outputs/ to experiment, then run fieldtest score")
+    click.echo(f"\nFiles saved to {dest}/. To explore:")
+    click.echo(f"  cd {dest}")
+    click.echo("  fieldtest view            # open the HTML report")
+    click.echo("  fieldtest score           # re-score after editing evals/outputs/")
 
 
 # ---------------------------------------------------------------------------
@@ -399,5 +407,7 @@ def dataset_use(name: str, dest: str, force: bool):
     )
     click.echo(f"Copied '{name}' to {target}/")
     click.echo(f"  {target}/README.md   what is in it and what to write")
-    click.echo(f"  {target}/config.yaml your evals — three are TODO")
+    todos = Path(target, "config.yaml").read_text(encoding="utf-8").count("# TODO")
+    plural = "is" if todos == 1 else "are"
+    click.echo(f"  {target}/config.yaml your evals — {todos} {plural} TODO")
     click.echo("\nRun it now (no API key needed):  fieldtest score --set full")

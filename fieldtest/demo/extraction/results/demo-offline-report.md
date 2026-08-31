@@ -1,5 +1,5 @@
 # Eval Report
-2026-08-27 10:39 | set: full | 3 fixtures × 3 runs = 9 evaluations per eval
+2026-08-27 10:39 | set: full | 3 fixtures × 3 runs = 9 scored output(s) per eval
 judge: anthropic claude-haiku-4-5 | temperature: 0.0
 
 ---
@@ -17,9 +17,9 @@ Extract structured fields from invoice text into validated JSON
 ### RIGHT
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |
 |------|--------|----------|---|------|-----------|--------|---------|
-| known-extraction | accuracy | 67% [21–94%] | 3 | — | 0 | 0 | — |
-| required-fields-present | structure|completeness | 100% [70–100%] | 9 | — | 0 | 0 | — |
 | valid-json | structure | 100% [70–100%] | 9 | — | 0 | 0 | — |
+| required-fields-present | structure|completeness | 100% [70–100%] | 9 | — | 0 | 0 | — |
+| known-extraction | accuracy | 67% [21–94%] | 3 | — | 0 | 0 | — |
 
 ### GOOD
 | eval | labels | pass rate | n | mean | floor hits | errors | vs prior |

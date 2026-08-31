@@ -282,7 +282,7 @@ def format_report(
     if delta.get("baseline_run_id") and baseline_judge_runs != current_judge_runs:
         lines.append(
             f"⚠ baseline judged each output {baseline_judge_runs}× and this run "
-            f"{current_judge_runs}× — failure rates remain comparable, judge spread "
+            f"{current_judge_runs}× — judge spread "
             f"figures do not."
         )
 
@@ -408,8 +408,16 @@ def format_report(
                 if errs > 0:
                     error_eval_ids.append((eval_id, errs))
                 if fh > 0:
+                    # One entry per output, not per judge call. Iterating raw
+                    # rows listed the same file judge_runs times beside a count
+                    # that had already been collapsed to outputs.
+                    seen_floor = set()
                     for row in rows:
                         if row.eval_id == eval_id and row.floor_hit:
+                            key = (row.fixture_id, row.run)
+                            if key in seen_floor:
+                                continue
+                            seen_floor.add(key)
                             floor_hit_rows.append(
                                 f"outputs/{row.fixture_id}/run-{row.run}.txt"
                             )
