@@ -1812,3 +1812,110 @@ def test_a_gemini_client_error_is_not_retried():
     assert "error" in result
     assert client.models.generate_content.call_count == 1
     assert mock_sleep.call_count == 0
+# Packaging and release mechanics (audit findings, 0.3.0)
+# ---------------------------------------------------------------------------
+
+import re
+import shutil as _shutil
+import tomllib
+from pathlib import Path
+
+from click.testing import CliRunner
+
+from fieldtest.cli import main as _cli_main
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_keyless_demo_leaves_no_directory_behind(tmp_path, monkeypatch):
+    """A live `fieldtest demo` without a key must fail BEFORE copying anything,
+    so the suggested `--offline` retry does not hit the dest-exists guard."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    result = CliRunner().invoke(_cli_main, ["demo"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "ANTHROPIC_API_KEY" in result.output
+    assert not (tmp_path / "fieldtest-demo").exists(), (
+        "keyless demo left a half-created fieldtest-demo/ behind"
+    )
+
+    # And the printed remedy actually works on the very next command.
+    retry = CliRunner().invoke(
+        _cli_main, ["demo", "--offline"], catch_exceptions=False
+    )
+    assert retry.exit_code == 0, retry.output
+
+
+def test_demo_does_not_copy_pycache_into_the_project(tmp_path, monkeypatch):
+    """pip compiles __pycache__ into site-packages at install time; the demo
+    copy must not drag it into the user's project (dataset use already
+    excludes it)."""
+    import fieldtest.cli_project as cli_project
+
+    demo_source = Path(cli_project.__file__).parent / "demo" / "email"
+    pycache = demo_source / "__pycache__"
+    created = not pycache.exists()
+    pycache.mkdir(exist_ok=True)
+    (pycache / "rules.cpython-314.pyc").write_bytes(b"\x00")
+    try:
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            _cli_main, ["demo", "--offline"], catch_exceptions=False
+        )
+        assert result.exit_code == 0, result.output
+        copied = list((tmp_path / "fieldtest-demo").rglob("__pycache__")) + list(
+            (tmp_path / "fieldtest-demo").rglob("*.pyc")
+        )
+        assert copied == [], f"byte-code clutter copied into project: {copied}"
+    finally:
+        if created:
+            _shutil.rmtree(pycache, ignore_errors=True)
+        else:
+            (pycache / "rules.cpython-314.pyc").unlink(missing_ok=True)
+
+
+def test_typed_classifier_is_backed_by_a_py_typed_marker():
+    """PEP 561: 'Typing :: Typed' is a claim; without a shipped py.typed
+    marker, mypy/pyright treat the package as untyped."""
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    classifiers = pyproject["project"]["classifiers"]
+    if "Typing :: Typed" in classifiers:
+        assert (_REPO_ROOT / "fieldtest" / "py.typed").exists(), (
+            "'Typing :: Typed' declared but fieldtest/py.typed does not exist"
+        )
+
+
+def test_anthropic_floor_is_usable_with_current_httpx():
+    """anthropic<0.40 passes `proxies` to httpx.Client, removed in httpx 0.28;
+    under default resolution client construction raises TypeError and every
+    judge call becomes an errored row. The declared floor must be >=0.40."""
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    deps = pyproject["project"]["dependencies"]
+    anthropic_spec = next(d for d in deps if d.startswith("anthropic"))
+    m = re.search(r">=\s*(\d+)\.(\d+)", anthropic_spec)
+    assert m, f"anthropic dependency has no floor: {anthropic_spec!r}"
+    major, minor = int(m.group(1)), int(m.group(2))
+    assert (major, minor) >= (0, 40), (
+        f"anthropic floor {anthropic_spec!r} is unusable with httpx>=0.28"
+    )
+
+
+def test_publish_workflow_gates_on_tag_version_and_tests():
+    """The publish workflow must refuse a tag that does not match the
+    pyproject version, and must run the test suite, both before uploading."""
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text()
+
+    publish_at = workflow.find("gh-action-pypi-publish")
+    assert publish_at != -1, "publish step missing from publish.yml"
+
+    tag_check_at = workflow.find("GITHUB_REF_NAME")
+    assert tag_check_at != -1, "no tag-vs-version check in publish.yml"
+    assert "pyproject" in workflow[max(0, tag_check_at - 500):tag_check_at + 500], (
+        "tag check does not compare against the pyproject.toml version"
+    )
+    assert tag_check_at < publish_at, "tag check must run before publishing"
+
+    test_at = workflow.find("pytest")
+    assert test_at != -1, "no test gate in publish.yml"
+    assert test_at < publish_at, "test gate must run before publishing"

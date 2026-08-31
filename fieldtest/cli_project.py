@@ -242,11 +242,26 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         )
         sys.exit(1)
 
-    # Copy demo source tree (excluding results/ — we handle that separately)
-    def _ignore_results(src, names):
-        return ["results"] if "results" in names else []
+    # Live mode needs a key (except extraction, which uses rules only).
+    # Check BEFORE copying anything, so a failed run leaves nothing behind —
+    # otherwise the suggested retry with --offline hits the dest-exists guard.
+    if not offline and example != "extraction":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            click.echo(
+                "Error: ANTHROPIC_API_KEY not set.\n"
+                "  Set it with: export ANTHROPIC_API_KEY=sk-...\n"
+                "  Or use --offline to view pre-scored results without an API key.",
+                err=True,
+            )
+            sys.exit(1)
 
-    shutil.copytree(demo_source, dest, ignore=_ignore_results)
+    # Copy demo source tree, excluding results/ (handled separately) and
+    # install-time byte-code clutter (__pycache__ is compiled into
+    # site-packages by pip and must not land in the user's project).
+    shutil.copytree(
+        demo_source, dest,
+        ignore=shutil.ignore_patterns("results", "__pycache__", ".DS_Store"),
+    )
 
     # Rename demo's evals-style dirs to expected layout under dest/evals/
     # The demo source ships as: config.yaml, rules.py, fixtures/, outputs/
@@ -292,16 +307,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         click.echo("Run 'fieldtest view' to open the HTML report in your browser.")
         return
 
-    # Live mode — check API key (not required for extraction which uses rules only)
-    if example != "extraction":
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            click.echo(
-                "Error: ANTHROPIC_API_KEY not set.\n"
-                "  Set it with: export ANTHROPIC_API_KEY=sk-...\n"
-                "  Or use --offline to view pre-scored results without an API key.",
-                err=True,
-            )
-            sys.exit(1)
+    # Live mode — the API key was already checked before anything was copied.
 
     # Run fieldtest score from the demo directory
     click.echo(f"Running fieldtest score in {dest}/evals/ ...")
