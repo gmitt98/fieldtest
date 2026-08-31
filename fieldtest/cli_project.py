@@ -20,6 +20,7 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
+from fieldtest.results.aggregator import result_files_newest_first
 from fieldtest.templates import AVAILABLE_TEMPLATES
 
 
@@ -75,7 +76,7 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         """The five artifacts of each pruned run, named exactly."""
         if not results_dir.is_dir():
             return []
-        runs = sorted(results_dir.glob("*-data.json"), reverse=True)[keep:]
+        runs = result_files_newest_first(results_dir)[keep:]
         out = []
         for p in runs:
             run_id = p.stem.removesuffix("-data")
@@ -139,7 +140,7 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         runs = len({f.name.rsplit("-", 1)[0] for f in victims})
         for f in victims:
             f.unlink()
-        kept = len(sorted(results_dir.glob("*-data.json")))
+        kept = len(result_files_newest_first(results_dir))
         click.echo(f"✓ results/ pruned — kept {kept}, removed {runs} run(s)")
 
 

@@ -680,6 +680,23 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     }
 
 
+def result_files_newest_first(results_dir: Path) -> list[Path]:
+    """
+    Every -data.json in results_dir, newest first.
+
+    Sorted by modification time, not by filename. Run ids are timestamps, so a
+    lexicographic sort looks equivalent — until a file that is not a timestamp
+    sits beside them. The bundled `demo-offline-*` set is exactly that, and it
+    sorts above every `2026-...` run because "d" > "2". In a demo directory
+    `clean --results --keep 1` therefore deleted both of the user's real runs
+    and kept the shipped one, `diff` compared against it as though it were the
+    newest, and `history` listed it first.
+
+    Ties break on name so the order is stable when mtimes collide.
+    """
+    files = [p for p in results_dir.glob("*-data.json") if p.is_file()]
+    return sorted(files, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+
 def find_baseline(
     results_dir: Path,
     current_run_id: str,
@@ -742,7 +759,7 @@ def find_baseline_with_reason(
         if reason is None:      # newest candidate wins; candidates are newest-first
             reason = text
 
-    for p in sorted(results_dir.glob("*-data.json"), reverse=True):
+    for p in result_files_newest_first(results_dir):
         if p.stem.removesuffix("-data") == current_run_id:
             continue
         try:

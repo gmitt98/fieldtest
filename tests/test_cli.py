@@ -2196,12 +2196,15 @@ def _history_row(output: str, run_id: str) -> list[str]:
     return line.split()
 
 
-def test_history_prints_the_tag_failure_rates(tmp_path):
+def test_history_prints_the_tag_pass_rates(tmp_path):
     """
-    The three columns are average failure rates per tag (README: "the rates
-    shown are average failure rates across all evals with that tag"). An eval
-    whose rate is None — every judge call errored — has no rate to average and
-    must stay out of the mean rather than emptying the column.
+    The three columns are pass rates per tag, matching the run's own Tag Health
+    table under the same RIGHT / GOOD / SAFE headings. They used to be failure
+    rates, so `history` reported 12% for a run its report called 95% — the same
+    label meaning opposite things in two artifacts of one tool.
+
+    An eval whose rate is None — every judge call errored — has no rate to pool
+    and must stay out rather than emptying the column.
     """
     evals_dir = _setup_project(tmp_path)
     _plant_run(
@@ -2223,7 +2226,8 @@ def test_history_prints_the_tag_failure_rates(tmp_path):
 
     assert result.exit_code == 0
     columns = _history_row(result.output, "2026-08-27T10-39-43-e327")
-    assert columns[-3:] == ["20%", "0%", "50%"]
+    # 0.2 → 80% pass, 0.0 → 100%, 0.5 → 50%.
+    assert columns[-3:] == ["80%", "100%", "50%"]
 
 
 def test_history_dashes_a_tag_with_no_rates(tmp_path):
@@ -2677,3 +2681,73 @@ def test_init_force_says_it_replaced_your_config(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "replaced the existing" in result.output, (
         f"--force overwrote a config and said nothing:\n{result.output}")
+
+
+def test_clean_keeps_the_most_recent_runs_not_the_alphabetically_last(tmp_path, monkeypatch):
+    """
+    Result files were ordered by filename. Run ids are timestamps so that looks
+    equivalent — until a file that is not a timestamp sits beside them. The
+    bundled `demo-offline-*` set sorts above every `2026-…` run because "d" >
+    "2", so in a demo directory `clean --results --keep 1` deleted both of the
+    user's real runs and kept the shipped one.
+    """
+    import os
+    import time
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+
+    def write(stem: str, when: float):
+        for suffix in ("data.json", "data.csv", "report.md", "report.csv", "report.html"):
+            f = results / f"{stem}-{suffix}"
+            f.write_text("{}")
+            os.utime(f, (when, when))
+
+    now = time.time()
+    write("demo-offline", now - 3600)          # shipped, oldest
+    write("2026-08-31T11-00-00-aaaa", now - 60)
+    write("2026-08-31T11-01-00-bbbb", now)     # the newest real run
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["clean", "--results", "--keep", "1"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    survivors = {p.name for p in results.glob("*-data.json")}
+    assert survivors == {"2026-08-31T11-01-00-bbbb-data.json"}, (
+        f"clean kept {survivors}; the newest run is the one to keep")
+
+
+def test_history_tag_rates_are_the_pass_rates_the_report_shows(tmp_path, monkeypatch):
+    """
+    history printed the mean failure rate under headings the report uses for
+    pass rate: a run the report called RIGHT 95% appeared as RIGHT 12%.
+    """
+    import json
+    import re
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-08-31T12-00-00-aaaa-data.json").write_text(json.dumps({
+        "run_id": "2026-08-31T12-00-00-aaaa",
+        "set": "full", "fixture_count": 3, "runs": 3,
+        "summary": {"uc1": {"right": {
+            # 1 failure in 21 outputs → 95% pass
+            "a": {"failure_rate": 0.05, "total_runs": 20},
+            "b": {"failure_rate": 0.0,  "total_runs": 1},
+        }}},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    row = [l for l in result.output.splitlines() if "2026-08-31T12-00-00" in l]
+    assert row, result.output
+    pct = re.findall(r"(\d+)%", row[0])
+    assert pct, f"no percentage in the history row: {row[0]!r}"
+    assert pct[0] == "95", (
+        f"history shows {pct[0]}% where the pooled pass rate is 95% — "
+        f"it is printing the failure rate")

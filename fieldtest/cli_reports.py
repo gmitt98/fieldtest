@@ -11,7 +11,6 @@ no cycle exists.
 from __future__ import annotations
 
 import json
-import math
 import sys
 from pathlib import Path
 from typing import Optional
@@ -19,6 +18,7 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path
+from fieldtest.results.aggregator import result_files_newest_first
 
 
 @click.command()
@@ -38,7 +38,7 @@ def history(config_path: Optional[str]):
         )
         return
 
-    result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
+    result_files = result_files_newest_first(results_dir)
 
     # Runs written before the -data.json naming are invisible to that glob.
     # A long-lived project can have most of its history in the old layout —
@@ -89,16 +89,36 @@ def history(config_path: Optional[str]):
             ts_display = "—"
 
         def _tag_rate(tag: str) -> str:
-            rates = []
+            """
+            Pass rate for the tag, pooled over outputs — the same number the
+            report's Tag Health table shows under the same heading.
+
+            This printed the mean *failure* rate. A run the report called
+            "RIGHT 95%" appeared here as "RIGHT 12%", so `history` said a system
+            was failing badly while its own report said it was passing. It was
+            also a mean of per-eval rates rather than a pooled one, so it could
+            not have matched the report even with the sense corrected.
+            """
+            failures = total = 0.0
+            bare = []            # summaries written before total_runs existed
             for uc_stats in summary.values():
                 for stats in uc_stats.get(tag, {}).values():
                     fr = stats.get("failure_rate")
-                    if fr is not None:
-                        rates.append(fr)
-            if not rates:
-                return "—"
-            avg = sum(rates) / len(rates)
-            return f"{math.ceil(avg * 100)}%"
+                    if fr is None:
+                        continue
+                    n = stats.get("total_runs") or 0
+                    if n:
+                        failures += fr * n
+                        total    += n
+                    else:
+                        bare.append(fr)
+            if total:
+                return f"{round((1 - failures / total) * 100)}%"
+            if bare:
+                # No denominators to weight by: fall back to the unweighted mean
+                # so an older result file still shows something sensible.
+                return f"{round((1 - sum(bare) / len(bare)) * 100)}%"
+            return "—"
 
         right = _tag_rate("right")
         good  = _tag_rate("good")
@@ -136,7 +156,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         )
         return
 
-    result_files = sorted(results_dir.glob("*-data.json"), reverse=True)
+    result_files = result_files_newest_first(results_dir)
     if not result_files:
         click.echo(
             f"No results found at {results_dir}.\n"

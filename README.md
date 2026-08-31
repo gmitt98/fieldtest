@@ -1043,7 +1043,7 @@ RUN ID                      TIMESTAMP           SET           FIXTURES    JUDGE 
 2026-03-23T18-52-00-79fb    2026-03-23 18:52    smoke         6           claude-haiku-4-5              0%        12%       0%
 ```
 
-The rates shown are average failure rates across all evals with that tag. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
+The rates shown are **pass** rates per tag, pooled over outputs — the same figure the run's own Tag Health table gives. They used to be average failure rates, under the same RIGHT / GOOD / SAFE headings the report uses for pass rates, so `history` said 12% where the report for that run said 95%. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
 
 ---
 
