@@ -1718,3 +1718,97 @@ def test_the_installed_anthropic_sdk_decides_which_path_runs():
     )
     if not typed:
         assert anthropic.__version__ >= "1", anthropic.__version__
+
+
+# ---------------------------------------------------------------------------
+# The exception-class lists, against the SDKs that define them
+#
+# _drive_adapter builds each SDK as a bare MagicMock, and _exception_types
+# discards anything that is not a real class — so under it `transient` is empty
+# for gemini and holds one class for anthropic, and every retry assertion above
+# is decided by the status code alone. Rename the classes in the adapter and the
+# suite does not move, while retry on connection and timeout errors — which
+# carry no status code at all — silently disappears from the default provider.
+#
+# These two drive the real SDK module with only its client mocked, so the names
+# the adapter passes have to resolve to the classes the SDK actually raises.
+# ---------------------------------------------------------------------------
+
+def _real_anthropic_error(name: str):
+    import anthropic
+    import httpx
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return getattr(anthropic, name)(request=request)
+
+
+@pytest.mark.parametrize("error_name", ["APIConnectionError", "APITimeoutError"])
+def test_anthropic_retries_transport_errors_that_carry_no_status(error_name):
+    """
+    A dropped connection and a timeout are the transient failures with nothing
+    for the status-code check to read. Only the class list saves them.
+    """
+    import anthropic
+
+    client = MagicMock()
+    client.messages.create.side_effect = _real_anthropic_error(error_name)
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}):
+        with patch.object(anthropic, "Anthropic", return_value=client):
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = AnthropicAdapter().call(
+                    "claude-haiku-4-5", "test prompt", GEN, RETRY
+                )
+
+    assert "error" in result
+    assert client.messages.create.call_count == 7   # 1 initial + 6 retries
+    assert mock_sleep.call_count == 6
+
+
+def test_gemini_retries_a_real_server_error_by_class():
+    """
+    google-genai raises ServerError, and gemini.py names it deliberately —
+    APIError is also ClientError's base, so the class list cannot simply widen.
+    The code carried here is outside the shared retryable set, so nothing but
+    the name recognises it.
+    """
+    from google import genai
+    from google.genai import errors
+
+    client = MagicMock()
+    client.models.generate_content.side_effect = errors.ServerError(
+        599, {"error": {"message": "backend unavailable"}}
+    )
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "k"}):
+        with patch.object(genai, "Client", return_value=client):
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = GeminiAdapter().call(
+                    "gemini-2.5-flash", "test prompt", GEN, RETRY
+                )
+
+    assert "error" in result
+    assert client.models.generate_content.call_count == 7
+    assert mock_sleep.call_count == 6
+
+
+def test_a_gemini_client_error_is_not_retried():
+    """The reason the list names ServerError rather than its base."""
+    from google import genai
+    from google.genai import errors
+
+    client = MagicMock()
+    client.models.generate_content.side_effect = errors.ClientError(
+        401, {"error": {"message": "bad key"}}
+    )
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "k"}):
+        with patch.object(genai, "Client", return_value=client):
+            with patch("fieldtest.providers.base.time.sleep") as mock_sleep:
+                result = GeminiAdapter().call(
+                    "gemini-2.5-flash", "test prompt", GEN, RETRY
+                )
+
+    assert "error" in result
+    assert client.models.generate_content.call_count == 1
+    assert mock_sleep.call_count == 0

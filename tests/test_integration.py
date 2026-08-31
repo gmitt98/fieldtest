@@ -2489,3 +2489,77 @@ def test_the_repeatability_block_lists_only_llm_evals():
 
     assert shown, "no evals listed in the repeatability block"
     assert shown <= llm, f"the block lists non-llm evals: {sorted(shown - llm)}"
+
+
+# ---------------------------------------------------------------------------
+# The HTML report's headline numbers
+#
+# The HTML tests above assert prose and headings — "Judge:", "partial run",
+# "Judge repeatability" — and never a number. The three tag boxes are the first
+# thing a reader sees in `fieldtest view`, and they could all render "—" with
+# the suite green.
+# ---------------------------------------------------------------------------
+
+def _tag_box_rates(html: str) -> dict[str, str]:
+    """The three headline rates, read out of the tag-box strip."""
+    import re
+
+    rates = {}
+    for tag in ("right", "good", "safe"):
+        m = re.search(rf'tag-box {tag}".*?tag-rate">([^<]+)<', html, re.S)
+        assert m, f"no {tag} tag box in the HTML"
+        rates[tag] = m.group(1).strip()
+    return rates
+
+
+def _html_row(tag, **kw):
+    base = {"use_case": "uc1", "eval_id": "is_helpful", "tag": tag,
+            "type": "llm", "fixture_id": "fix1", "run": 1, "judge_run": 1,
+            "passed": None, "score": None, "skipped": False, "error": None}
+    base.update(kw)
+    return base
+
+
+def _html_from_rows(tmp_path, rows):
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.html import _build_html
+
+    config = parse_and_validate(_project(tmp_path, evals_yaml=LLM_EVAL, runs=3))
+    return _build_html(
+        {
+            "run_id": "2026-01-01T00-00-00-abcd",
+            "set": "full",
+            "fixture_count": 1,
+            "runs": 3,
+            "judge_runs": 1,
+            "rows": rows,
+            "summary": {},
+            "delta": {},
+        },
+        config,
+    )
+
+
+def test_html_tag_boxes_show_the_rates_not_a_dash(tmp_path):
+    """
+    RIGHT 3/4, GOOD 4/5, SAFE 1/2 — with a skipped and an errored row in each
+    tag, which are outside the rate and must stay out of the denominator.
+    """
+    rows = (
+        [_html_row("right", passed=True)] * 3 + [_html_row("right", passed=False)]
+        + [_html_row("good", passed=True)] * 4 + [_html_row("good", passed=False)]
+        + [_html_row("safe", passed=True), _html_row("safe", passed=False)]
+        + [_html_row(t, skipped=True) for t in ("right", "good", "safe")]
+        + [_html_row(t, error="overloaded") for t in ("right", "good", "safe")]
+    )
+
+    assert _tag_box_rates(_html_from_rows(tmp_path, rows)) == {
+        "right": "75%", "good": "80%", "safe": "50%",
+    }
+
+
+def test_html_tag_boxes_say_dash_when_a_tag_has_no_rows(tmp_path):
+    """The dash means "nothing measured", so it must not also mean "measured"."""
+    assert _tag_box_rates(_html_from_rows(tmp_path, [])) == {
+        "right": "—", "good": "—", "safe": "—",
+    }

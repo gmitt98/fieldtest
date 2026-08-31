@@ -926,3 +926,38 @@ def test_shipped_configs_still_load_with_unknown_keys_forbidden():
             parse_and_validate(cfg)   # raises if a shipped config has a stray key
             checked += 1
     assert checked >= 5, f"only {checked} shipped configs found — did they move?"
+
+
+# ---------------------------------------------------------------------------
+# The accept path of the two numeric validators
+#
+# Both were only ever tested with values that must be rejected, and Pydantic
+# does not run a field validator over a default. So no test ever parsed a
+# config that named a legal value, and a validator that rejected every legal
+# value — breaking every existing project on upgrade — would ship green.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", ["0.8", "0.95", "0.99"])
+def test_a_legal_confidence_level_is_accepted(tmp_path, value):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:", f"    defaults:\n      confidence_level: {value}\n    use_cases:"
+    )
+    config = parse_and_validate(_write_config(tmp_path, yaml))
+    assert config.defaults.confidence_level == float(value)
+
+
+@pytest.mark.parametrize("value", ["-1", "0", "0.6", "0.7", "1"])
+def test_a_legal_kappa_threshold_is_accepted(tmp_path, value):
+    yaml = MINIMAL_VALID.replace(
+        "    use_cases:",
+        "    calibration:\n"
+        f"      kappa_threshold: {value}\n"
+        "      panel:\n"
+        "        - provider: anthropic\n"
+        "          model: a\n"
+        "        - provider: anthropic\n"
+        "          model: b\n"
+        "    use_cases:",
+    )
+    config = parse_and_validate(_write_config(tmp_path, yaml))
+    assert config.calibration.kappa_threshold == float(value)

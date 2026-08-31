@@ -568,12 +568,14 @@ def test_history_no_results(tmp_path):
 
 def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
                baseline_run_id: str | None = None,
-               judge: dict | None = None) -> None:
+               judge: dict | None = None,
+               summary: dict | None = None,
+               fixture_count: int | None = None) -> None:
     """Plant a fake -data.json that the diff command will read."""
     data: dict = {
         "run_id": run_id,
         "set":    "full",
-        "summary": {},
+        "summary": summary if summary is not None else {},
         "delta":   {
             "baseline_run_id": baseline_run_id,
             "increased": [],
@@ -585,6 +587,8 @@ def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
         data["dataset_version"] = dataset_version
     if judge is not None:
         data["judge"] = judge
+    if fixture_count is not None:
+        data["fixture_count"] = fixture_count
     (evals_dir / "results" / f"{run_id}-data.json").write_text(json.dumps(data))
 
 
@@ -2112,3 +2116,86 @@ def test_every_command_the_cli_offers_is_documented_somewhere():
 
     missing = sorted(commands - shown)
     assert not missing, f"the CLI offers these and no doc demonstrates them: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# The numbers `fieldtest history` prints
+#
+# The history tests assert the header and two judge model names. None reads a
+# rate, so the RIGHT / GOOD / SAFE columns could go blank on every row.
+# ---------------------------------------------------------------------------
+
+def _history_row(output: str, run_id: str) -> list[str]:
+    """The one line for a run, split into columns."""
+    line = next(l for l in output.splitlines() if l.startswith(run_id))
+    return line.split()
+
+
+def test_history_prints_the_tag_failure_rates(tmp_path):
+    """
+    The three columns are average failure rates per tag (README: "the rates
+    shown are average failure rates across all evals with that tag"). An eval
+    whose rate is None — every judge call errored — has no rate to average and
+    must stay out of the mean rather than emptying the column.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(
+        evals_dir, "2026-08-27T10-39-43-e327", None,
+        summary={
+            "uc1": {
+                "right": {"ev1": {"failure_rate": 0.2},
+                          "ev_all_errored": {"failure_rate": None}},
+                "good":  {"ev2": {"failure_rate": 0.0}},
+                "safe":  {"ev3": {"failure_rate": 0.5}},
+            }
+        },
+    )
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    columns = _history_row(result.output, "2026-08-27T10-39-43-e327")
+    assert columns[-3:] == ["20%", "0%", "50%"]
+
+
+def test_history_dashes_a_tag_with_no_rates(tmp_path):
+    """A dash has to keep meaning "nothing to report" for a rate to mean anything."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(
+        evals_dir, "2026-08-27T10-39-43-e327", None,
+        summary={"uc1": {"right": {"ev1": {"failure_rate": 0.5}}}},
+    )
+
+    result = CliRunner().invoke(
+        main, ["history", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+
+    columns = _history_row(result.output, "2026-08-27T10-39-43-e327")
+    assert columns[-3:] == ["50%", "—", "—"]
+
+
+def test_allow_partial_on_a_complete_run_is_not_reported_as_partial(tmp_path):
+    """
+    --allow-partial is permission to continue, not a claim that something was
+    missing. The negative HTML case only ever ran without the flag, so the
+    conjunction that decides this was never evaluated with both operands set.
+    """
+    evals_dir = _setup_project(tmp_path)
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+
+    result = _run_score(evals_dir, extra_args=["--allow-partial"])
+    assert result.exit_code == 0
+
+    data = json.loads(
+        next((evals_dir / "results").glob("*-data.json")).read_text()
+    )
+    assert data["partial"] is False
+    assert data["partial_details"] == []
+
+    report = next((evals_dir / "results").glob("*-report.md")).read_text()
+    assert "PARTIAL" not in report
