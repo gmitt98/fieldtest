@@ -328,6 +328,83 @@ a literal string.
 
 ---
 
+### What the release audits caught
+
+Three adversarial audit rounds ran against 0.3.0 before shipping. The fixes
+below are part of this release; each one is something that could have cost you
+data, money, or a wrong conclusion.
+
+**`fieldtest clean` no longer deletes work it never named.** In 0.2.2, `clean
+--outputs` deleted `./outputs/` in any directory containing a `config.yaml` —
+without checking it was a fieldtest project. A config beside an `outputs/`
+directory describes most ML projects, so running it in the wrong directory
+silently deleted checkpoints and exited 0. It now parses the config first and
+refuses anything that is not a fieldtest project. The confirmation prompt
+counts and lists every file it will remove (it previously counted only `*.txt`
+while deleting the whole tree), and `--results` removes only the five known
+artifacts per run instead of everything matching the run id — so a write-up
+you named after a run survives.
+
+**Results are ordered by recency, not filename.** Result files were sorted by
+name, which looks right because run ids are timestamps — until the bundled
+`demo-offline` file sits beside them and sorts above every real run. In a demo
+directory, `clean --results --keep 1` deleted both of your real runs and kept
+the shipped one; `diff` and `find_baseline` compared your new run against the
+demo data instead of your own previous run; `history` listed the demo first.
+All of it now orders by modification time.
+
+**A run that measured nothing no longer reports success.** `fieldtest score`
+and `fieldtest calibrate` exited 0 when 100% of judge calls errored — a CI job
+gating on them went green on a run that produced no verdicts at all. Both now
+exit 1 when every call errored, naming the count and pointing at the
+credential and model. A run with some errors and some verdicts still exits 0
+and reports the errors.
+
+**The numbers were checked, and two were wrong.** The Judge Repeatability
+variance split was biased in both directions at once — enough to report a
+noisy judge as a noisy system and send you to fix the wrong thing. It now uses
+a one-way random-effects estimator (true system 5.0 / judge 5.0, previously
+reported as 5.72 / 3.59, now 4.96 / 4.95). And a rule eval returning no
+`passed` value was counted as a pass in the per-eval table while Tag Health
+counted the same row a failure; an unusable rule return is an error row now.
+
+**Eval ids are scoped to their use case everywhere.** The same eval id in two
+use cases used to lose one definition's type (a binary eval could report
+`failure_rate: null` forever), and a delta from one use case could be printed
+against the other's row — a stable eval reading −90% while the eval that moved
+read unchanged. Both fixed; existing `jq` patterns keep working.
+
+**First-run paths work.** `fieldtest view` no longer crashes without
+`--config`. Fixtures in subdirectories — the layout `init` itself scaffolds —
+now load, and two fixture files sharing a stem are refused rather than one
+being silently scored twice. A judge answering 3.5 on a 1–5 scale no longer
+aborts the run. `fieldtest demo` without a key leaves no half-created
+directory behind, so the suggested `--offline` retry works.
+
+**Config validation got stricter where silence cost money.** A per-eval
+`provider` typo no longer passes `validate` and errors twenty paid calls into
+a run. `judge_retry` rejects misspelled keys and negative values.
+`judge_runs: 0` and `runs: 0` are errors instead of silently deleting every
+LLM eval or writing a green empty result set.
+
+**Packaging and typing.** The wheel ships `py.typed`, so mypy checks your code
+against fieldtest's real types — and a stray comment that made mypy abort on
+`fieldtest/config.py` (taking your own project's typechecking down with it) is
+gone. Dependency floors are now installable on every supported Python (3.10 to
+3.14): lowest-resolution installs (`uv --resolution lowest`, constraints
+files) previously failed on 3.12+ because `pyyaml 6.0` and `pydantic 2.0`
+cannot build there. The publish workflow refuses a tag that does not match the
+package version and runs the full suite before building.
+
+Also: the HTML report escapes everything user-controlled; `--concurrency 0`, a
+non-UTF-8 output file, and a read-only `results/` directory produce one-line
+errors instead of tracebacks; file writes carry an explicit UTF-8 encoding so
+reports survive Windows; `fieldtest history` shows the pooled pass rate under
+the same headings the report uses, instead of a failure rate that read "RIGHT
+12%" for a run whose report said "RIGHT 95%"; and the report and README stop
+claiming failure rates are comparable across `judge_runs` settings — ties
+resolve to fail, so they are not.
+
 ## Changes from v0.2.2
 
 - Config `schema_version: 2`. Version 1 configs load unchanged for one minor release
@@ -372,7 +449,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 693, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 719, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 

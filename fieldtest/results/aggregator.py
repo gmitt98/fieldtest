@@ -708,6 +708,29 @@ def result_files_newest_first(results_dir: Path) -> list[Path]:
     files = [p for p in results_dir.glob("*-data.json") if p.is_file()]
     return sorted(files, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
 
+def find_result_by_run_id(results_dir: Path, run_id: str) -> Optional[Path]:
+    """
+    The -data.json for a run id, whether or not the filename carries it.
+
+    Filename and run id are not always the same string. The bundled demo ships
+    `demo-offline-data.json` whose run_id is a timestamp, so reconstructing
+    `<run_id>-data.json` missed it: `diff` could not load the baseline it had
+    just named and reported "baseline predates judge tracking" about a run that
+    records its judge, and `view <id>` rejected an id `history` had printed.
+
+    Filename first, since that is the common case and costs one stat.
+    """
+    direct = results_dir / f"{run_id}-data.json"
+    if direct.is_file():
+        return direct
+    for p in result_files_newest_first(results_dir):
+        try:
+            if json.loads(p.read_text(encoding="utf-8")).get("run_id") == run_id:
+                return p
+        except Exception:
+            continue
+    return None
+
 def find_baseline(
     results_dir: Path,
     current_run_id: str,

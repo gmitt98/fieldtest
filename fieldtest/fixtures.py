@@ -230,7 +230,12 @@ def validate_fixture_labels(config: Config, base_dir: Path) -> tuple[list[str], 
         if not fixture_dir.exists():
             continue
 
-        for fixture_path in sorted(fixture_dir.glob("*.yaml")):
+        # rglob, matching find_fixture_path: `fieldtest init` scaffolds
+        # fixtures/golden/ and fixtures/variations/ under `directory: fixtures/`,
+        # so a flat glob sees none of the fixtures the scoring path loads.
+        # `validate` then reported a clean config with no labels while `score`
+        # over the same project printed a Judge vs Human Labels table.
+        for fixture_path in sorted(fixture_dir.rglob("*.yaml")):
             try:
                 fixture = load_fixture(fixture_path, base_dir)
             except ConfigError as e:

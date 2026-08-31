@@ -55,8 +55,19 @@ dependencies = [
     # pass `proxies` to httpx.Client, which 0.28 removed — client construction
     # fails under default resolution).
     "anthropic>=0.40.0",
-    "pyyaml>=6.0",
-    "pydantic>=2.0",
+    # 6.0's sdist cannot build under Cython 3 and has no wheels for py3.12+,
+    # so a lowest-version resolution fails on every modern interpreter.
+    # 6.0.1 fixes the sdist build (verified building on 3.14) and ships
+    # wheels through cp312.
+    "pyyaml>=6.0.1",
+    # pydantic-core only gains wheels for a new CPython in later releases,
+    # and its sdist needs a Rust toolchain — so the workable floor rises
+    # with the interpreter (2.5 → first cp312 wheels, 2.9 → cp313,
+    # 2.12 → cp314; all verified against PyPI).
+    "pydantic>=2.0; python_version < '3.12'",
+    "pydantic>=2.5; python_version == '3.12'",
+    "pydantic>=2.9; python_version == '3.13'",
+    "pydantic>=2.12; python_version >= '3.14'",
     "click>=8.0",
 ]
 

@@ -18,7 +18,27 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path
-from fieldtest.results.aggregator import result_files_newest_first
+from fieldtest.results.aggregator import (
+    find_result_by_run_id,
+    result_files_newest_first,
+)
+
+
+def _summary_eval_keys(summary: dict) -> set:
+    """
+    Every eval a summary carries, as "use_case/eval_id".
+
+    Qualified by use case because eval ids are unique within a use case and not
+    across them — the same reason build_delta's entries carry use_case.
+    """
+    keys = set()
+    for uc_id, tags in (summary or {}).items():
+        if not isinstance(tags, dict):
+            continue
+        for evals in tags.values():
+            if isinstance(evals, dict):
+                keys.update(f"{uc_id}/{eval_id}" for eval_id in evals)
+    return keys
 
 
 @click.command()
@@ -44,9 +64,15 @@ def history(config_path: Optional[str]):
     # A long-lived project can have most of its history in the old layout —
     # one had 24 of 32 — and listing the rest without a word reads as
     # "that is all there is".
+    # Calibration runs write {run_id}-calibration.json beside the results.
+    # They are not old-format results — fieldtest wrote them in the current
+    # format, moments ago — and calling them files that "predate the current
+    # naming" sent people looking for a migration that does not exist.
+    calibrations = sorted(results_dir.glob("*-calibration.json"))
     legacy = [
         f for f in results_dir.glob("*.json")
         if not f.name.endswith("-data.json")
+        and not f.name.endswith("-calibration.json")
     ]
     if not result_files:
         click.echo(
@@ -136,6 +162,13 @@ def history(config_path: Optional[str]):
             f"fieldtest can read."
         )
 
+    if calibrations:
+        click.echo(
+            f"\n  {len(calibrations)} calibration run(s) in this directory are "
+            f"not listed — they measure the judge, not the system. Read the "
+            f"-calibration.md beside each."
+        )
+
 
 @click.command()
 @click.argument("run_id", default=None, required=False)
@@ -211,8 +244,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         delta = current_data.get("delta", {})
         base_id = delta.get("baseline_run_id")
         if base_id:
-            auto_path = results_dir / f"{base_id}-data.json"
-            if auto_path.exists():
+            auto_path = find_result_by_run_id(results_dir, base_id)
+            if auto_path is not None:
                 try:
                     baseline_data = json.loads(auto_path.read_text(encoding="utf-8"))
                 except Exception:
@@ -220,7 +253,14 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
 
     # .stem leaves the -data suffix, and `fieldtest view <that>` then fails.
     click.echo(f"Comparing: {current_path.stem.removesuffix('-data')}")
-    click.echo(f"Baseline:  {delta.get('baseline_run_id', '—')}")
+    # The key is always present and is None when there is no baseline, so a
+    # `.get(..., '—')` default is unreachable and the line read "Baseline:
+    # None" — the literal string, as though a run were named that.
+    base_run_id = delta.get("baseline_run_id")
+    if base_run_id:
+        click.echo(f"Baseline:  {base_run_id}")
+    else:
+        click.echo("Baseline:  none — no earlier run to compare against")
     click.echo("")
 
     # Warn if the user is comparing across dataset snapshots — only fires when
@@ -228,7 +268,6 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # treated as backwards-compat silence.
     cur_ver     = current_data.get("dataset_version")
     base_ver    = baseline_data.get("dataset_version")
-    base_run_id = delta.get("baseline_run_id")
     if cur_ver is not None and base_ver is not None and cur_ver != base_ver:
         click.echo(
             f"⚠ Dataset version mismatch — current: {cur_ver}, baseline: {base_ver}. "
@@ -279,6 +318,25 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         )
         click.echo("")
 
+    # build_delta compares only evals present on both sides — an eval added or
+    # removed between the runs is skipped with no entry in any bucket, so a
+    # rename dropped a row out of the diff without a word. Say which ones were
+    # left out rather than reporting a comparison over a changed eval set as if
+    # it covered everything.
+    if baseline_data:
+        cur_keys  = _summary_eval_keys(current_data.get("summary", {}))
+        base_keys = _summary_eval_keys(baseline_data.get("summary", {}))
+        only_current = sorted(cur_keys - base_keys)
+        only_base    = sorted(base_keys - cur_keys)
+        for names, where in ((only_current, "this run"), (only_base, "the baseline")):
+            if names:
+                click.echo(
+                    f"Not compared — {len(names)} eval(s) only in {where}: "
+                    f"{', '.join(names)}"
+                )
+        if only_current or only_base:
+            click.echo("")
+
     increased = delta.get("increased", [])
     decreased = delta.get("decreased", [])
     unchanged = delta.get("unchanged", [])
@@ -303,4 +361,12 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo(f"Unchanged: {', '.join(unchanged)}")
 
     if not increased and not decreased and not unchanged:
-        click.echo("No comparable evals found between runs.")
+        if not base_run_id:
+            # "No comparable evals found between runs" reads as two runs that
+            # shared nothing. There is only one run.
+            click.echo(
+                f"Nothing to compare — {current_path.stem.removesuffix('-data')} "
+                f"is the only run in {results_dir}."
+            )
+        else:
+            click.echo("No comparable evals found between runs.")

@@ -3137,3 +3137,318 @@ def test_the_site_clean_comment_matches_what_bare_clean_offers(tmp_path, monkeyp
     comment = site[i:i + 300]
     assert "outputs/" in comment and "asks" in comment, (
         "the clean comment should say it offers to clear outputs/ and asks first")
+
+
+# ---------------------------------------------------------------------------
+# The docs' demo→view path and sample transcripts (docs audit, round three
+# close-out). Both quickstarts told the reader to run `fieldtest view` straight
+# after `fieldtest demo` — the demo scaffolds into ./fieldtest-demo/ and view
+# resolves from the cwd, so the documented pair exits 1. The site's transcript
+# showed that pair succeeding, with a header line and closing hint the tool
+# has never printed. Other samples showed a validate error, a judge-block key,
+# and report arithmetic the tool cannot produce.
+# ---------------------------------------------------------------------------
+
+def test_the_docs_cd_into_the_demo_directory_before_view(tmp_path, monkeypatch):
+    """`fieldtest demo` then `fieldtest view` with no cd between exits 1."""
+    import re
+
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    # Ground the requirement: view from the scaffold's parent really fails.
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(main, ["demo", "--offline"], catch_exceptions=False).exit_code == 0
+    view = runner.invoke(main, ["view"], catch_exceptions=False)
+    assert view.exit_code != 0, (
+        "`fieldtest view` now works from the demo's parent directory — "
+        "the docs may drop their `cd fieldtest-demo` step and this test")
+
+    # README: walk every command line in every fenced block, in order. A
+    # `fieldtest view` whose previous command (with no markdown heading
+    # between) is `fieldtest demo` documents the failing pair.
+    doc = _readme()
+    commands = []          # (abs_pos, line)
+    for m in re.finditer(r"```[a-z]*\n(.*?)```", doc, re.S):
+        for lm in re.finditer(r"^(?:\$ )?((?:fieldtest|cd) .+?)\s*(?:#.*)?$",
+                              m.group(1), re.M):
+            commands.append((m.start(1) + lm.start(1), lm.group(1).strip()))
+    headings = [m.start() for m in re.finditer(r"^#{1,6} ", doc, re.M)]
+    for i, (pos, line) in enumerate(commands):
+        if not line.startswith("fieldtest view") or i == 0:
+            continue
+        prev_pos, prev = commands[i - 1]
+        if any(prev_pos < h < pos for h in headings):
+            continue   # a new section: the two commands are not a sequence
+        assert not prev.startswith("fieldtest demo"), (
+            f"README shows `{prev}` followed by `{line}` with no "
+            f"`cd fieldtest-demo` between — that pair exits 1 (view resolves "
+            f"evals/ from the cwd, the demo scaffolds into fieldtest-demo/)")
+
+    # The site: same rule within each <pre> block's command spans.
+    site = _site()
+    for pre in re.findall(r"<pre[^>]*>(.*?)</pre>", site, re.S):
+        cmds = [re.sub(r"<[^>]+>", "", c).strip()
+                for c in re.findall(r'<span class="t-cmd">(.*?)</span>', pre, re.S)]
+        cmds = [c for c in cmds if c.startswith(("fieldtest", "cd"))]
+        for prev, cur in zip(cmds, cmds[1:]):
+            if cur.startswith("fieldtest view"):
+                assert not prev.startswith("fieldtest demo"), (
+                    f"docs/index.html shows `{prev}` then `{cur}` with no "
+                    f"`cd fieldtest-demo` between — that pair exits 1")
+
+
+def test_the_site_transcript_lines_are_what_the_demo_prints(tmp_path, monkeypatch):
+    """The header said '12 evaluations per eval' and the closing line was a
+    one-liner the tool never prints — the real closing block is the cd hint."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["demo", "--example", "rag", "--offline"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+
+    site = _site()
+    header = lines[1]
+    assert "scored output(s) per eval" in header, f"demo header changed: {header}"
+    assert header in site, (
+        f"the site transcript does not show the real demo header: {header!r}")
+    assert "evaluations per eval" not in site, (
+        "the site transcript shows a header line the demo never prints")
+
+    closing = next(l for l in lines if l.startswith("Files saved to"))
+    assert closing in site, (
+        f"the site transcript does not show the real closing line: {closing!r}")
+    assert "cd fieldtest-demo" in site, (
+        "the site transcript omits the demo's own `cd fieldtest-demo` hint")
+    assert "216 kB" not in site, (
+        "the site quotes a wheel size the shipped 0.3.0 wheel does not have")
+
+
+def test_the_expense_report_config_header_counts_its_own_evals():
+    """The header said 'Three are filled in, one per tag' over four evals,
+    two of them RIGHT."""
+    import fieldtest
+    import yaml as yamlmod
+
+    path = Path(fieldtest.__file__).resolve().parent / "datasets" / "expense-report" / "config.yaml"
+    text = path.read_text()
+    config = yamlmod.safe_load(text)
+    evals = [ev for uc in config["use_cases"] for ev in uc["evals"]]
+    tags = [ev["tag"] for ev in evals]
+
+    header = text.split("schema_version")[0]
+    spelled = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
+    assert spelled[len(evals)] in header, (
+        f"the config header does not state its own eval count ({len(evals)})")
+    for n, word in spelled.items():
+        if n != len(evals):
+            assert f"{word} are filled in" not in header, (
+                f"the header claims {word.lower()} filled-in evals; the file has {len(evals)}")
+    if any(tags.count(t) > 1 for t in set(tags)):
+        assert "one per tag," not in header.replace("\n", " "), (
+            f"the header claims one eval per tag; the tags are {tags}")
+
+
+def test_the_readme_sample_report_arithmetic_is_possible():
+    """Tag Health said GOOD 33/36 and SAFE 54/54 — with two evals per tag and
+    nine outputs the ceiling is 18 — and bullet_quality's 91% contradicted its
+    own 3/3, 2/3, 2/3 matrix row. The matrix also used a fixture id the
+    config never declares."""
+    import re
+
+    import yaml as yamlmod
+
+    doc = _readme()
+    m = re.search(r"The `-report\.md` looks like.*?```\n(# Eval Report\n.*?)```", doc, re.S)
+    assert m, "the README no longer shows a sample -report.md"
+    report = m.group(1)
+
+    hm = re.search(r"(\d+) fixtures × (\d+) runs = (\d+) scored output", report)
+    assert hm, f"the sample header does not state its population: {report.splitlines()[1]}"
+    outputs = int(hm.group(1)) * int(hm.group(2))
+    assert outputs == int(hm.group(3))
+
+    # Per-tag eval tables: {tag: [(eval_id, pct)]}
+    tables: dict = {}
+    for tm in re.finditer(r"### (RIGHT|GOOD|SAFE)\n(.*?)(?=\n### |\Z)", report, re.S):
+        tables[tm.group(1)] = re.findall(
+            r"^\| (\w+) +\| [^|]*\| (\d+)% +\|", tm.group(2), re.M)
+
+    for tag, pct, passed, total in re.findall(
+            r"^\| (RIGHT|GOOD|SAFE) +\| (\d+)% +\| (\d+) / (\d+) +\|", report, re.M):
+        n_evals = len(tables[tag])
+        assert int(total) <= n_evals * outputs, (
+            f"{tag} total {total} is impossible: {n_evals} evals × {outputs} "
+            f"outputs caps it at {n_evals * outputs}")
+        assert round(100 * int(passed) / int(total)) == int(pct), (
+            f"{tag} says {pct}% but {passed}/{total} is "
+            f"{round(100 * int(passed) / int(total))}%")
+
+    # Each matrix column must agree with its eval's pass rate.
+    matrix_header = re.search(r"^\| fixture +\|(.+)\|$", report, re.M)
+    assert matrix_header
+    eval_order = [c.strip() for c in matrix_header.group(1).split("|") if c.strip()]
+    cells: dict = {e: [] for e in eval_order}
+    fixture_ids = []
+    for fid, rest in re.findall(r"^\| ([\w-]+__[\w-]+) +\|(.+)\|$", report, re.M):
+        fixture_ids.append(fid)
+        for e, cell in zip(eval_order, rest.split("|")):
+            p, t = cell.strip().split("/")
+            cells[e].append((int(p), int(t)))
+    for tag, rows in tables.items():
+        for eval_id, pct in rows:
+            if not cells.get(eval_id):
+                continue
+            p = sum(a for a, _ in cells[eval_id])
+            t = sum(b for _, b in cells[eval_id])
+            assert round(100 * p / t) == int(pct), (
+                f"{eval_id}'s table says {pct}% but its matrix row sums to "
+                f"{p}/{t} = {round(100 * p / t)}%")
+
+    # The matrix names only fixtures the step-2 config declares.
+    config = yamlmod.safe_load(_readme_quickstart_config())
+    declared = {fid for s in config["use_cases"][0]["fixtures"]["sets"].values()
+                if isinstance(s, list) for fid in s}
+    for fid in fixture_ids:
+        assert fid in declared, (
+            f"the sample report scores fixture '{fid}', which the Quickstart "
+            f"config never declares (it has {sorted(declared)})")
+    assert "marketing-manager__pm" not in doc, (
+        "the README abbreviates a fixture id the config declares in full")
+
+
+def test_the_readme_validate_error_is_the_real_message(tmp_path, monkeypatch):
+    """The README showed an error format the tool never emits."""
+    import yaml as yamlmod
+
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    config = yamlmod.safe_load(_readme_quickstart_config())
+    del config["use_cases"][0]["evals"][0]["pass_criteria"]
+    evals = tmp_path / "evals"
+    (evals / "fixtures").mkdir(parents=True)
+    (evals / "config.yaml").write_text(yamlmod.safe_dump(config))
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["validate"], catch_exceptions=False)
+    assert result.exit_code != 0
+    message = result.output.strip().splitlines()[0]
+    assert "pass_criteria" in message, f"validate's message changed: {message}"
+
+    doc = _readme()
+    assert message in doc, (
+        f"the README's validate 'On error:' sample is not what the tool "
+        f"prints; real message: {message!r}")
+    assert "missing required field: pass_criteria" not in doc, (
+        "the README shows a validate error format the tool never emits")
+
+
+def test_the_readme_data_json_judge_sample_has_no_phantom_keys(tmp_path, monkeypatch):
+    """The sample showed `"endpoints": {}` — the writer only adds that key
+    when an endpoint-bearing provider is in play, never as an empty dict."""
+    import re
+
+    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
+    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
+    data_file = next((tmp_path / "evals" / "results").glob("*-data.json"))
+    real_judge = json.loads(data_file.read_text())["judge"]
+
+    doc = _readme()
+    m = re.search(r"### `data\.json` summary schema.*?```json\n(\{.*?\})\n```", doc, re.S)
+    assert m, "the README no longer shows the data.json schema sample"
+    sample = json.loads(m.group(1))
+    phantom = set(sample["judge"]) - set(real_judge)
+    assert not phantom, (
+        f"the schema sample's judge block shows keys a default run never "
+        f"writes: {sorted(phantom)} (real keys: {sorted(real_judge)})")
+
+
+def test_the_site_history_card_promises_what_history_prints(tmp_path, monkeypatch):
+    """The site said history lists runs 'with their judge fingerprint' — the
+    JUDGE column is the model name; no fingerprint appears in the output."""
+    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
+    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
+    result = runner.invoke(main, ["history"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    if "fingerprint" in result.output.lower():
+        raise AssertionError(
+            "history now prints the fingerprint — the site may say so again, "
+            "and this test should be updated")
+    site = _site()
+    for claim in ("with their judge fingerprint", "with judge fingerprint"):
+        assert claim not in site, (
+            f"the site says history lists runs {claim!r}; the output carries "
+            f"the judge model only")
+
+
+def test_no_code_path_looks_up_a_fixture_flat():
+    """
+    `fieldtest init` scaffolds fixtures/golden/ and fixtures/variations/, so a
+    lookup of `fixtures/<id>.yaml` cannot find what the scaffold tells you to
+    write. That lookup lived in four places. The runner and validate were moved
+    to find_fixture_path; calibration_analysis was missed, and calibrate then
+    found no human labels and silently dropped its judge-vs-human section.
+
+    Static, because the failure is silent: nothing raises, a table just stops
+    appearing.
+    """
+    import re
+
+    import fieldtest
+
+    pkg = Path(fieldtest.__file__).resolve().parent
+    offenders = []
+    for path in sorted(pkg.rglob("*.py")):
+        if "__pycache__" in str(path) or path.name == "fixtures.py":
+            continue
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            if re.search(r'/\s*f"\{(fid|fixture_id)\}\.yaml"', line):
+                offenders.append(f"{path.relative_to(pkg)}:{i}  {line.strip()}")
+
+    assert not offenders, (
+        "these join a fixture id flat instead of using find_fixture_path:\n  "
+        + "\n  ".join(offenders))
+
+
+def test_calibrate_finds_human_labels_in_a_scaffolded_layout(tmp_path):
+    """The behaviour behind the static check, end to end."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.calibration_analysis import collect_human_labels
+
+    evals = tmp_path / "evals"
+    (evals / "fixtures" / "golden").mkdir(parents=True)
+    (evals / "fixtures" / "golden" / "g1.yaml").write_text(
+        "id: g1\ndescription: d\ninputs:\n  q: hi\n"
+        "labels:\n  is_polite:\n    1: pass\n    2: fail\n")
+    (evals / "config.yaml").write_text("""schema_version: 1
+system:
+  name: s
+  domain: d
+use_cases:
+  - id: uc1
+    description: d
+    evals:
+      - id: is_polite
+        tag: good
+        type: llm
+        description: d
+        pass_criteria: polite
+        fail_criteria: rude
+    fixtures:
+      directory: fixtures/
+      runs: 2
+      sets:
+        full: [g1]
+""")
+    config = parse_and_validate(evals / "config.yaml")
+    labels = collect_human_labels(config, evals, "full")
+    assert labels, "calibrate found no labels for a fixture in fixtures/golden/"
+    assert labels[("uc1", "is_polite")] == {("g1", 1): "pass", ("g1", 2): "fail"}

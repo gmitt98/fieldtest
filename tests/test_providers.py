@@ -1857,7 +1857,6 @@ def test_a_gemini_client_error_is_not_retried():
 
 import re
 import shutil as _shutil
-import tomllib
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -1918,7 +1917,7 @@ def test_demo_does_not_copy_pycache_into_the_project(tmp_path, monkeypatch):
 def test_typed_classifier_is_backed_by_a_py_typed_marker():
     """PEP 561: 'Typing :: Typed' is a claim; without a shipped py.typed
     marker, mypy/pyright treat the package as untyped."""
-    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    pyproject = _pyproject()
     classifiers = pyproject["project"]["classifiers"]
     declared = "Typing :: Typed" in classifiers
     marker = (_REPO_ROOT / "fieldtest" / "py.typed").exists()
@@ -1935,7 +1934,7 @@ def test_anthropic_floor_is_usable_with_current_httpx():
     """anthropic<0.40 passes `proxies` to httpx.Client, removed in httpx 0.28;
     under default resolution client construction raises TypeError and every
     judge call becomes an errored row. The declared floor must be >=0.40."""
-    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+    pyproject = _pyproject()
     deps = pyproject["project"]["dependencies"]
     anthropic_spec = next(d for d in deps if d.startswith("anthropic"))
     m = re.search(r">=\s*(\d+)\.(\d+)", anthropic_spec)
@@ -1964,6 +1963,37 @@ def test_publish_workflow_gates_on_tag_version_and_tests():
     test_at = workflow.find("pytest")
     assert test_at != -1, "no test gate in publish.yml"
     assert test_at < publish_at, "test gate must run before publishing"
+
+
+
+def _pyproject() -> dict:
+    """
+    pyproject.toml as a dict.
+
+    tomllib is 3.11+, and this project supports 3.10 — a module-level
+    `import tomllib` took the whole test file down there. tomli is not a
+    declared dependency, so on 3.10 the few fields these tests read are pulled
+    out with a regex rather than adding one.
+    """
+    import re as _re
+
+    text = (_REPO_ROOT / "pyproject.toml").read_text()
+    try:
+        import tomllib
+        return tomllib.loads(text)
+    except ModuleNotFoundError:
+        pass
+
+    project = text.split("[project]", 1)[1].split("\n[", 1)[0]
+    def _list(field):
+        m = _re.search(rf"^{field}\s*=\s*\[(.*?)\]", project, _re.S | _re.M)
+        return _re.findall(r'"([^"]+)"', m.group(1)) if m else []
+    m = _re.search(r'^requires-python\s*=\s*"([^"]+)"', project, _re.M)
+    return {"project": {
+        "classifiers": _list("classifiers"),
+        "dependencies": _list("dependencies"),
+        "requires-python": m.group(1) if m else "",
+    }}
 
 
 def test_the_publish_gate_installs_what_the_suite_needs():
@@ -2046,3 +2076,96 @@ def test_a_dev_only_install_has_no_hard_failures():
                     f"{list(markers)}; it will fail rather than skip on a "
                     f"dev-only install"
                 )
+
+
+def test_config_module_survives_pep484_type_comment_parsing():
+    """py.typed ships, so downstream mypy reads fieldtest's sources with PEP 484
+    type-comment parsing on. A bare `# type: <words>` comment (e.g. the old
+    `# type: regex` section markers in config.py) parses as an invalid type
+    comment and aborts the whole check — the consumer's own code goes
+    unchecked. ast.parse(type_comments=True) applies the same rules."""
+    import ast as _ast
+
+    for path in sorted((_REPO_ROOT / "fieldtest").rglob("*.py")):
+        # datasets/ holds project templates exec'd from user projects, not
+        # modules mypy follows from `import fieldtest`. (expense-report/rules.py
+        # currently carries a `type: rule` line inside a commented YAML example
+        # that would trip this check — a user running mypy over a copied
+        # template hits it, but that is the datasets area's to fix.)
+        if "datasets" in path.parts:
+            continue
+        try:
+            _ast.parse(path.read_text(), filename=str(path), type_comments=True)
+        except SyntaxError as e:
+            raise AssertionError(
+                f"{path.relative_to(_REPO_ROOT)}:{e.lineno} breaks PEP 484 "
+                f"type-comment parsing ({e.msg}) — reword any bare '# type:' "
+                f"comment so typed consumers can run mypy at all"
+            ) from None
+
+
+def test_dependency_floors_are_installable_on_every_claimed_python():
+    """The classifiers claim 3.10-3.14. pyyaml 6.0's sdist cannot build under
+    Cython 3 and has no wheels for 3.12+; pydantic-core only gains wheels for a
+    new CPython in later releases and its sdist needs Rust. A floor below these
+    minima makes lowest-resolution installs (uv --resolution lowest,
+    constraints files) fail on the very interpreters the package claims.
+    Minima verified against PyPI wheel availability (see pyproject comments)."""
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    pyproject = _pyproject()
+    reqs = [Requirement(d) for d in pyproject["project"]["dependencies"]]
+
+    def effective_floor(name: str, python_version: str) -> Version:
+        env = {
+            "python_version": python_version,
+            "python_full_version": python_version + ".0",
+        }
+        floors = []
+        for r in reqs:
+            if r.name.lower() != name:
+                continue
+            if r.marker is not None and not r.marker.evaluate(env):
+                continue
+            for spec in r.specifier:
+                if spec.operator in (">=", "==", "~="):
+                    floors.append(Version(spec.version))
+        assert floors, f"no applicable floor for {name} on Python {python_version}"
+        return max(floors)
+
+    pydantic_minima = {
+        "3.10": "2.0",
+        "3.11": "2.0",
+        "3.12": "2.5",   # first pydantic-core cp312 wheels
+        "3.13": "2.9",   # first pydantic-core cp313 wheels
+        "3.14": "2.12",  # first pydantic-core cp314 wheels
+    }
+    for py, minimum in pydantic_minima.items():
+        floor = effective_floor("pydantic", py)
+        assert floor >= Version(minimum), (
+            f"pydantic floor {floor} is not installable on Python {py}; "
+            f"needs >={minimum}"
+        )
+        yaml_floor = effective_floor("pyyaml", py)
+        assert yaml_floor >= Version("6.0.1"), (
+            f"pyyaml floor {yaml_floor} on Python {py}: 6.0's sdist cannot "
+            f"build under Cython 3 and has no wheels for 3.12+"
+        )
+
+
+def test_changelog_documents_the_clean_data_loss_fixes():
+    """The project's release-notes bar is 'what stopped going wrong'. The
+    clean guards (refusing non-fieldtest projects, honest deletion prompts,
+    --results scoped to known artifacts) are the most user-protective fixes in
+    0.3.0 and shipped undocumented — this pins their presence."""
+    changelog = (_REPO_ROOT / "CHANGELOG.md").read_text()
+    section = changelog.split("## Changes from v0.2.2")[0]
+    assert re.search(r"`fieldtest clean`", section), (
+        "CHANGELOG's 0.3.0 notes never mention the fieldtest clean "
+        "data-loss fixes"
+    )
+    assert "refuses" in section and "fieldtest project" in section, (
+        "CHANGELOG should say clean now refuses to run outside a "
+        "fieldtest project"
+    )

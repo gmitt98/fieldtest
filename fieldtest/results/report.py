@@ -282,8 +282,9 @@ def format_report(
     if delta.get("baseline_run_id") and baseline_judge_runs != current_judge_runs:
         lines.append(
             f"⚠ baseline judged each output {baseline_judge_runs}× and this run "
-            f"{current_judge_runs}× — judge spread "
-            f"figures do not."
+            f"{current_judge_runs}× — collapsing resolves ties to fail, so the "
+            f"failure rates move with the repetition count on their own, and "
+            f"the judge spread figures are not comparable at all."
         )
 
     # Judge errors shrink the sample rather than failing the run, so say so where
@@ -338,7 +339,9 @@ def format_report(
             (u.get("use_case"), u["eval_id"]) for u in delta.get("unchanged_keys", [])
         } or {(None, e) for e in delta.get("unchanged", [])}
 
-        floor_hit_rows: list[str] = []
+        # (eval_id, path): the list has no eval column, so the eval each
+        # entry belongs to has to travel with it.
+        floor_hit_rows: list[tuple[str, str]] = []
         error_eval_ids: list[tuple[str, int]] = []
 
         for tag in ["right", "good", "safe"]:
@@ -423,18 +426,40 @@ def format_report(
                 if errs > 0:
                     error_eval_ids.append((eval_id, errs))
                 if fh > 0:
-                    # One entry per output, not per judge call. Iterating raw
-                    # rows listed the same file judge_runs times beside a count
-                    # that had already been collapsed to outputs.
-                    seen_floor = set()
+                    # The list has to name the outputs the count counted. The
+                    # count is collapsed by majority over an output's
+                    # repetitions, ties to floor (build_summary); de-duplicating
+                    # the raw per-call rows instead listed every output where a
+                    # single repetition hit the floor, so at judge_runs: 3 an
+                    # output scored 1, 5, 5 was handed to the user to review
+                    # beside a count that excluded it. Same rule, same unit.
+                    scale_min_fh = next(
+                        (
+                            ev.scale[0]
+                            for ev in uc.evals
+                            if ev.id == eval_id and ev.scale
+                        ),
+                        None,
+                    )
+                    by_output_fh: dict[tuple, list] = {}
                     for row in rows:
-                        if row.eval_id == eval_id and row.floor_hit:
-                            key = (row.fixture_id, row.run)
-                            if key in seen_floor:
-                                continue
-                            seen_floor.add(key)
+                        # Eval ids are unique only within a use case, so the
+                        # use case has to be matched too.
+                        if (
+                            row.use_case == uc.id
+                            and row.eval_id == eval_id
+                            and not row.skipped
+                            and row.error is None
+                            and row.score is not None
+                        ):
+                            by_output_fh.setdefault(
+                                (row.fixture_id, row.run), []
+                            ).append(row.score)
+                    for (fixture_id, run), rep_scores in by_output_fh.items():
+                        at_floor = sum(1 for s in rep_scores if s == scale_min_fh)
+                        if at_floor and at_floor * 2 >= len(rep_scores):
                             floor_hit_rows.append(
-                                f"outputs/{row.fixture_id}/run-{row.run}.txt"
+                                (eval_id, f"outputs/{fixture_id}/run-{run}.txt")
                             )
 
             lines.append("")
@@ -511,14 +536,23 @@ def format_report(
 
         # Floor hits
         if floor_hit_rows:
-            eval_id_fh = next((r.eval_id for r in rows if r.floor_hit), "scored_eval")
-            lines.append(f"⚠ floor hits — {', '.join(floor_hit_rows)}")
-            scale_str = ""
-            for ev in uc.evals:
-                if ev.id == eval_id_fh and ev.scale:
-                    scale_str = f"{ev.scale[0]}/{ev.scale[1]}"
-                    break
-            lines.append(f"  eval: {eval_id_fh} scored {scale_str} — review these outputs")
+            # One block per eval. A single flat list labelled with one eval id
+            # printed the same output once per eval that scored it at the floor
+            # and named the wrong criterion and the wrong scale for all but the
+            # first — telling the user to review a 0 on a 0-10 scale as a 1/5.
+            by_eval_fh: dict[str, list[str]] = {}
+            for eval_id_fh, path in floor_hit_rows:
+                by_eval_fh.setdefault(eval_id_fh, []).append(path)
+            for eval_id_fh, paths in by_eval_fh.items():
+                lines.append(f"⚠ floor hits — {', '.join(paths)}")
+                scale_str = ""
+                for ev in uc.evals:
+                    if ev.id == eval_id_fh and ev.scale:
+                        scale_str = f"{ev.scale[0]}/{ev.scale[1]}"
+                        break
+                lines.append(
+                    f"  eval: {eval_id_fh} scored {scale_str} — review these outputs"
+                )
             lines.append("")
 
         # Judge errors
@@ -545,7 +579,23 @@ def format_report(
                         for r in rows if r.use_case == uc.id and r.error)),
                 None,
             )
-            if reason:
+            # A `rule` eval runs the user's own Python. Its errors are never
+            # about a credential, and sending someone to check their API key
+            # over a ValueError in their own function sends them to the one
+            # place the bug is not.
+            errored = [r for r in rows
+                       if r.use_case == uc.id and r.error and r.type == "rule"]
+            if errored and all(
+                r.type == "rule" for r in rows
+                if r.use_case == uc.id and r.error
+            ):
+                first = errored[0]
+                lines.append(
+                    f"  these are `rule` evals — the error is in your own Python "
+                    f"in evals/rules.py, not in a provider. First one: "
+                    f"{first.eval_id} — {first.error}"
+                )
+            elif reason:
                 lines.append(f"  every failure says the same thing: {reason}")
             else:
                 lines.append(
