@@ -68,12 +68,71 @@ def collapse_verdicts(reps: list[ResultRow]) -> bool:
     return not (fails >= passes)
 
 
-def _population_stddev(values: list[float]) -> float:
-    """Population standard deviation; 0.0 for fewer than two values."""
+def _sample_variance(values: list[float]) -> float:
+    """Unbiased (n-1) sample variance; 0.0 for fewer than two values."""
     if len(values) < 2:
         return 0.0
     mean = sum(values) / len(values)
-    return math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
+    return sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+
+
+def decompose_variance(groups: list[list[float]]) -> tuple[float, float]:
+    """
+    Split repeated scores into (system spread, judge spread).
+
+    `groups` is one list of repeated judge scores per output.
+
+    The obvious pair of formulas is biased in both directions at once, and the
+    bias is large enough to invert the verdict this decomposition exists to
+    give. Writing s for true system SD and j for true judge SD over R
+    repetitions:
+
+      - The SD of the per-output means does not estimate s. Each mean carries
+        its own judge noise, so it estimates sqrt(s^2 + j^2/R) — biased up.
+      - The mean of the per-output SDs does not estimate j. Averaging SDs
+        rather than variances understates it (Jensen), and a population (n)
+        denominator on a sample of R understates it again by sqrt((R-1)/R).
+
+    Both errors move spread off the judge and onto the system, so an ambiguous
+    criterion reads as a noisy system and the user leaves the criterion alone.
+    Monte Carlo over 2000 outputs at R=3: true s=5, j=5 was reported as
+    system 5.72 / judge 3.59, and true s=5, j=8 as system 6.61 / judge 5.82 —
+    both saying "system dominates" when the judge did.
+
+    So estimate the variance components directly, as a one-way random-effects
+    model does:
+
+      judge_var  = pooled within-output sample variance  (unbiased for j^2)
+      system_var = max(0, sample variance of the means - judge_var * mean(1/R_i))
+
+    The clamp matters: when the judge explains everything, the unclamped
+    estimate goes slightly negative, and 0.0 is the honest reading. The same
+    Monte Carlo returns system 4.96 / judge 4.95 and system 4.70 / judge 8.07.
+    """
+    usable = [g for g in groups if g]
+    if not usable:
+        return 0.0, 0.0
+
+    # Pooled within-output variance: sum of squared deviations over the summed
+    # degrees of freedom. Outputs judged once contribute no information about
+    # judge spread and are correctly weightless here.
+    sq_dev = 0.0
+    dof    = 0
+    for g in usable:
+        if len(g) < 2:
+            continue
+        mean_g = sum(g) / len(g)
+        sq_dev += sum((v - mean_g) ** 2 for v in g)
+        dof    += len(g) - 1
+    judge_var = sq_dev / dof if dof > 0 else 0.0
+
+    means = [sum(g) / len(g) for g in usable]
+    # mean(1/R_i) rather than 1/R, so an output whose judge call errored out and
+    # left it with fewer repetitions still subtracts the right amount.
+    mean_inv_reps = sum(1.0 / len(g) for g in usable) / len(usable)
+    system_var = max(0.0, _sample_variance(means) - judge_var * mean_inv_reps)
+
+    return math.sqrt(system_var), math.sqrt(judge_var)
 
 
 def collapse_rows(rows: list[ResultRow], config: Config) -> list[ResultRow]:
@@ -314,18 +373,17 @@ def build_summary(
                         # Two sources of variance were summed and reported as one
                         # number attributed to the system. Separate them.
                         by_output    = _group_by_output(valid_rows)
-                        output_means = []
-                        within       = []
+                        groups = []
                         for reps in by_output.values():
                             rep_scores = [r.score for r in reps if r.score is not None]
                             if not rep_scores:
                                 continue
-                            output_means.append(sum(rep_scores) / len(rep_scores))
-                            within.append(_population_stddev(rep_scores))
+                            groups.append(rep_scores)
+                        sys_sd, judge_sd = decompose_variance(groups)
                         judge_fields = {
                             **judge_fields,
-                            "system_stddev": round(_population_stddev(output_means), 4),
-                            "judge_stddev":  round(sum(within) / len(within), 4) if within else 0.0,
+                            "system_stddev": round(sys_sd, 4),
+                            "judge_stddev":  round(judge_sd, 4),
                             "judge_runs":    judge_runs,
                         }
                         # Outputs, matching the binary branch. mean, stddev, min
@@ -517,8 +575,14 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # Accepted as a baseline, but the comparison carries a caveat: we cannot
     # tell whether the instrument was the same one.
     baseline_pre_judge = baseline_data.get("judge") is None
-    # Collapsed failure_rate values stay comparable across repetition counts;
-    # the judge spread fields do not. Keep the comparison, carry the caveat.
+    # Collapsed failure_rate values are roughly comparable across repetition
+    # counts — but not exactly, and not monotonically. collapse_verdicts
+    # resolves ties to fail (spec 06 §2.7), so the collapsed rate depends on the
+    # parity of judge_runs, not just its size. Independent judge, P(pass)=0.9,
+    # identical outputs: judge_runs 1 → 0.100, 2 → 0.190, 3 → 0.028, 4 → 0.052,
+    # 5 → 0.009. An even count biases toward fail. Judge spread fields are not
+    # comparable at all. Keep the comparison, carry the caveat — but a delta
+    # across a judge_runs change of different parity is not a system change.
     baseline_judge_runs = baseline_data.get("judge_runs", 1)
 
     # A baseline whose judge calls largely failed is a rate over whatever
