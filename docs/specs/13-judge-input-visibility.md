@@ -1,6 +1,6 @@
 # Spec 13 — Judge input visibility
 
-**Tier** 1 · **Depends on** 03 · **Touches** `judges/llm.py`, `judges/dispatch.py`, `config.py`, recipes · **Status** draft
+**Tier** 1 · **Depends on** 03 · **Touches** `judges/llm.py`, `judges/dispatch.py`, `config.py`, recipes · **Status** shipped
 
 ## §1 Problem
 
