@@ -2320,3 +2320,113 @@ def test_the_readme_partial_gate_refuses_a_partial_run_and_allows_the_others(tmp
         allowed[name] = r.returncode == 0
 
     assert allowed == {"complete": True, "partial": False, "pre_0_3": True}, allowed
+
+
+# ---------------------------------------------------------------------------
+# The site's terminal blocks (Track E, after the fact)
+#
+# The homepage quickstart showed a directory the tool does not create, an
+# output format it does not print, and rates that flattered the demo: SAFE
+# 91.7% where the bundled data gives 79%. It was the first thing a visitor saw.
+# Nothing checked it, because the tests covered the dataset section only.
+# ---------------------------------------------------------------------------
+
+def _site() -> str:
+    return (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+
+
+def _site_blocks() -> list[str]:
+    import html as htmlmod
+    import re
+
+    return [htmlmod.unescape(re.sub(r"<[^>]+>", "", b)).strip()
+            for b in re.findall(r"<pre[^>]*>(.*?)</pre>", _site(), re.S)]
+
+
+def test_the_site_quickstart_shows_what_the_demo_actually_prints(tmp_path, monkeypatch):
+    """Numbers, directory and output shape, against a real offline demo run."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    site = _site()
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    result = CliRunner().invoke(
+        main, ["demo", "--example", "rag", "--offline"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    # The directory the command actually creates.
+    assert (tmp_path / "fieldtest-demo").is_dir()
+    assert "demo-rag/" not in site, "the site names a directory demo never creates"
+
+    # Every Tag Health row the command printed must appear on the site.
+    import re
+    rows = re.findall(r"\| (RIGHT|GOOD|SAFE) \| (\d+)% \| (\d+) / (\d+) \|", result.output)
+    assert len(rows) == 3, f"demo output shape changed: {result.output[:400]}"
+    for tag, pct, passed, total in rows:
+        assert f"| {tag} | {pct}% | {passed} / {total} |" in site, (
+            f"the site does not show the real {tag} row: {pct}% {passed}/{total}")
+
+
+def test_the_site_never_shows_a_rate_the_demo_does_not_produce():
+    """The specific failure: SAFE 91.7% on the site, 79% in the data."""
+    site = _site()
+    for stale in ("83.3%  pass rate", "91.7%  pass rate", "95.8%  pass rate"):
+        assert stale not in site, f"a fabricated rate is back on the site: {stale}"
+
+
+def test_the_site_config_example_validates():
+    """A reader copies it. It was missing a required `description`."""
+    import tempfile
+
+    from fieldtest.config import parse_and_validate
+
+    blocks = [b for b in _site_blocks() if b.startswith("schema_version:")]
+    assert blocks, "the site no longer shows a full config example"
+    for block in blocks:
+        d = Path(tempfile.mkdtemp())
+        (d / "config.yaml").write_text(block)
+        (d / "fixtures").mkdir()
+        parse_and_validate(d / "config.yaml")   # raises if the example is broken
+
+
+def test_the_site_shows_the_real_init_template_output(tmp_path, monkeypatch):
+    """It omitted the fixtures/variations/ line the command prints."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["init", "--template", "rag"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    site = _site()
+    for line in result.output.splitlines():
+        line = line.strip()
+        if line.startswith("evals/"):
+            assert line in site, f"the site omits a line init prints: {line!r}"
+
+
+def test_the_site_label_table_is_in_the_order_the_tool_emits(tmp_path, monkeypatch):
+    """Same row-order defect the walkthrough had, on the same table."""
+    rows = _score_dataset_copy(tmp_path, monkeypatch)
+    config_order = []
+    seen = set()
+    for r in rows:
+        if r.eval_id not in seen and r.passed is not None:
+            seen.add(r.eval_id)
+
+    from fieldtest.config import parse_and_validate
+    config = parse_and_validate(tmp_path / "evals" / "config.yaml")
+    config_order = [ev.id for uc in config.use_cases for ev in uc.evals]
+
+    site = _site()
+    positions = [(site.index(f"| {e} "), e) for e in config_order if f"| {e} " in site]
+    assert len(positions) >= 3, "the site no longer shows the labels table"
+    assert positions == sorted(positions), (
+        f"the site lists them {[e for _, e in positions]}, "
+        f"the tool emits {[e for e in config_order if any(e == x for _, x in positions)]}")
