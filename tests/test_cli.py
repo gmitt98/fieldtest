@@ -2596,7 +2596,7 @@ def test_clean_refuses_a_directory_that_is_not_a_fieldtest_project(tmp_path, mon
     result = CliRunner().invoke(main, ["clean", "--outputs"], catch_exceptions=False)
     assert result.exit_code == 1, result.output
     assert weights.exists(), "clean deleted a non-fieldtest project's outputs"
-    assert "not a usable fieldtest config" in result.output
+    assert "not a fieldtest config" in result.output
 
 
 def test_clean_names_every_file_it_will_delete(tmp_path, monkeypatch):
@@ -3094,3 +3094,87 @@ def test_no_test_module_imports_a_python_311_only_stdlib_module():
 
     assert not offenders, (
         "these are 3.11+ and the package supports 3.10:\n  " + "\n  ".join(offenders))
+
+
+# ---------------------------------------------------------------------------
+# Round four: what the fixing broke, and what it missed
+# ---------------------------------------------------------------------------
+
+def test_init_force_never_destroys_an_existing_gitignore(tmp_path, monkeypatch):
+    """
+    --force replaced .gitignore wholesale. A file carrying `.env` and `*.pem`
+    became the single line `outputs/`, so the next `git add .` staged the
+    user's secrets — and the output said "outputs/ excluded from git", which
+    reads as a creation notice.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".gitignore").write_text(".env\n*.pem\n")
+    (tmp_path / "config.yaml").write_text("model:\n  lr: 3e-4\n")
+
+    result = CliRunner().invoke(main, ["init", "--dir", ".", "--force"],
+                                catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    lines = {l.strip() for l in (tmp_path / ".gitignore").read_text().splitlines()}
+    assert ".env" in lines and "*.pem" in lines, "init destroyed the user's ignores"
+    assert "outputs/" in lines, "init did not add its own entry"
+    assert "appended" in result.output, "the output does not say it appended"
+
+
+def test_init_template_force_says_it_replaced_your_config(tmp_path, monkeypatch):
+    """The warning existed on the non-template branch only."""
+    monkeypatch.chdir(tmp_path)
+    assert CliRunner().invoke(main, ["init"], catch_exceptions=False).exit_code == 0
+    (tmp_path / "evals" / "config.yaml").write_text("system: mine\ndomain: mine\n")
+
+    result = CliRunner().invoke(
+        main, ["init", "--template", "chatbot", "--force"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "replaced the existing" in result.output, (
+        f"--template --force overwrote a config silently:\n{result.output}")
+
+
+def test_clean_works_in_a_freshly_scaffolded_template_project(tmp_path, monkeypatch):
+    """
+    Templates ship `tag: ""` on purpose, so requiring full validation made
+    clean refuse to work in the project `init --template` had just created,
+    while claiming there was nothing there to remove.
+    """
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["init", "--template", "chatbot"], catch_exceptions=False)
+    outputs = tmp_path / "evals" / "outputs"
+    outputs.mkdir(parents=True, exist_ok=True)
+    (outputs / "a.txt").write_text("a run")
+
+    result = CliRunner().invoke(main, ["clean"], input="n\n", catch_exceptions=False)
+    assert "nothing here" not in result.output, (
+        f"clean refused a real fieldtest project:\n{result.output}")
+    assert "a.txt" in result.output, result.output
+
+
+def test_demo_onto_a_dangling_symlink_says_so(tmp_path, monkeypatch):
+    """exists() is False for a dangling link, so copytree raised instead."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "b1").symlink_to(tmp_path / "nonexistent")
+
+    result = CliRunner().invoke(main, ["demo", "--offline", "--dir", "b1"],
+                                catch_exceptions=False)
+    assert "Traceback" not in result.output, result.output
+    assert "already exists" in result.output
+
+
+def test_optional_provider_floors_are_usable_with_current_httpx():
+    """
+    `openai>=1.0` had the same `proxies` break the anthropic floor was raised
+    for: under default resolution the client raises TypeError on construction
+    and every judge call becomes an errored row. Bisected to 1.55.3.
+    """
+    import re
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    text = (root / "pyproject.toml").read_text()
+    m = re.search(r'"openai>=(\d+)\.(\d+)\.(\d+)"', text)
+    assert m, "the openai extra no longer declares a three-part floor"
+    assert tuple(int(g) for g in m.groups()) >= (1, 55, 3), (
+        f"openai floor {m.group(0)} passes `proxies` to httpx and cannot construct "
+        f"a client under httpx>=0.28")

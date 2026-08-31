@@ -82,7 +82,11 @@ fieldtest = "fieldtest.cli:main"
 
 [project.optional-dependencies]
 openai = [
-    "openai>=1.0",
+    # 1.55.3, not 1.0: earlier releases pass `proxies` to httpx.Client, removed
+    # in httpx 0.28. Under default resolution the client raises TypeError on
+    # construction and every judge call becomes an errored row — the same break
+    # the anthropic floor was raised for. Bisected: 1.55.2 fails, 1.55.3 works.
+    "openai>=1.55.3",
 ]
 gemini = [
     "google-genai>=1.0",
