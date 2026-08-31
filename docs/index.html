@@ -107,11 +107,17 @@ hr.divider {
   margin-bottom: 36px;
 }
 .hero-meta {
-  display: flex;
-  gap: 32px;
-  flex-wrap: wrap;
+  /* A grid, not flex-wrap. The four items total 957px inside an 896px
+     container, so flex orphaned the fourth onto a row of its own at every
+     width — it read as a mistake rather than as a 2x2. */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px 32px;
 }
-.hero-stat { text-align: center; }
+@media (min-width: 900px) {
+  .hero-meta { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.hero-stat { text-align: left; }
 .hero-stat .num { font-size: 36px; font-weight: 900; color: #fff; letter-spacing: -1px; }
 .hero-stat .lbl { font-size: 12px; color: #888; margin-top: 2px; }
 .version-badge {
@@ -671,26 +677,29 @@ hr.divider {
       <div class="terminal-body">
 <pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
 <span class="t-dim">Collecting fieldtest</span>
-<span class="t-dim">  Downloading fieldtest-0.3.0-py3-none-any.whl (128 kB)</span>
+<span class="t-dim">  Downloading fieldtest-0.3.0-py3-none-any.whl (216 kB)</span>
 <span class="t-dim">Installing collected packages: fieldtest</span>
 <span class="t-green">Successfully installed fieldtest-0.3.0</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest demo --example rag --offline</span>
-<span class="t-green">✓</span> Copied demo: rag → <span class="t-out">./demo-rag/</span>
-<span class="t-green">✓</span> Loaded pre-scored results (offline mode)
-<span class="t-green">✓</span> Generated HTML report
+<span class="t-dim"># Eval Report</span>
+<span class="t-dim">2026-08-27 10:39 | set: full | 4 fixtures × 3 runs = 12 evaluations per eval</span>
+<span class="t-dim">judge: anthropic claude-haiku-4-5 | temperature: 0.0</span>
 
-<span class="t-bold t-out">Run ID:</span> <span class="t-out">demo-offline-0000</span>
-<span class="t-bold t-out">Example:</span> <span class="t-out">rag (Handbook Q&A Assistant)</span>
-<span class="t-bold t-out">Fixtures:</span> <span class="t-out">4  Evals: 6  Runs: 3</span>
-<span class="t-bold t-out">Results:</span> <span class="t-out">demo-rag/evals/results/</span>
+<span class="t-bold t-out">## handbook_qa</span>
+<span class="t-out">Employee questions answered accurately from the handbook</span>
 
-  <span class="t-out">RIGHT  83.3%  pass rate across 2 evals</span>
-  <span class="t-out">GOOD   95.8%  pass rate across 2 evals</span>
-  <span class="t-out">SAFE   91.7%  pass rate across 2 evals</span>
+<span class="t-bold t-out">### Tag Health</span>
+<span class="t-out">| tag | pass rate | passed / total |</span>
+<span class="t-out">|-----|-----------|----------------|</span>
+<span class="t-out">| RIGHT | 76% | 16 / 21 |</span>
+<span class="t-out">| GOOD | 96% | 23 / 24 |</span>
+<span class="t-out">| SAFE | 79% | 19 / 24 |</span>
+<span class="t-dim">...</span>
+<span class="t-out">Files saved to fieldtest-demo/ — edit evals/outputs/ to experiment, then run fieldtest score</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest view</span>
-<span class="t-green">✓</span> Opened demo-rag/evals/results/demo-offline-0000-report.html</pre>
+<span class="t-out">Opening: fieldtest-demo/evals/results/demo-offline-report.html</span></pre>
       </div>
     </div>
 
@@ -858,7 +867,7 @@ amounts are the same.</span></pre>
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
-        <span class="terminal-label">evals/sources/receipts-october.csv</span>
+        <span class="terminal-label">evals/sources/receipts-october.csv — annotated</span>
       </div>
 <div class="terminal-body">
 <pre class="tabular"><span class="t-dim">receipt_id,date,category,merchant,amount</span>
@@ -875,7 +884,7 @@ R-1046,2026-10-05,ground,Uber,41.15</span>
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
-        <span class="terminal-label">evals/fixtures/october-trip.yaml</span>
+        <span class="terminal-label">evals/fixtures/october-trip.yaml — annotated</span>
       </div>
 <div class="terminal-body">
 <pre><span class="cy">id:</span> <span class="cs">october-trip</span>
@@ -1022,7 +1031,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
     <div class="terminal">
       <div class="terminal-bar">
         <div class="terminal-dot red"></div><div class="terminal-dot yellow"></div><div class="terminal-dot green"></div>
-        <span class="terminal-label">evals/reference-evals.yaml</span>
+        <span class="terminal-label">evals/reference-evals.yaml — annotated</span>
       </div>
 <div class="terminal-body">
 <pre><span class="cy">- id:</span> <span class="cs">explanation_clarity</span>
@@ -1061,8 +1070,8 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 
 <span class="t-bold t-out">### Judge vs Human Labels</span>
 <span class="t-out">| eval                               | labeled runs | agreement |
-| golden_summary                     | 3            | <span class="t-green">100.0%</span>    |
 | total_matches_line_items           | 9            | <span class="t-green">100.0%</span>    |
+| golden_summary                     | 3            | <span class="t-green">100.0%</span>    |
 | no_unfilled_placeholders           | 9            | <span class="t-green">100.0%</span>    |
 | excluded_categories_not_reimbursed | 9            | <span class="t-green">100.0%</span>    |</span>
 
@@ -1367,6 +1376,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       - <span class="cy">id:</span> <span class="cs">cites-source</span>
         <span class="cy">tag:</span> <span class="ct">good</span>
         <span class="cy">labels:</span> <span class="cs">[completeness]</span>
+        <span class="cy">description:</span> <span class="cs">Answers cite the handbook section they came from</span>
         <span class="cy">type:</span> <span class="ct">regex</span>
         <span class="cy">pattern:</span> <span class="cs">"(?i)(section|handbook|policy|per the)"</span>
         <span class="cy">match:</span> <span class="cv">true</span>
@@ -1737,6 +1747,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
 <span class="t-green">✓</span> Scaffolded from rag template at evals/
   evals/config.yaml       — fill in system, domain, tags
   evals/fixtures/golden/  — fixtures with expected outputs
+  evals/fixtures/variations/ — fixtures without expected outputs
   evals/.gitignore        — outputs/ excluded from git
 
 Next steps:
