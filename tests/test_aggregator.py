@@ -300,9 +300,9 @@ def test_summarize_judge_errors_counts_calls_and_affected_evals():
     from fieldtest.results.aggregator import summarize_judge_errors
 
     rows = [
-        _row(passed=True, run=1),
-        _row(passed=None, error="overloaded", run=2),
-        _row(passed=None, error="overloaded", run=3),
+        _row(ev_type="llm", passed=True, run=1),
+        _row(ev_type="llm", passed=None, error="overloaded", run=2),
+        _row(ev_type="llm", passed=None, error="overloaded", run=3),
     ]
     result = summarize_judge_errors(build_summary(rows, _make_config()))
 
@@ -317,9 +317,9 @@ def test_report_header_shows_error_count_when_nonzero():
 
     config = _make_config()
     rows = [
-        _row(passed=True, run=1),
-        _row(passed=None, error="overloaded", run=2),
-        _row(passed=None, error="overloaded", run=3),
+        _row(ev_type="llm", passed=True, run=1),
+        _row(ev_type="llm", passed=None, error="overloaded", run=2),
+        _row(ev_type="llm", passed=None, error="overloaded", run=3),
     ]
     report = format_report(
         rows=rows, summary=build_summary(rows, config), delta={},
@@ -922,8 +922,8 @@ def test_judge_calls_and_outputs_counted_in_their_own_units():
     """
     config = _make_config(judge_runs=3)
     rows = (
-        _reps([True, True, True], run=1)
-        + [_row(passed=None, error="overloaded", run=2, judge_run=i) for i in (1, 2, 3)]
+        _reps([True, True, True], run=1, ev_type="llm")
+        + [_row(ev_type="llm", passed=None, error="overloaded", run=2, judge_run=i) for i in (1, 2, 3)]
     )
     stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
 
@@ -943,7 +943,7 @@ def test_judge_error_units_unchanged_at_one_repetition():
     from fieldtest.results.aggregator import summarize_judge_errors
 
     config = _make_config()
-    rows = [_row(passed=True, run=1), _row(passed=None, error="boom", run=2)]
+    rows = [_row(ev_type="llm", passed=True, run=1), _row(ev_type="llm", passed=None, error="boom", run=2)]
     stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
 
     assert stats["judge_calls"] == stats["outputs_attempted"] == 2

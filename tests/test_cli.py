@@ -2566,6 +2566,11 @@ def test_the_demos_closing_instructions_actually_work(tmp_path, monkeypatch):
     monkeypatch.setattr("webbrowser.open", lambda url: True)
     monkeypatch.chdir(target)
     for cmd in commands:
+        # A line that names a credential is telling you it needs one; running it
+        # without is not a broken instruction. Every other line must just work.
+        line = next(l for l in tail if f"fieldtest {cmd}" in l)
+        if "API_KEY" in line:
+            continue
         r = runner.invoke(main, [cmd], catch_exceptions=False)
         assert "Traceback" not in r.output, f"'{cmd}' raised:\n{r.output}"
         assert "No results found" not in r.output, (
@@ -2803,8 +2808,13 @@ def test_score_fails_when_every_judge_call_errored(tmp_path, monkeypatch):
     assert "nothing was scored" in result.output
 
 
-def test_score_still_succeeds_when_only_some_calls_errored(tmp_path, monkeypatch):
-    """A partial failure is a measurement with holes, and still exits 0."""
+def test_score_fails_when_the_llm_half_wholly_failed_beside_a_passing_regex(tmp_path, monkeypatch):
+    """
+    The gate asked "did anything score at all", so one passing regex disarmed it
+    while every call to the judge failed. On the bundled email demo that is 27
+    of 27 judge calls dead and exit 0, against a README that promises exit 1.
+    A deterministic eval is not a judge call and cannot stand in for one.
+    """
     evals = _llm_only_project(tmp_path)
     cfg = evals / "config.yaml"
     cfg.write_text(cfg.read_text().replace("""      - id: is_polite""",
@@ -2822,8 +2832,10 @@ def test_score_still_succeeds_when_only_some_calls_errored(tmp_path, monkeypatch
     result = CliRunner().invoke(
         main, ["score", "--config", str(cfg), "--set", "full"],
         catch_exceptions=False)
-    assert result.exit_code == 0, (
-        f"a run where the regex eval scored should still succeed:\n{result.output}")
+    assert result.exit_code == 1, (
+        f"every judge call failed; a passing regex must not disarm the gate:\n"
+        f"{result.output}")
+    assert "nothing was scored" in result.output
 
 
 def test_score_succeeds_on_a_clean_offline_run(tmp_path, monkeypatch):
@@ -3178,3 +3190,44 @@ def test_optional_provider_floors_are_usable_with_current_httpx():
     assert tuple(int(g) for g in m.groups()) >= (1, 55, 3), (
         f"openai floor {m.group(0)} passes `proxies` to httpx and cannot construct "
         f"a client under httpx>=0.28")
+
+
+def test_score_succeeds_when_only_some_judge_calls_errored(tmp_path, monkeypatch):
+    """
+    The distinction the gate exists to draw: a judge that answered sometimes is
+    a measurement with holes and exits 0. Only a total outage exits 1.
+    """
+    from unittest.mock import patch
+
+    evals = _llm_only_project(tmp_path)
+    cfg = evals / "config.yaml"
+    cfg.write_text(cfg.read_text().replace("      runs: 1", "      runs: 2"))
+    (evals / "outputs" / "f1" / "run-2.txt").write_text("hello again")
+
+    calls = {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"answer": "Pass", "reasoning": "fine"}
+        return {"error": "provider blew up"}
+
+    with patch("fieldtest.judges.llm.call_judge_llm", side_effect=flaky):
+        result = CliRunner().invoke(
+            main, ["score", "--config", str(cfg), "--set", "full"],
+            catch_exceptions=False)
+
+    assert result.exit_code == 0, (
+        f"one judge call succeeded; this is a partial measurement:\n{result.output}")
+
+
+def test_a_deterministic_only_project_never_trips_the_judge_gate(tmp_path, monkeypatch):
+    """No llm evals means no judge calls to fail; the gate must stay silent."""
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    evals = _setup_project(tmp_path)
+    _write_outputs(evals, "fix1", 2)
+    _write_outputs(evals, "fix2", 2)
+    result = _run_score(evals)
+    assert result.exit_code == 0, result.output
+    assert "judge call(s) failed" not in result.output

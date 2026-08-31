@@ -428,7 +428,12 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
         click.echo(f"\nFiles saved to {dest}/. To explore:")
         click.echo(f"  cd {dest}")
         click.echo("  fieldtest view            # open the HTML report")
-        click.echo("  fieldtest score           # re-score after editing evals/outputs/")
+        # This demo's evals are judged by an LLM. Suggesting a bare re-score
+        # after `--offline` — which the user chose because they have no key —
+        # points at a command that now correctly exits 1.
+        needs_key = "  (needs ANTHROPIC_API_KEY)" if offline else ""
+        click.echo(
+            f"  fieldtest score           # re-score after editing evals/outputs/{needs_key}")
         return
 
     # Live mode — the API key was already checked before anything was copied.
