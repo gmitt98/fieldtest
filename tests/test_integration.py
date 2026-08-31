@@ -2489,3 +2489,130 @@ def test_the_repeatability_block_lists_only_llm_evals():
 
     assert shown, "no evals listed in the repeatability block"
     assert shown <= llm, f"the block lists non-llm evals: {sorted(shown - llm)}"
+
+
+# ---------------------------------------------------------------------------
+# Fixtures in subdirectories (release audit, blocker)
+#
+# `fieldtest init` creates fixtures/golden/ and fixtures/variations/ and writes
+# `regression: golden/*` into the config it generates. resolve_set returned bare
+# stems and every caller joined them as fixtures/<id>.yaml, so a fixture placed
+# where the scaffold says to place it could never be loaded. The tool's own
+# scaffold did not work, by `dir/*` or by `all`.
+# ---------------------------------------------------------------------------
+
+def _subdir_project(tmp_path: Path, set_value: str) -> Path:
+    evals = tmp_path / "evals"
+    (evals / "fixtures" / "golden").mkdir(parents=True)
+    (evals / "outputs" / "g1").mkdir(parents=True)
+    (evals / "fixtures" / "golden" / "g1.yaml").write_text(
+        "id: g1\ndescription: in a subdirectory\ninputs:\n  q: hello\n")
+    (evals / "outputs" / "g1" / "run-1.txt").write_text("hello world")
+    (evals / "config.yaml").write_text(f"""schema_version: 1
+system:
+  name: s
+  domain: d
+use_cases:
+  - id: uc1
+    description: d
+    evals:
+      - id: says_hello
+        tag: right
+        type: regex
+        description: greets
+        pattern: hello
+        match: true
+    fixtures:
+      directory: fixtures/
+      runs: 1
+      sets:
+        target: {set_value}
+""")
+    return evals / "config.yaml"
+
+
+@pytest.mark.parametrize("set_value", ["golden/*", "all"])
+def test_a_fixture_in_a_subdirectory_can_be_scored(tmp_path, monkeypatch, set_value):
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _subdir_project(tmp_path, set_value)
+    _, rows = score(config=parse_and_validate(config_path), config_path=config_path,
+                    set_name="target", write_artifacts=False)
+    scored = [r for r in rows if r.passed is not None]
+    assert scored, f"'{set_value}' scored nothing — the fixture was never loaded"
+    assert all(r.fixture_id == "g1" for r in scored)
+
+
+def test_two_fixtures_sharing_a_stem_are_refused_not_silently_merged(tmp_path):
+    """Resolving to whichever sorts first would score one file twice."""
+    from fieldtest.errors import ConfigError
+    from fieldtest.resolve import fixture_path
+
+    fixtures = tmp_path / "fixtures"
+    for sub in ("golden", "variations"):
+        (fixtures / sub).mkdir(parents=True)
+        (fixtures / sub / "dup.yaml").write_text("id: dup\ninputs: {}\n")
+
+    with pytest.raises(ConfigError) as exc:
+        fixture_path("dup", fixtures)
+    msg = str(exc.value)
+    assert "matches more than one file" in msg
+    assert "golden/dup.yaml" in msg and "variations/dup.yaml" in msg
+
+
+def test_a_top_level_fixture_still_wins_over_a_nested_one(tmp_path):
+    """The direct path is checked first, so existing projects are unaffected."""
+    from fieldtest.resolve import fixture_path
+
+    fixtures = tmp_path / "fixtures"
+    (fixtures / "golden").mkdir(parents=True)
+    (fixtures / "a.yaml").write_text("id: a\n")
+    (fixtures / "golden" / "a.yaml").write_text("id: a\n")
+    assert fixture_path("a", fixtures) == fixtures / "a.yaml"
+
+
+def test_the_scaffold_init_writes_can_score_what_init_tells_you_to_put_there(tmp_path, monkeypatch):
+    """
+    End to end on the generated project: init creates fixtures/golden/ and
+    declares `regression: golden/*`. Put a fixture there and it must score.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert CliRunner().invoke(main, ["init"], catch_exceptions=False).exit_code == 0
+    evals = tmp_path / "evals"
+    assert (evals / "fixtures" / "golden").is_dir(), "init no longer creates golden/"
+
+    text = (evals / "config.yaml").read_text()
+    assert "golden/*" in text, "the scaffold no longer declares a golden/* set"
+
+    import re
+    (evals / "config.yaml").write_text(
+        re.sub(r"tag:\s*$", "tag: right", text, flags=re.M).replace("runs: 5", "runs: 1"))
+    (evals / "fixtures" / "golden" / "g1.yaml").write_text(
+        "id: g1\ndescription: d\ninputs:\n  q: hi\n")
+    (evals / "outputs" / "g1").mkdir(parents=True)
+    (evals / "outputs" / "g1" / "run-1.txt").write_text("hi there")
+
+    config_path = evals / "config.yaml"
+    _, rows = score(config=parse_and_validate(config_path), config_path=config_path,
+                    set_name="regression", write_artifacts=False)
+
+    # The scaffold's evals are llm type and there is no key here, so they error.
+    # What matters is that the fixture was found and reached a judge at all —
+    # before the fix, resolve_set produced the id and the loader looked for it
+    # at the top level, so the run raised a ConfigError and reached nothing.
+    assert rows, "the scaffold's own regression set produced no rows"
+    assert {r.fixture_id for r in rows} == {"g1"}, \
+        f"the fixture in golden/ was not reached: {[r.fixture_id for r in rows]}"

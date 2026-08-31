@@ -1300,3 +1300,40 @@ def test_a_split_verdict_on_the_floor_collapses_the_way_a_binary_one_does():
     ]
     stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
     assert stats["floor_hits"] == 1
+
+
+def test_the_same_eval_id_in_two_use_cases_keeps_its_own_type():
+    """
+    eval_meta was keyed by eval_id alone, so a later definition overwrote an
+    earlier one. Where the two differed in type, a binary eval inherited
+    is_scored from a scored namesake and reported failure_rate: null — an eval
+    failing every run showed nothing at all.
+    """
+    config = Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "s", "domain": "d"},
+        "use_cases": [
+            {"id": "uc1", "description": "d",
+             "evals": [{"id": "shared", "tag": "good", "type": "llm",
+                        "description": "d", "pass_criteria": "a", "fail_criteria": "b"}],
+             "fixtures": {"directory": "fixtures/", "sets": {"full": ["a"]}}},
+            {"id": "uc2", "description": "d",
+             "evals": [{"id": "shared", "tag": "good", "type": "llm",
+                        "description": "d", "binary": False, "scale": [1, 5],
+                        "anchors": {1: "x", 5: "y"}}],
+             "fixtures": {"directory": "fixtures/", "sets": {"full": ["b"]}}},
+        ],
+    })
+    rows = [
+        ResultRow(use_case="uc1", eval_id="shared", tag="good", type="llm",
+                  fixture_id="a", run=1, passed=False, detail=""),
+        ResultRow(use_case="uc1", eval_id="shared", tag="good", type="llm",
+                  fixture_id="a", run=2, passed=False, detail=""),
+        ResultRow(use_case="uc2", eval_id="shared", tag="good", type="llm",
+                  fixture_id="b", run=1, score=4, detail=""),
+    ]
+    summary = build_summary(rows, config)
+    assert summary["uc1"]["good"]["shared"]["failure_rate"] == 1.0, \
+        "the binary eval lost its failure rate to its scored namesake"
+    assert summary["uc2"]["good"]["shared"]["mean"] == 4.0
+    assert summary["uc2"]["good"]["shared"]["failure_rate"] is None

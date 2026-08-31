@@ -54,9 +54,23 @@ def dispatch_judge(
             )
         try:
             result = fn(output, fixture.get("inputs", {}))
+            # A rule that returns no usable verdict is a broken rule, not a
+            # verdict. `passed=result.get("passed")` made it None, and None
+            # then read as a pass in the per-eval table and as a fail in Tag
+            # Health — the same run reporting 100% and 0% for one result, on a
+            # `safe` eval. An error row says the rule is broken, once, loudly.
+            if not isinstance(result, dict):
+                return ResultRow(**base, error=(
+                    f"rule '{eval.id}' returned {type(result).__name__}, "
+                    f"expected a dict with a 'passed' key"))
+            verdict = result.get("passed")
+            if not isinstance(verdict, bool):
+                return ResultRow(**base, error=(
+                    f"rule '{eval.id}' returned no boolean 'passed' "
+                    f"(got {verdict!r}); it cannot be scored"))
             return ResultRow(
                 **base,
-                passed=result.get("passed"),
+                passed=verdict,
                 detail=result.get("detail"),
             )
         except ConfigError:

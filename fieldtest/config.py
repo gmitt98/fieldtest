@@ -321,7 +321,11 @@ class ResultRow(BaseModel):
     run:         int
     judge_run:   int = 1              # which judge repetition produced this row
     passed:      Optional[bool] = None
-    score:       Optional[int]  = None
+    # float, not int: a judge asked for 1-5 sometimes answers 3.5, and
+    # ResultRow(score=3.5) raised a ValidationError that aborted the entire run
+    # rather than recording one odd verdict. The scale is a range, not an
+    # enumeration, and mean/stddev were already floats.
+    score:       Optional[float] = None
     floor_hit:   bool           = False
     skipped:     bool           = False   # True when reference eval has no expected block
     skip_reason: Optional[str]  = None    # why skipped; shown in report
@@ -456,6 +460,7 @@ from fieldtest.fixtures import (  # noqa: E402
     validate_fixture_labels,
 )
 from fieldtest.resolve import (  # noqa: E402
+    fixture_path,
     resolve_dataset_version,
     resolve_judge_runs,
     resolve_runs,
@@ -470,6 +475,6 @@ __all__ = [
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
     "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
     "validate_fixture_labels",
-    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
+    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set", "fixture_path",
     "use_cases_with_fixtures",
 ]

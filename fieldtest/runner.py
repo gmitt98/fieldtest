@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from fieldtest.config import (
+    fixture_path,
     Config,
     ResultRow,
     extract_labels,
@@ -110,8 +111,8 @@ def score(
         fixture_ids = resolve_set(set_name, uc, base_dir)
         runs        = resolve_runs(config, uc)
         for fid in fixture_ids:
-            fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
-            fixture      = load_fixture(fixture_path, base_dir)
+            fixture_file = fixture_path(fid, base_dir / uc.fixtures.directory)
+            fixture      = load_fixture(fixture_file, base_dir)
             for (eval_id, run_number), value in extract_labels(fixture).items():
                 human_labels[(fid, eval_id, run_number)] = value
             run_outputs  = []
