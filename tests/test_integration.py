@@ -2430,3 +2430,62 @@ def test_the_site_label_table_is_in_the_order_the_tool_emits(tmp_path, monkeypat
     assert positions == sorted(positions), (
         f"the site lists them {[e for _, e in positions]}, "
         f"the tool emits {[e for e in config_order if any(e == x for _, x in positions)]}")
+
+
+def test_the_site_repeatability_block_names_the_setting_it_requires():
+    """
+    The block was captioned `fieldtest score --config reference-evals.yaml
+    --set full`. That config never sets judge_runs, so it defaults to 1, and
+    the Judge Repeatability section only renders above 1 — the captioned
+    command could not produce the block under it.
+    """
+    import fieldtest
+    from pathlib import Path as _P
+
+    from fieldtest.config import parse_and_validate
+
+    site = _site()
+    assert "### Judge Repeatability" in site, "the site no longer shows the section"
+
+    root = _P(fieldtest.__file__).resolve().parent
+    ref = root / "datasets" / "expense-report" / "reference-evals.yaml"
+    config = parse_and_validate(ref)
+
+    from fieldtest.config import resolve_judge_runs
+    runs = resolve_judge_runs(config, config.use_cases[0])
+    if runs < 2:
+        # The shipped config cannot produce it, so the caption on the block
+        # itself has to say what to change. Scoped to the terminal-label, not a
+        # window of surrounding prose — the prose already mentions judge_runs,
+        # so a window-based check passes whatever the caption says.
+        import re
+
+        i = site.index("### Judge Repeatability")
+        labels = re.findall(r'<span class="terminal-label">(.*?)</span>', site[:i], re.S)
+        assert labels, "no terminal-label precedes the repeatability block"
+        caption = labels[-1]
+        assert "judge_runs" in caption, (
+            f"the repeatability block is captioned {caption!r}, which cannot "
+            f"produce it — reference-evals.yaml leaves judge_runs at {runs}")
+
+
+def test_the_repeatability_block_lists_only_llm_evals():
+    """Repeatability is measured per judge call; a rule eval has none."""
+    import fieldtest
+    import re
+    from pathlib import Path as _P
+
+    from fieldtest.config import parse_and_validate
+
+    root = _P(fieldtest.__file__).resolve().parent
+    config = parse_and_validate(root / "datasets" / "expense-report" / "reference-evals.yaml")
+    llm = {ev.id for uc in config.use_cases for ev in uc.evals if ev.type == "llm"}
+    other = {ev.id for uc in config.use_cases for ev in uc.evals if ev.type != "llm"}
+
+    site = _site()
+    i = site.index("### Judge Repeatability")
+    block = site[i:i + 900]
+    shown = {e for e in (llm | other) if re.search(rf"\|\s*{re.escape(e)}\s*\|", block)}
+
+    assert shown, "no evals listed in the repeatability block"
+    assert shown <= llm, f"the block lists non-llm evals: {sorted(shown - llm)}"
