@@ -323,11 +323,20 @@ def format_report(
             lines.append("")
 
         # --- Per-eval RIGHT / GOOD / SAFE tables --------------------------
-        delta_idx: dict[str, dict] = {}
-        for item in delta.get("increased", []):
-            delta_idx[item["eval_id"]] = item
-        for item in delta.get("decreased", []):
-            delta_idx[item["eval_id"]] = item
+        # Keyed by (use_case, eval_id). Eval ids are only unique within a use
+        # case, so a bare-id index printed one use case's movement against
+        # another's row — the same collision that nulled failure_rate in
+        # build_summary. Falls back to the bare id for result files written
+        # before delta entries carried a use case.
+        delta_idx: dict[tuple, dict] = {}
+        for bucket in ("increased", "decreased"):
+            for item in delta.get(bucket, []):
+                delta_idx[(item.get("use_case"), item["eval_id"])] = item
+                delta_idx.setdefault((None, item["eval_id"]), item)
+
+        unchanged_idx = {
+            (u.get("use_case"), u["eval_id"]) for u in delta.get("unchanged_keys", [])
+        } or {(None, e) for e in delta.get("unchanged", [])}
 
         floor_hit_rows: list[str] = []
         error_eval_ids: list[tuple[str, int]] = []
@@ -376,14 +385,20 @@ def format_report(
 
                 # vs prior — delta is stored as (cur_failure_rate - prev_failure_rate),
                 # so negate it to express as pass rate delta: positive = improvement.
-                if eval_id in delta_idx:
-                    d = delta_idx[eval_id]["delta"]
+                d_item = delta_idx.get((uc.id, eval_id)) or (
+                    delta_idx.get((None, eval_id))
+                    if not any(k[0] for k in delta_idx) else None
+                )
+                if d_item is not None:
+                    d = d_item["delta"]
                     if mean is not None:
                         vs_str = f"+{round(d, 2)}" if d > 0 else f"{round(d, 2)}"
                     else:
                         pd = -d  # pass rate delta = negated failure rate delta
                         vs_str = f"+{round(pd * 100, 2)}%" if pd > 0 else f"{round(pd * 100, 2)}%"
-                elif eval_id in delta.get("unchanged", []):
+                elif (uc.id, eval_id) in unchanged_idx or (
+                    (None, eval_id) in unchanged_idx
+                ):
                     vs_str = "↔"
                 else:
                     vs_str = "—"

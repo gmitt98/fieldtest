@@ -555,6 +555,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "increased":           [],
         "decreased":           [],
         "unchanged":           [],
+        "unchanged_keys":      [],
         "baseline_pre_judge":  False,
         "baseline_judge_runs": None,
         "baseline_error_share": 0.0,
@@ -620,6 +621,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     increased: list[dict] = []
     decreased: list[dict] = []
     unchanged: list[str]  = []
+    unchanged_keys: list = []
 
     for uc_id, tags in current.items():
         prev_tags = baseline_summary.get(uc_id, {})
@@ -651,6 +653,11 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                 # An additional flag, not a fourth bucket: existing CI jq
                 # expressions read increased/decreased/unchanged and keep working.
                 entry = {
+                    # Eval ids are unique within a use case, not across them.
+                    # The report indexed this by bare eval_id, so with the same
+                    # id in two use cases one use case's movement was printed
+                    # against the other's row.
+                    "use_case": uc_id,
                     "eval_id":  eval_id,
                     "previous": round(prev_val, 6),
                     "current":  round(cur_val, 6),
@@ -662,6 +669,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
 
                 if abs(delta) < 0.001:
                     unchanged.append(eval_id)
+                    unchanged_keys.append({"use_case": uc_id, "eval_id": eval_id})
                 elif delta > 0:
                     increased.append(entry)
                 else:
@@ -672,6 +680,9 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "increased":         increased,
         "decreased":         decreased,
         "unchanged":         unchanged,
+        # `unchanged` stays a list of ids so existing jq keeps working; this
+        # carries the use case the report needs to attribute a row correctly.
+        "unchanged_keys":    unchanged_keys,
         "baseline_pre_judge": baseline_pre_judge,
         "baseline_judge_runs": baseline_judge_runs,
         "baseline_error_share": round(baseline_error_share, 4),

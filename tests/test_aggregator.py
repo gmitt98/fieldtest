@@ -1605,3 +1605,69 @@ def test_collapse_rows_collapses_at_two_repetitions():
 
     assert len(collapsed) == 2
     assert sorted(r.passed for r in collapsed) == [False, True]
+
+
+def test_a_delta_lands_on_the_use_case_it_belongs_to(tmp_path):
+    """
+    Delta entries carried a bare eval_id and the report indexed them by it. With
+    the same eval id in two use cases, one use case's regression was printed
+    against the other's row — a stable eval reading -90%.
+    """
+    import json
+
+    baseline = {
+        "uc1": {"safe": {"shared": {"failure_rate": 0.0, "total_runs": 10}}},
+        "uc2": {"safe": {"shared": {"failure_rate": 0.0, "total_runs": 10}}},
+    }
+    current = {
+        "uc1": {"safe": {"shared": {"failure_rate": 0.0, "total_runs": 10}}},
+        "uc2": {"safe": {"shared": {"failure_rate": 0.9, "total_runs": 10}}},
+    }
+    b = tmp_path / "b-data.json"
+    b.write_text(json.dumps({"run_id": "b", "set": "full", "summary": baseline}))
+
+    delta = build_delta(current, b)
+    moved = [i for i in delta["increased"] if i["eval_id"] == "shared"]
+    assert len(moved) == 1
+    assert moved[0]["use_case"] == "uc2", (
+        f"the regression is uc2's; it is attributed to {moved[0].get('use_case')!r}")
+    assert {(u["use_case"], u["eval_id"]) for u in delta["unchanged_keys"]} == {("uc1", "shared")}
+
+
+def test_the_report_puts_a_shared_eval_id_delta_on_the_right_row(tmp_path):
+    """End to end: the `vs prior` column, not just the delta structure."""
+    import json
+
+    from fieldtest.results.report import format_report
+
+    config = Config.model_validate({
+        "schema_version": 1,
+        "system": {"name": "s", "domain": "d"},
+        "use_cases": [
+            {"id": u, "description": "d",
+             "evals": [{"id": "shared", "tag": "safe", "type": "regex",
+                        "description": "d", "pattern": "x", "match": True}],
+             "fixtures": {"directory": "fixtures/", "sets": {"full": [f"f-{u}"]}}}
+            for u in ("uc1", "uc2")
+        ],
+    })
+    rows = []
+    for uc, passed in (("uc1", True), ("uc2", False)):
+        for run in (1, 2):
+            rows.append(ResultRow(use_case=uc, eval_id="shared", tag="safe",
+                                  type="regex", fixture_id=f"f-{uc}", run=run,
+                                  passed=passed, detail=""))
+
+    baseline = {u: {"safe": {"shared": {"failure_rate": 0.0, "total_runs": 2}}}
+                for u in ("uc1", "uc2")}
+    b = tmp_path / "b-data.json"
+    b.write_text(json.dumps({"run_id": "b", "set": "full", "summary": baseline}))
+
+    summary = build_summary(rows, config)
+    report = format_report(rows, summary, build_delta(summary, b), config, "r", "full")
+
+    uc1_block = report.split("## uc1")[1].split("## uc2")[0]
+    uc2_block = report.split("## uc2")[1]
+    assert "↔" in uc1_block, f"uc1's eval did not move; it should read ↔:\n{uc1_block}"
+    assert "%" in uc2_block.split("| shared |")[1].split("\n")[0], (
+        f"uc2's regression is missing from its own row:\n{uc2_block}")
