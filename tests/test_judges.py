@@ -668,3 +668,47 @@ def test_a_score_inside_the_scale_still_works(monkeypatch, score, floor):
     assert row.error is None, row.error
     assert row.score == score
     assert row.floor_hit is floor
+
+
+@pytest.mark.parametrize("returned,why", [
+    ({"detail": "forgot passed"},        "no passed key"),
+    ({"passed": None, "detail": "x"},    "passed is None"),
+    ({"passed": "yes", "detail": "x"},   "passed is a string"),
+    ({"passed": 1, "detail": "x"},       "passed is an int"),
+    ("not a dict",                        "not a dict at all"),
+    (None,                                "returned None"),
+])
+def test_a_rule_without_a_boolean_verdict_is_an_error_not_a_pass(returned, why):
+    """
+    `passed=result.get("passed")` made a broken rule's verdict None, which then
+    read as a pass in the per-eval table and a fail in Tag Health — the same run
+    reporting 100% and 0% for one result, on a `safe` eval, with 0 errors.
+    """
+    from fieldtest.config import Eval
+    from fieldtest.judges.dispatch import dispatch_judge
+    from fieldtest.judges.registry import _rule_registry
+
+    _rule_registry["probe_rule"] = lambda output, inputs: returned
+    try:
+        ev = Eval(id="probe_rule", tag="safe", type="rule", description="d")
+        row = dispatch_judge("uc1", ev, "some output", {"id": "f", "inputs": {}}, 1, None)
+    finally:
+        _rule_registry.pop("probe_rule", None)
+
+    assert row.error is not None, f"{why}: was read as a verdict"
+    assert row.passed is None, f"{why}: got passed={row.passed!r}"
+
+
+def test_a_rule_returning_a_real_verdict_still_works():
+    from fieldtest.config import Eval
+    from fieldtest.judges.dispatch import dispatch_judge
+    from fieldtest.judges.registry import _rule_registry
+
+    _rule_registry["ok_rule"] = lambda output, inputs: {"passed": True, "detail": "fine"}
+    try:
+        ev = Eval(id="ok_rule", tag="right", type="rule", description="d")
+        row = dispatch_judge("uc1", ev, "o", {"id": "f", "inputs": {}}, 1, None)
+    finally:
+        _rule_registry.pop("ok_rule", None)
+
+    assert row.error is None and row.passed is True and row.detail == "fine"

@@ -2112,3 +2112,69 @@ def test_every_command_the_cli_offers_is_documented_somewhere():
 
     missing = sorted(commands - shown)
     assert not missing, f"the CLI offers these and no doc demonstrates them: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Commands run without --config (the release audit's blocker)
+#
+# `fieldtest view` crashed with a TypeError and a "please file a bug" for every
+# user who followed the demo's own closing line. The option defaults to None so
+# the fallback runs, and the call was never added. Every test written for view
+# passed --config, so the whole command was green and broken at once.
+# ---------------------------------------------------------------------------
+
+def test_view_without_config_opens_the_report(tmp_path, monkeypatch):
+    evals_dir = _setup_project(tmp_path)
+    results = evals_dir / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-00-aaaa-report.html").write_text("<p>r</p>")
+
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["view"], catch_exceptions=False)
+    assert "Traceback" not in result.output, result.output
+    assert result.exit_code == 0, result.output
+    assert opened, "view did not open anything"
+
+
+@pytest.mark.parametrize("command", ["validate", "history", "diff", "view"])
+def test_no_config_taking_command_crashes_without_config(tmp_path, monkeypatch, command):
+    """
+    A command may fail without --config; it may not raise. The distinction is
+    the whole point: `Path(None)` is a bug, "no results found" is an answer.
+    """
+    evals_dir = _setup_project(tmp_path)
+    (evals_dir / "results").mkdir(exist_ok=True)
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, [command], catch_exceptions=False)
+    assert "Traceback" not in result.output, f"{command} raised:\n{result.output}"
+    assert "file a bug" not in result.output, f"{command} reported a bug:\n{result.output}"
+
+
+def test_every_command_resolves_its_config_default_the_same_way():
+    """
+    view was the only one of seven that did not call _default_config_path().
+    It read `Path(config_path)` directly on an option whose default is None.
+    """
+    import inspect
+    import re
+
+    from fieldtest import cli, cli_project, cli_reports
+
+    offenders = []
+    for module in (cli, cli_project, cli_reports):
+        src = inspect.getsource(module)
+        for m in re.finditer(r"\ndef (\w+)\((.*?)\n(.*?)(?=\ndef |\Z)", src, re.S):
+            name, body = m.group(1), m.group(3)
+            if "config_path" not in m.group(2) and "config_path" not in body:
+                continue
+            uses_direct = re.search(r"Path\(config_path\)(?!\s+if)", body)
+            if uses_direct and "_default_config_path" not in body:
+                offenders.append(name)
+
+    assert not offenders, (
+        f"these read Path(config_path) without the None fallback: {offenders}")

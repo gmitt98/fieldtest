@@ -219,11 +219,18 @@ def build_summary(
     - floor_hits = count(score == scale.min) for scored evals; 0 for binary.
     - total_runs=0 (all errored or skipped): failure_rate=null, error_count=actual error count.
     """
-    # Build eval type + scale_min lookup from config
-    eval_meta: dict[str, dict] = {}  # eval_id → {is_scored, scale_min}
+    # Build eval type + scale_min lookup from config.
+    #
+    # Keyed by (use_case, eval_id), not eval_id. Eval ids only have to be unique
+    # within a use case — the same `no-hallucination` in two use cases is
+    # ordinary — and a flat key let the later definition overwrite the earlier
+    # one. Where the two differed in type, a binary eval inherited is_scored
+    # from a scored namesake and reported failure_rate: null, so an eval failing
+    # every run showed nothing at all.
+    eval_meta: dict[tuple, dict] = {}
     for uc in config.use_cases:
         for ev in uc.evals:
-            eval_meta[ev.id] = {
+            eval_meta[(uc.id, ev.id)] = {
                 "is_scored": ev.type == "llm" and not ev.binary,
                 "scale_min": ev.scale[0] if ev.scale else None,
             }
@@ -262,7 +269,8 @@ def build_summary(
         for tag, evals in tags.items():
             summary[uc_id][tag] = {}
             for eval_id, eval_rows in evals.items():
-                meta      = eval_meta.get(eval_id, {"is_scored": False, "scale_min": None})
+                meta      = eval_meta.get((uc_id, eval_id),
+                                         {"is_scored": False, "scale_min": None})
                 is_scored = meta["is_scored"]
 
                 # What this eval was actually judged, not what the config asked

@@ -180,7 +180,13 @@ def view_cmd(run_id: Optional[str], config_path: Optional[str]):
     """Open the HTML eval report in the default browser."""
     import webbrowser
 
-    base_dir    = Path(config_path).resolve().parent
+    # Path(None) raises. The option defaults to None precisely so the fallback
+    # runs, and the call was never added — so bare `fieldtest view`, the command
+    # the demo's own last line tells every new user to run, ended in a
+    # TypeError and a "please file a bug". Every test written for this command
+    # passed --config, which is why none of them saw it.
+    path        = Path(config_path) if config_path else _default_config_path()
+    base_dir    = path.resolve().parent
     results_dir = base_dir / "results"
 
     if run_id:
