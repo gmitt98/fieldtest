@@ -579,7 +579,23 @@ def format_report(
                         for r in rows if r.use_case == uc.id and r.error)),
                 None,
             )
-            if reason:
+            # A `rule` eval runs the user's own Python. Its errors are never
+            # about a credential, and sending someone to check their API key
+            # over a ValueError in their own function sends them to the one
+            # place the bug is not.
+            errored = [r for r in rows
+                       if r.use_case == uc.id and r.error and r.type == "rule"]
+            if errored and all(
+                r.type == "rule" for r in rows
+                if r.use_case == uc.id and r.error
+            ):
+                first = errored[0]
+                lines.append(
+                    f"  these are `rule` evals — the error is in your own Python "
+                    f"in evals/rules.py, not in a provider. First one: "
+                    f"{first.eval_id} — {first.error}"
+                )
+            elif reason:
                 lines.append(f"  every failure says the same thing: {reason}")
             else:
                 lines.append(

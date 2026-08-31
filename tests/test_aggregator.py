@@ -1801,3 +1801,38 @@ def test_judge_runs_mismatch_caveat_is_a_whole_sentence(tmp_path):
     assert "not comparable" in tail, (
         f"the caveat must say the judge spread figures are not comparable: {caveat}"
     )
+
+
+def test_a_broken_rule_is_not_blamed_on_the_api_key():
+    """
+    A `rule` eval runs the user's own Python. When one raised, the report said
+    "check your API key if errors persist" — sending them to the one place the
+    bug is not, and never showing the exception.
+    """
+    from fieldtest.results.report import format_report
+
+    config = _make_config([Eval(id="broken", tag="right", type="rule",
+                                description="a rule of your own")])
+    rows = [ResultRow(use_case="uc1", eval_id="broken", tag="right", type="rule",
+                      fixture_id="f1", run=1,
+                      error="ValueError: my rule has a bug")]
+    report = format_report(rows, build_summary(rows, config), {}, config, "r", "full")
+
+    assert "check your API key" not in report, (
+        f"a rule error was blamed on the credential:\n{report}")
+    assert "evals/rules.py" in report
+    assert "my rule has a bug" in report, "the actual exception is not shown"
+
+
+def test_a_provider_error_still_gets_provider_advice():
+    """The rule branch must not swallow the credential case."""
+    from fieldtest.results.report import format_report
+
+    config = _make_config([Eval(id="judged", tag="right", type="llm",
+                                description="d", pass_criteria="ok",
+                                fail_criteria="not ok")])
+    rows = [ResultRow(use_case="uc1", eval_id="judged", tag="right", type="llm",
+                      fixture_id="f1", run=1,
+                      error="Connection reset by peer")]
+    report = format_report(rows, build_summary(rows, config), {}, config, "r", "full")
+    assert "check your API key" in report or "concurrency 1" in report, report
