@@ -20,7 +20,10 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
-from fieldtest.results.aggregator import result_files_newest_first
+from fieldtest.results.aggregator import (
+    find_result_by_run_id,
+    result_files_newest_first,
+)
 from fieldtest.templates import AVAILABLE_TEMPLATES
 
 
@@ -254,6 +257,16 @@ def view_cmd(run_id: Optional[str], config_path: Optional[str]):
 
     if run_id:
         html_path = results_dir / f"{run_id}-report.html"
+        if not html_path.exists():
+            # Filename and run id are not always the same string — the bundled
+            # demo ships demo-offline-*.html whose run_id is a timestamp — so an
+            # id `history` printed was rejected here.
+            data = find_result_by_run_id(results_dir, run_id)
+            if data is not None:
+                candidate = data.with_name(
+                    data.name.removesuffix("-data.json") + "-report.html")
+                if candidate.exists():
+                    html_path = candidate
         if not html_path.exists():
             click.echo(f"HTML report not found: {html_path}", err=True)
             sys.exit(1)

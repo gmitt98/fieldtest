@@ -3387,3 +3387,68 @@ def test_the_site_history_card_promises_what_history_prints(tmp_path, monkeypatc
         assert claim not in site, (
             f"the site says history lists runs {claim!r}; the output carries "
             f"the judge model only")
+
+
+def test_no_code_path_looks_up_a_fixture_flat():
+    """
+    `fieldtest init` scaffolds fixtures/golden/ and fixtures/variations/, so a
+    lookup of `fixtures/<id>.yaml` cannot find what the scaffold tells you to
+    write. That lookup lived in four places. The runner and validate were moved
+    to find_fixture_path; calibration_analysis was missed, and calibrate then
+    found no human labels and silently dropped its judge-vs-human section.
+
+    Static, because the failure is silent: nothing raises, a table just stops
+    appearing.
+    """
+    import re
+
+    import fieldtest
+
+    pkg = Path(fieldtest.__file__).resolve().parent
+    offenders = []
+    for path in sorted(pkg.rglob("*.py")):
+        if "__pycache__" in str(path) or path.name == "fixtures.py":
+            continue
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            if re.search(r'/\s*f"\{(fid|fixture_id)\}\.yaml"', line):
+                offenders.append(f"{path.relative_to(pkg)}:{i}  {line.strip()}")
+
+    assert not offenders, (
+        "these join a fixture id flat instead of using find_fixture_path:\n  "
+        + "\n  ".join(offenders))
+
+
+def test_calibrate_finds_human_labels_in_a_scaffolded_layout(tmp_path):
+    """The behaviour behind the static check, end to end."""
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.calibration_analysis import collect_human_labels
+
+    evals = tmp_path / "evals"
+    (evals / "fixtures" / "golden").mkdir(parents=True)
+    (evals / "fixtures" / "golden" / "g1.yaml").write_text(
+        "id: g1\ndescription: d\ninputs:\n  q: hi\n"
+        "labels:\n  is_polite:\n    1: pass\n    2: fail\n")
+    (evals / "config.yaml").write_text("""schema_version: 1
+system:
+  name: s
+  domain: d
+use_cases:
+  - id: uc1
+    description: d
+    evals:
+      - id: is_polite
+        tag: good
+        type: llm
+        description: d
+        pass_criteria: polite
+        fail_criteria: rude
+    fixtures:
+      directory: fixtures/
+      runs: 2
+      sets:
+        full: [g1]
+""")
+    config = parse_and_validate(evals / "config.yaml")
+    labels = collect_human_labels(config, evals, "full")
+    assert labels, "calibrate found no labels for a fixture in fixtures/golden/"
+    assert labels[("uc1", "is_polite")] == {("g1", 1): "pass", ("g1", 2): "fail"}

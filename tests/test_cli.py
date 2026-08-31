@@ -3003,3 +3003,68 @@ def test_dataset_use_keeps_the_bare_command_for_the_default_dest(tmp_path, monke
     assert result.exit_code == 0, result.output
     assert "fieldtest score --set full" in result.output, result.output
     assert "--config" not in result.output, result.output
+
+
+def test_view_accepts_any_run_id_history_prints(tmp_path, monkeypatch):
+    """
+    Filename and run id are not always the same string: the bundled demo ships
+    demo-offline-*.html whose run_id is a timestamp. `history` printed that id
+    and `view <id>` rejected it, so the two commands disagreed about what a run
+    is called.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "demo-offline-data.json").write_text(json.dumps({
+        "run_id": "2026-08-27T10-39-39-7dbd", "set": "full",
+        "fixture_count": 1, "runs": 1, "summary": {},
+    }))
+    (results / "demo-offline-report.html").write_text("<p>report</p>")
+
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    monkeypatch.chdir(tmp_path)
+
+    listed = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert "2026-08-27T10-39-39-7dbd" in listed.output, listed.output
+
+    result = CliRunner().invoke(
+        main, ["view", "2026-08-27T10-39-39-7dbd"], catch_exceptions=False)
+    assert result.exit_code == 0, (
+        f"view rejected the id history printed:\n{result.output}")
+    assert opened and "demo-offline-report.html" in opened[0]
+
+
+def test_diff_reads_a_baseline_whose_filename_is_not_its_run_id(tmp_path, monkeypatch):
+    """
+    diff rebuilt the baseline path from the run id, so with the demo's results
+    it loaded nothing and warned "baseline predates judge tracking" about a run
+    that records its judge.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+
+    judge = {"provider": "anthropic", "model": "m", "fingerprint": "aaaa1111"}
+    (results / "demo-offline-data.json").write_text(json.dumps({
+        "run_id": "2026-08-27T10-00-00-old", "set": "full", "judge": judge,
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {"right": {"e": {"failure_rate": 0.0, "total_runs": 2}}}},
+    }))
+    (results / "2026-08-28T10-00-00-new-data.json").write_text(json.dumps({
+        "run_id": "2026-08-28T10-00-00-new", "set": "full", "judge": judge,
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {"right": {"e": {"failure_rate": 0.0, "total_runs": 2}}}},
+        "delta": {"baseline_run_id": "2026-08-27T10-00-00-old",
+                  "increased": [], "decreased": [], "unchanged": ["e"]},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "predates judge tracking" not in result.output, (
+        f"the baseline records its judge; diff could not find the file:\n{result.output}")

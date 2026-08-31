@@ -18,7 +18,10 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path
-from fieldtest.results.aggregator import result_files_newest_first
+from fieldtest.results.aggregator import (
+    find_result_by_run_id,
+    result_files_newest_first,
+)
 
 
 def _summary_eval_keys(summary: dict) -> set:
@@ -241,8 +244,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         delta = current_data.get("delta", {})
         base_id = delta.get("baseline_run_id")
         if base_id:
-            auto_path = results_dir / f"{base_id}-data.json"
-            if auto_path.exists():
+            auto_path = find_result_by_run_id(results_dir, base_id)
+            if auto_path is not None:
                 try:
                     baseline_data = json.loads(auto_path.read_text(encoding="utf-8"))
                 except Exception:

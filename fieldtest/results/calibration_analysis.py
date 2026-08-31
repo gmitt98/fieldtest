@@ -18,6 +18,8 @@ from fieldtest.config import (
     load_fixture,
     resolve_set,
 )
+from fieldtest.errors import ConfigError
+from fieldtest.fixtures import find_fixture_path
 from fieldtest.results.calibration import (
     cohens_kappa,
     fleiss_kappa,
@@ -80,7 +82,15 @@ def collect_human_labels(config: Config, base_dir: Path, set_name: str) -> dict:
         except Exception:
             continue
         for fid in fixture_ids:
-            fixture_path = base_dir / uc.fixtures.directory / f"{fid}.yaml"
+            # The third place this lookup lived. runner and validate were moved
+            # to find_fixture_path; this one was missed, so on the
+            # fixtures/golden/ layout `fieldtest init` scaffolds, calibrate
+            # found no human labels and silently dropped the judge-vs-human
+            # section — no error, no warning, just a missing table.
+            try:
+                fixture_path = find_fixture_path(base_dir / uc.fixtures.directory, fid)
+            except ConfigError:
+                continue
             if not fixture_path.exists():
                 continue
             for (eval_id, run), value in extract_labels(load_fixture(fixture_path, base_dir)).items():
