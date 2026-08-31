@@ -44,11 +44,27 @@ RETRY = RetryPolicy()
 needs_anthropic = pytest.mark.skipif(
     not os.environ.get("ANTHROPIC_API_KEY"), reason="live: set ANTHROPIC_API_KEY"
 )
+
+
+def _missing(module: str) -> bool:
+    """True when `module` cannot be imported. See tests/test_providers.py."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(module) is None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return True
+
+
+# A key is not enough: these call the provider SDK, which is an optional extra.
+# With a key set on a dev-only install they failed on import instead of skipping.
 needs_openai = pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY"), reason="live: set OPENAI_API_KEY"
+    not os.environ.get("OPENAI_API_KEY") or _missing("openai"),
+    reason="live: needs OPENAI_API_KEY and pip install -e '.[openai]'",
 )
 needs_gemini = pytest.mark.skipif(
-    not os.environ.get("GEMINI_API_KEY"), reason="live: set GEMINI_API_KEY"
+    not os.environ.get("GEMINI_API_KEY") or _missing("google.genai"),
+    reason="live: needs GEMINI_API_KEY and pip install -e '.[gemini]'",
 )
 
 

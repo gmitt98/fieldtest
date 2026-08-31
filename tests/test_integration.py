@@ -24,6 +24,23 @@ import pytest
 
 from fieldtest.providers.base import JudgeGenerationConfig, ProviderAdapter, RetryPolicy
 
+def _missing(module: str) -> bool:
+    """True when `module` cannot be imported. See tests/test_providers.py."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(module) is None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return True
+
+
+needs_openai_pkg = pytest.mark.skipif(
+    _missing("openai"),
+    reason="openai not installed; pip install -e '.[openai]'",
+)
+
+
+
 pytestmark = pytest.mark.integration
 
 
@@ -502,6 +519,7 @@ class _FakeEndpoint:
         self._server.server_close()
 
 
+@needs_openai_pkg
 def test_a_config_can_score_against_a_local_openai_protocol_endpoint(tmp_path):
     from fieldtest.config import parse_and_validate
     from fieldtest.runner import score
@@ -537,6 +555,7 @@ def test_a_config_can_score_against_a_local_openai_protocol_endpoint(tmp_path):
     assert endpoint.requests[0]["temperature"] == 0.0
 
 
+@needs_openai_pkg
 def test_a_local_endpoint_rejecting_a_parameter_is_reported_not_fatal(tmp_path):
     """
     The drop path against a server that actually returns 400, rather than a
@@ -565,6 +584,7 @@ def test_a_local_endpoint_rejecting_a_parameter_is_reported_not_fatal(tmp_path):
     assert "temperature" not in endpoint.requests[-1]
 
 
+@needs_openai_pkg
 def test_calibrate_runs_a_panel_mixing_a_local_endpoint_and_another_judge(tmp_path):
     """
     Spec 11's stated purpose: a local judge and a hosted judge disagreeing on

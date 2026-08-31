@@ -26,7 +26,10 @@ jobs:
           fi
       - name: Run test suite (gate before publishing)
         run: |
-          pip install -e ".[dev]"
+          # The same extras test.yml uses. `[dev]` alone is pytest only, so
+          # the provider tests fail on import and the gate blocks every
+          # release — the step added to protect the publish stopped it.
+          pip install -e ".[openai,gemini,dev]"
           python -m pytest -q
       - run: pip install build
       - run: python -m build

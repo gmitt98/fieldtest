@@ -5,6 +5,8 @@ Tests for provider adapters and factory.
 """
 from unittest.mock import DEFAULT, MagicMock, patch
 
+import importlib.util
+
 import pytest
 
 from fieldtest.errors import ProviderError
@@ -13,6 +15,38 @@ from fieldtest.providers.anthropic import AnthropicAdapter
 from fieldtest.providers.base import JudgeGenerationConfig, RetryPolicy
 from fieldtest.providers.gemini import GeminiAdapter
 from fieldtest.providers.openai import OpenAIAdapter
+
+
+# Optional-provider imports. `pip install -e ".[dev]"` pulls pytest and nothing
+# else, so these raised ModuleNotFoundError and a contributor's first suite run
+# showed ten failures that were not theirs. httpx is in the list because
+# anthropic 1.x depends on httpx2, so plain httpx is no longer transitive.
+def _missing(module: str) -> bool:
+    """True when `module` cannot be imported.
+
+    find_spec("google.genai") raises rather than returning None when the parent
+    package is absent, which turned a skip into a collection error and took the
+    whole file down with it.
+    """
+    try:
+        return importlib.util.find_spec(module) is None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return True
+
+
+needs_httpx = pytest.mark.skipif(
+    _missing("httpx"),
+    reason="httpx not installed (anthropic 1.x uses httpx2); pip install -e '.[dev]' does not pull it",
+)
+needs_google_genai = pytest.mark.skipif(
+    _missing("google.genai"),
+    reason="google-genai not installed; pip install -e '.[gemini]'",
+)
+needs_openai_pkg = pytest.mark.skipif(
+    _missing("openai"),
+    reason="openai not installed; pip install -e '.[openai]'",
+)
+
 
 # Default generation config: temperature 0.0, no seed, 2048 max tokens.
 GEN = JudgeGenerationConfig()
@@ -1329,6 +1363,7 @@ from fieldtest.config import ProviderSettings
 from fieldtest.providers.openai_compatible import OpenAICompatibleAdapter
 
 
+@needs_openai_pkg
 def test_openai_compatible_requires_base_url():
     adapter = OpenAICompatibleAdapter(base_url="", api_key_env=None)
     result = adapter.call("m", "p", GEN, RETRY)
@@ -1356,6 +1391,7 @@ def test_api_key_read_from_named_env_var(monkeypatch):
     assert adapter._client_args()["api_key"] == "sk-from-env"
 
 
+@needs_openai_pkg
 def test_missing_named_env_var_is_an_error_naming_the_variable(monkeypatch):
     monkeypatch.delenv("MY_ENDPOINT_KEY", raising=False)
     adapter = OpenAICompatibleAdapter(
@@ -1456,6 +1492,7 @@ def test_retry_policy_applies_to_a_compatible_endpoint(monkeypatch):
     assert result["answer"] == "pass"
 
 
+@needs_openai_pkg
 def test_provider_env_names_match_what_the_adapters_read():
     """
     `fieldtest validate` reports a credential per provider. If that table names
@@ -1742,6 +1779,7 @@ def _real_anthropic_error(name: str):
     return getattr(anthropic, name)(request=request)
 
 
+@needs_httpx
 @pytest.mark.parametrize("error_name", ["APIConnectionError", "APITimeoutError"])
 def test_anthropic_retries_transport_errors_that_carry_no_status(error_name):
     """
@@ -1765,6 +1803,7 @@ def test_anthropic_retries_transport_errors_that_carry_no_status(error_name):
     assert mock_sleep.call_count == 6
 
 
+@needs_google_genai
 def test_gemini_retries_a_real_server_error_by_class():
     """
     google-genai raises ServerError, and gemini.py names it deliberately —
@@ -1792,6 +1831,7 @@ def test_gemini_retries_a_real_server_error_by_class():
     assert mock_sleep.call_count == 6
 
 
+@needs_google_genai
 def test_a_gemini_client_error_is_not_retried():
     """The reason the list names ServerError rather than its base."""
     from google import genai
@@ -1924,3 +1964,85 @@ def test_publish_workflow_gates_on_tag_version_and_tests():
     test_at = workflow.find("pytest")
     assert test_at != -1, "no test gate in publish.yml"
     assert test_at < publish_at, "test gate must run before publishing"
+
+
+def test_the_publish_gate_installs_what_the_suite_needs():
+    """
+    A test step was added to publish.yml to protect the release, and it
+    installed only `[dev]` — pytest and pytest-asyncio. Ten provider tests then
+    failed on import, so every tag push would have failed the gate and nothing
+    would ever have published. The step meant to protect the release blocked it.
+
+    It went unnoticed because the repo's own .venv happens to have openai,
+    google-genai and httpx installed.
+    """
+    import re
+
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text()
+    installs = re.findall(r"pip install -e \"\.\[([^\]]+)\]\"", workflow)
+    assert installs, "publish.yml no longer installs the package for its gate"
+
+    for extras in installs:
+        named = {e.strip() for e in extras.split(",")}
+        missing = {"openai", "gemini", "dev"} - named
+        assert not missing, (
+            f"the publish gate installs [{extras}] and omits {sorted(missing)}; "
+            f"the provider tests fail on import and no tag ever publishes"
+        )
+
+
+def test_a_dev_only_install_has_no_hard_failures():
+    """
+    `pip install -e ".[dev]"` is what a contributor runs. Every test that needs
+    an optional provider package must skip rather than fail, or their first run
+    shows failures that are not theirs.
+
+    Follows one level of helper calls: the first version of this check looked
+    only at a test's own body, so a test importing httpx through a helper passed
+    with its marker deleted. CI has a dev-only job that checks the real property;
+    this catches it at desk speed.
+    """
+    import ast
+
+    # Any of these markers guards the module; test_live.py names them for the
+    # provider ("needs_gemini") rather than for the import ("google").
+    NEEDS = {
+        "httpx":  ("needs_httpx",),
+        "google": ("needs_google_genai", "needs_gemini"),
+        "openai": ("needs_openai_pkg", "needs_openai"),
+    }
+
+    for path in sorted((_REPO_ROOT / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text())
+        funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+
+        def modules_used(fn, seen=None):
+            """Optional modules this function imports, directly or via a helper."""
+            seen = seen or set()
+            if fn.name in seen:
+                return set()
+            seen.add(fn.name)
+            found = set()
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Import):
+                    found |= {a.name.split(".")[0] for a in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    found.add(node.module.split(".")[0])
+                elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    callee = funcs.get(node.func.id)
+                    if callee is not None:
+                        found |= modules_used(callee, seen)
+            return found
+
+        for name, fn in funcs.items():
+            if not name.startswith("test_"):
+                continue
+            decorators = " ".join(ast.unparse(d) for d in fn.decorator_list)
+            for module in modules_used(fn) & set(NEEDS):
+                markers = NEEDS[module]
+                guarded = any(m in decorators for m in markers) or "skipif" in decorators
+                assert guarded, (
+                    f"{path.name}::{name} reaches {module} without any of "
+                    f"{list(markers)}; it will fail rather than skip on a "
+                    f"dev-only install"
+                )

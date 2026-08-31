@@ -49,6 +49,21 @@ jobs:
       - run: pip install -e ".[openai,gemini,dev]"
       - run: pytest -q
 
+  dev-only:
+    # `pip install -e ".[dev]"` is what a contributor runs. Without the optional
+    # provider extras, ten tests failed on import — and because publish.yml used
+    # that same install for its gate, no tag would ever have published. The
+    # static check in the suite approximates this; this job is the real thing.
+    name: dev-only install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
   verify:
     # Reintroduces five defects that actually shipped and checks each is caught.
     # A green suite that cannot catch its own bugs is decoration. Once, not per
