@@ -46,15 +46,15 @@ class Eval(BaseModel):
     labels:      list[str] = []   # optional free-form analytics labels; multiple allowed
     type:        Literal["rule", "regex", "llm", "reference"]
     description: str
-    # type: regex
+    # fields for type "regex"
     pattern: Optional[str]  = None
     match:   Optional[bool] = None   # true = must match; false = must not match
-    # type: llm binary
+    # fields for type "llm" (binary)
     binary:        bool              = True
     pass_criteria: Optional[str]    = None
     fail_criteria: Optional[str]    = None
     examples:      list[LLMExample] = []
-    # type: llm scored
+    # fields for type "llm" (scored)
     scale:   Optional[list[int]]      = None   # [min, max]
     anchors: Optional[dict[int, str]] = None
     # Whether the judge is shown the fixture's inputs alongside the output.
