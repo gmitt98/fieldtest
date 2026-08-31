@@ -484,4 +484,14 @@ def dataset_use(name: str, dest: str, force: bool):
     todos = Path(target, "config.yaml").read_text(encoding="utf-8").count("# TODO")
     plural = "is" if todos == 1 else "are"
     click.echo(f"  {target}/config.yaml your evals — {todos} {plural} TODO")
-    click.echo("\nRun it now (no API key needed):  fieldtest score --set full")
+
+    # `score` resolves evals/config.yaml (or ./config.yaml from inside evals/).
+    # With --dest naming anywhere else, the bare command printed here failed
+    # with "Config not found: evals/config.yaml" — the next step the tool
+    # itself just told the user to take.
+    target_config = Path(target, "config.yaml")
+    if target_config == Path("evals", "config.yaml"):
+        run_cmd = "fieldtest score --set full"
+    else:
+        run_cmd = f"fieldtest score --config {target_config} --set full"
+    click.echo(f"\nRun it now (no API key needed):  {run_cmd}")
