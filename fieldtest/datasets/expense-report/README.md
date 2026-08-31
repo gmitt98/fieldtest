@@ -52,10 +52,10 @@ it belongs under — is the exercise.
 ## The answer key, and what it gets wrong
 
 ```bash
-fieldtest score --config reference-evals.yaml --set full
+fieldtest score --config evals/reference-evals.yaml --set full
 ```
 
-Seven evals covering all five judge types. Compare it to yours after you have
+Seven evals covering all four judge types. Compare it to yours after you have
 written something, not before.
 
 It is worth reading for its failures as much as its passes. `caps_applied` is

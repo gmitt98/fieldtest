@@ -1143,7 +1143,9 @@ def test_walkthrough_quotes_the_real_receipt_ids():
     ids = [ln.split(",")[0] for ln in csv_text.splitlines()[1:] if ln.strip()]
     assert ids == ["R-1041", "R-1042", "R-1043", "R-1044", "R-1045", "R-1046"]
     assert "R-1049" not in csv_text
-    assert ", ".join(ids).replace(", ", ",") in _walkthrough().replace(" ", "")
+    # The doc used to condense the file to a bare id list; it now quotes it
+    # verbatim, which is the stronger form of the same guarantee.
+    assert csv_text in _walkthrough()
 
 
 def test_walkthrough_fault_counts_are_arithmetic_not_prose(tmp_path, monkeypatch):
@@ -2489,3 +2491,432 @@ def test_the_repeatability_block_lists_only_llm_evals():
 
     assert shown, "no evals listed in the repeatability block"
     assert shown <= llm, f"the block lists non-llm evals: {sorted(shown - llm)}"
+
+
+# ---------------------------------------------------------------------------
+# The README's Quickstart and command samples (docs audit, third round).
+#
+# The Quickstart was a linear path a new user could not actually walk: its
+# generator crashed on the `file:` prefix its own fixture used, its config
+# declared rule evals no step registered, and its `expected` block was checked
+# by no eval. The command samples showed output the tool has never printed.
+# Each block here is extracted from the doc and executed, not eyeballed.
+# ---------------------------------------------------------------------------
+
+def _readme() -> str:
+    return (Path(__file__).resolve().parent.parent / "README.md").read_text()
+
+
+def _readme_quickstart() -> str:
+    doc = _readme()
+    start = doc.index("\n## Quickstart")
+    end = doc.index("\n## ", start + 1)
+    return doc[start:end]
+
+
+def _readme_quickstart_config() -> str:
+    import re
+
+    m = re.search(r"```yaml\n(# evals/config\.yaml\n.*?)```", _readme_quickstart(), re.S)
+    assert m, "the Quickstart no longer shows a full config example"
+    return m.group(1)
+
+
+def test_the_readme_quickstart_generator_reads_the_file_inputs(tmp_path, monkeypatch):
+    """It did `base_dir / inputs["resume"]` on `file:fixtures/...` and crashed."""
+    import re
+    import yaml as yamlmod
+
+    quickstart = _readme_quickstart()
+    gen = re.search(r"```python\n(import os\n.*?if __name__ == \"__main__\":\n    main\(\)\n)```",
+                    quickstart, re.S)
+    fx = re.search(r"```yaml\n(id: experienced-swe__senior-swe\n.*?)```", quickstart, re.S)
+    assert gen and fx, "the Quickstart no longer contains the generator and fixture blocks"
+
+    evals = tmp_path / "evals"
+    (evals / "fixtures" / "resumes").mkdir(parents=True)
+    (evals / "fixtures" / "jobs").mkdir(parents=True)
+    (evals / "config.yaml").write_text(_readme_quickstart_config())
+    (evals / "fixtures" / "resumes" / "experienced-swe.txt").write_text("Alex Rivera\nalex.rivera@email.com\n")
+    (evals / "fixtures" / "jobs" / "senior-swe.txt").write_text("Senior SWE role\n")
+
+    config = yamlmod.safe_load(_readme_quickstart_config())
+    smoke = config["use_cases"][0]["fixtures"]["sets"]["smoke"]
+    for fixture_id in smoke:
+        (evals / "fixtures" / f"{fixture_id}.yaml").write_text(fx.group(1))
+
+    monkeypatch.chdir(tmp_path)
+    ns: dict = {}
+    exec(gen.group(1).replace('if __name__ == "__main__":\n    main()\n', ""), ns)
+    calls: list = []
+
+    def fake_tailor(resume_text, job_text):
+        calls.append((resume_text, job_text))
+        return "# tailored\n"
+
+    ns["tailor_resume"] = fake_tailor
+    monkeypatch.setattr("sys.argv", ["generate.py", "smoke"])
+    ns["main"]()   # crashed with FileNotFoundError before the fix
+
+    assert calls, "the generator never called the system"
+    resume_text, job_text = calls[0]
+    assert "alex.rivera@email.com" in resume_text, "the generator passed a path, not the file"
+    assert "Senior SWE role" in job_text
+    for fixture_id in smoke:
+        assert (evals / "outputs" / fixture_id / "run-1.txt").read_text() == "# tailored\n"
+
+
+def test_the_readme_quickstart_config_validates_and_covers_its_expected_block(tmp_path):
+    """Its fixture had an `expected` block no declared eval would ever read."""
+    import yaml as yamlmod
+
+    from fieldtest.config import parse_and_validate
+
+    raw = _readme_quickstart_config()
+    config = yamlmod.safe_load(raw)
+    ids = {fid for s in config["use_cases"][0]["fixtures"]["sets"].values()
+           if isinstance(s, list) for fid in s}
+
+    evals = tmp_path / "evals"
+    (evals / "fixtures").mkdir(parents=True)
+    (evals / "config.yaml").write_text(raw)
+    for fid in ids:
+        (evals / "fixtures" / f"{fid}.yaml").write_text(
+            f"id: {fid}\ndescription: t\ninputs: {{foo: bar}}\n")
+
+    parsed = parse_and_validate(evals / "config.yaml")
+    types = {ev.type for uc in parsed.use_cases for ev in uc.evals}
+    assert "reference" in types, (
+        "the Quickstart fixture has an `expected` block, but the config declares "
+        "no `type: reference` eval, so the block is silently ignored")
+    assert "type: reference" in _readme_quickstart(), (
+        "the Quickstart should say what reads the expected block")
+
+
+def test_the_readme_quickstart_registers_every_rule_eval_it_declares():
+    """`fieldtest score` exited 1: no step between init and score wrote rules.py."""
+    import yaml as yamlmod
+
+    quickstart = _readme_quickstart()
+    config = yamlmod.safe_load(_readme_quickstart_config())
+    rule_ids = [ev["id"] for ev in config["use_cases"][0]["evals"] if ev["type"] == "rule"]
+    assert rule_ids, "the Quickstart config no longer declares rule evals"
+    for rule_id in rule_ids:
+        assert f'@rule("{rule_id}")' in quickstart, (
+            f"the config declares rule eval '{rule_id}' but no Quickstart step "
+            f"registers it — fieldtest score stops with 'No rule registered'")
+
+
+def _keyless_scored_project(tmp_path, monkeypatch, fixtures=("f1",), runs=1):
+    """A regex-only project that scores without any API key."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    evals = tmp_path / "evals"
+    (evals / "fixtures").mkdir(parents=True)
+    names = ", ".join(fixtures)
+    (evals / "config.yaml").write_text(
+        "schema_version: 2\n"
+        "system: {name: t, domain: t}\n"
+        "use_cases:\n"
+        "  - id: uc1\n"
+        "    description: t\n"
+        "    evals:\n"
+        "      - {id: has_hash, tag: good, type: regex, description: h, pattern: '^# ', match: true}\n"
+        "    fixtures:\n"
+        f"      sets: {{full: [{names}]}}\n"
+        f"      runs: {runs}\n"
+        f"defaults: {{provider: anthropic, model: claude-haiku-4-5, runs: {runs}}}\n"
+    )
+    for f in fixtures:
+        (evals / "fixtures" / f"{f}.yaml").write_text(f"id: {f}\ndescription: g\ninputs: {{a: b}}\n")
+        (evals / "outputs" / f).mkdir(parents=True)
+        for i in range(1, runs + 1):
+            (evals / "outputs" / f / f"run-{i}.txt").write_text("# ok\n")
+    monkeypatch.chdir(tmp_path)
+    return CliRunner(), main
+
+
+def test_the_readme_score_step_shows_the_line_the_tool_prints(tmp_path, monkeypatch):
+    """It showed `✓ results written to` and a `scoring ...` progress line —
+    neither exists in the source; the tool prints the report and one path line."""
+    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
+    result = runner.invoke(main, ["score"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+    tail = result.output.strip().splitlines()[-1]
+    assert tail.startswith("Results written to: "), f"tool output changed: {tail}"
+
+    doc = _readme()
+    assert "Results written to:" in doc, "the README no longer shows the real closing line"
+    for invented in ("✓ results written to", "scoring tailor_resume:"):
+        assert invented not in doc, f"the README shows output the tool never prints: {invented!r}"
+
+
+def test_the_readme_history_sample_has_the_columns_the_tool_prints(tmp_path, monkeypatch):
+    """The sample predates the JUDGE column."""
+    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
+    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
+    result = runner.invoke(main, ["history"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    real_header = result.output.splitlines()[0].split()
+
+    doc_headers = [line.split() for line in _readme().splitlines()
+                   if line.startswith("RUN ID ")]
+    assert doc_headers, "the README no longer shows a history sample"
+    for header in doc_headers:
+        assert header == real_header, (
+            f"the README history header {header} != what the tool prints {real_header}")
+
+
+def test_the_readme_diff_sample_arithmetic_is_consistent():
+    """`0.180 → 0.090 (+0.090)` sat under Increased: — a decrease, wrong delta."""
+    import re
+
+    doc = _readme()
+    deltas = re.findall(
+        r"^\s{2}[\w.]+: (\d+\.\d+) → (\d+\.\d+) \(([+-]\d+\.\d+)\)$", doc, re.M)
+    assert deltas, "the README no longer shows a diff sample"
+    for a, b, d in deltas:
+        assert abs((float(b) - float(a)) - float(d)) < 1e-9, (
+            f"diff sample says {a} → {b} ({d}); the delta does not match")
+
+
+# ---------------------------------------------------------------------------
+# The walkthrough and the shipped-doc command paths (docs audit, third round).
+# ---------------------------------------------------------------------------
+
+def _dataset_copy(tmp_path) -> Path:
+    import shutil
+
+    import fieldtest
+
+    src = Path(fieldtest.__file__).resolve().parent / "datasets" / "expense-report"
+    dest = tmp_path / "evals"
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns("results", "__pycache__"))
+    return dest
+
+
+def test_every_documented_answer_key_path_resolves_from_the_project_root(tmp_path):
+    """Docs said `--config reference-evals.yaml`; every earlier step runs from
+    the project root, where that file is at evals/reference-evals.yaml."""
+    import re
+
+    import fieldtest
+
+    _dataset_copy(tmp_path)
+    docs_root = Path(__file__).resolve().parent.parent
+    pkg = Path(fieldtest.__file__).resolve().parent
+    sources = [docs_root / "docs" / "walkthrough.md",
+               pkg / "datasets" / "expense-report" / "README.md",
+               pkg / "datasets" / "support-agent" / "README.md"]
+    checked = 0
+    for doc in sources:
+        for path in re.findall(r"--config (\S+reference-evals\.yaml)", doc.read_text()):
+            checked += 1
+            assert (tmp_path / path).is_file(), (
+                f"{doc.name} says --config {path}, which does not exist from "
+                f"the project root the doc's other commands run in")
+    assert checked >= 4, "the docs no longer show the answer-key commands"
+
+
+def test_the_walkthrough_quotes_the_shipped_files_it_claims_are_real(tmp_path):
+    """It pledges 'Nothing is illustrative', then showed a receipts CSV cut to
+    one invented line and an unnamed output block that is really run-3."""
+    import re
+
+    doc = _walkthrough()
+    evals = _dataset_copy(tmp_path)
+
+    csv_block = re.search(r"`sources/receipts-october\.csv`:\n\n```\n(.*?)```", doc, re.S)
+    assert csv_block, "the walkthrough no longer shows the receipts CSV"
+    assert csv_block.group(1) == (evals / "sources" / "receipts-october.csv").read_text(), (
+        "the walkthrough's receipts-october.csv block is not the shipped file")
+
+    out_block = re.search(r"`outputs/october-trip/run-3\.txt`, plain text:\n\n```\n(.*?)```", doc, re.S)
+    assert out_block, "the walkthrough no longer names the output block it quotes"
+    assert out_block.group(1).strip() == (evals / "outputs" / "october-trip" / "run-3.txt").read_text().strip(), (
+        "the walkthrough's output block is not the shipped run-3.txt")
+
+
+def test_the_walkthrough_unlocks_the_agreement_figure_it_quotes(tmp_path):
+    """It quotes 66.7% agreement for caps_applied, whose human labels ship
+    commented out; without the uncomment step the report has no such row."""
+    import re
+
+    doc = _walkthrough()
+    evals = _dataset_copy(tmp_path)
+    fixture = (evals / "fixtures" / "october-trip.yaml").read_text()
+    assert re.search(r"^  # caps_applied:", fixture, re.M), (
+        "the shipped fixture now has caps_applied labels active — "
+        "drop the walkthrough's uncomment instruction and this test")
+
+    i = doc.index("66.7%")
+    section = doc[max(0, i - 1500):i + 500]
+    assert re.search(r"uncomment[^.]*`caps_applied`[^.]*labels[^.]*october-trip\.yaml",
+                     section, re.S | re.I), (
+        "the walkthrough quotes 66.7% agreement for caps_applied but never "
+        "tells the reader to uncomment its human labels in october-trip.yaml")
+
+
+def test_the_demo_readme_fixture_experiments_match_the_shipped_configs(tmp_path):
+    """All three said to create the fixture in fixtures/variations/ and add it
+    to the full: set — the configs read fixtures/golden and use `full: all`,
+    so the instructions ended in 'No such file or directory'."""
+    import re
+
+    import yaml as yamlmod
+
+    import fieldtest
+
+    pkg = Path(fieldtest.__file__).resolve().parent
+    for example in ("email", "rag", "extraction"):
+        readme = (pkg / "demo" / example / "README.md").read_text()
+        config = yamlmod.safe_load((pkg / "demo" / example / "config.yaml").read_text())
+        fixtures = config["use_cases"][0]["fixtures"]
+        directory = fixtures["directory"].rstrip("/")
+
+        m = re.search(r"Create `evals/(fixtures/\S+)/[\w-]+\.yaml`", readme)
+        assert m, f"demo/{example}/README.md no longer has the add-a-fixture experiment"
+        assert m.group(1) == directory, (
+            f"demo/{example}/README.md says to create the fixture in {m.group(1)}, "
+            f"but the config only reads {directory}")
+
+        if fixtures["sets"].get("full") == "all":
+            assert not re.search(r"Add [^.\n]*to the `full:` set", readme), (
+                f"demo/{example}/README.md says to add an id to the full: set, "
+                f"but the shipped set is the glob `all` — there is no list to add to")
+
+
+def test_the_dataset_readmes_count_the_judge_types_that_exist():
+    """Both said 'all five judge types'; the closed set has four."""
+    import re
+
+    import fieldtest
+    from fieldtest.config import parse_and_validate
+
+    pkg = Path(fieldtest.__file__).resolve().parent
+    for name in ("expense-report", "support-agent"):
+        parsed = parse_and_validate(pkg / "datasets" / name / "reference-evals.yaml")
+        n = len({ev.type for uc in parsed.use_cases for ev in uc.evals})
+        readme = (pkg / "datasets" / name / "README.md").read_text()
+        m = re.search(r"all (\w+) judge types", readme)
+        assert m, f"datasets/{name}/README.md no longer counts the judge types"
+        words = {3: "three", 4: "four", 5: "five"}
+        assert m.group(1) == words[n], (
+            f"datasets/{name}/README.md says 'all {m.group(1)} judge types'; "
+            f"its own answer key uses {n}")
+
+
+def test_the_site_five_cards_are_explained_against_the_four_types():
+    """'Four judges. Closed set.' sat directly above five unexplained cards."""
+    site = _site()
+    cards = site.count('class="type-badge"')
+    i = site.index("Four judges. Closed set.")
+    if cards != 4:
+        assert "not a fifth type" in site[i:i + 600], (
+            f"the site shows {cards} type cards under a four-judge heading "
+            "with no line reconciling the two counts")
+
+
+def test_the_site_report_preview_shows_the_bundled_rag_run():
+    """The preview showed 83/96/92, a run id, a date, a system name, a filter
+    chip and matrix cells that all contradicted the shipped demo results."""
+    import re
+
+    import fieldtest
+
+    site = _site()
+    report = (Path(fieldtest.__file__).resolve().parent /
+              "demo" / "rag" / "results" / "demo-offline-report.md").read_text()
+
+    # Tag Health percentages.
+    for tag, pct in re.findall(r"\| (RIGHT|GOOD|SAFE) \| (\d+)% \|", report):
+        card = re.search(
+            rf'<div class="tname">{tag}</div>\s*<div class="trate">(\d+)%</div>', site)
+        assert card, f"the preview no longer shows a {tag} card"
+        assert card.group(1) == pct, (
+            f"the preview shows {tag} {card.group(1)}%; the bundled report says {pct}%")
+
+    # Matrix cells: per fixture, the sequence of x/3 counts.
+    matrix = re.findall(r"^\| ([\w-]+) \| (.+) \|$", report.split("Fixture × Eval Matrix")[1]
+                        .split("###")[0], re.M)
+    preview = site[site.index('class="matrix"'):site.index("Expanded cell example")]
+    for fixture, cells in matrix:
+        if fixture in ("fixture", "---", " --- "):
+            continue
+        want = [c.strip() for c in cells.split("|")]
+        row = re.search(
+            rf'{fixture}\s*<div class="fx-desc">.*?</tr>', preview, re.S)
+        assert row, f"the preview matrix has no row for {fixture}"
+        got = re.findall(r'class="pill \w+">([\d/]+|—)', row.group(0))
+        assert got == want, (
+            f"preview matrix row {fixture}: shows {got}, bundled report says {want}")
+
+    # The run id and label chips come from the bundled data, not invention.
+    data = json.loads((Path(fieldtest.__file__).resolve().parent /
+                       "demo" / "rag" / "results" / "demo-offline-data.json").read_text())
+    assert data["run_id"] in site, "the preview's run id is not the bundled run's id"
+    assert "demo-offline-0000" not in site
+    assert '<span class="lchip">completeness</span>' not in site, (
+        "the preview offers a 'completeness' filter chip; no shipped config has that label")
+
+
+def test_the_site_config_panel_is_the_shipped_rag_config():
+    """The panel was labeled '(rag example)' but showed a different system
+    name, labels, regex pattern, and only five of the six evals."""
+    import re
+
+    import fieldtest
+    import yaml as yamlmod
+
+    site = _site()
+    shipped = yamlmod.safe_load(
+        (Path(fieldtest.__file__).resolve().parent / "demo" / "rag" / "config.yaml").read_text())
+
+    panel_start = site.index("config.yaml (rag example")
+    panel = site[panel_start:site.index("</pre>", panel_start)]
+    text = re.sub(r"<[^>]+>", "", panel)
+
+    assert shipped["system"]["name"] in text, "the panel's system name is not the shipped one"
+    for ev in shipped["use_cases"][0]["evals"]:
+        assert ev["id"] in text, f"the panel omits the shipped eval '{ev['id']}'"
+        if "pattern" in ev:
+            assert ev["pattern"] in text.replace("&quot;", '"').replace("&amp;", "&"), (
+                f"the panel shows a different pattern for '{ev['id']}'")
+    assert "comments added" in text or "annotated" in site[panel_start - 200:panel_start + 100], (
+        "the panel is an annotated copy; label it as such")
+
+
+def test_the_site_demo_modes_describe_modes_that_exist():
+    """Card 2 described a deterministic-only mode no code path implements, and
+    card 3 said the demo calls your system and takes any provider's key."""
+    site = _site()
+    for stale in ("Live (rule)", "Add your runner script",
+                  "using only deterministic evals"):
+        assert stale not in site, f"the demo-modes panel is back to: {stale!r}"
+    i = site.index("Three demo modes")
+    panel = site[i:i + 3500]
+    assert "ANTHROPIC_API_KEY required" in panel, (
+        "the full-live card must name the one key the demo actually accepts")
+
+
+def test_the_site_clean_comment_matches_what_bare_clean_offers(tmp_path, monkeypatch):
+    """The site said 'delete results, keep outputs'; the bare command offers
+    to delete outputs/ and keeps the newest 20 result sets."""
+    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
+    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
+    result = runner.invoke(main, ["clean"], input="n\n", catch_exceptions=False)
+    assert "outputs/" in result.output, (
+        f"bare clean no longer targets outputs/ — update this test and the site: {result.output}")
+
+    site = _site()
+    assert "delete results, keep outputs" not in site, (
+        "the site describes `fieldtest clean` as the exact inverse of what it offers")
+    i = site.index("fieldtest clean</span>")
+    comment = site[i:i + 300]
+    assert "outputs/" in comment and "asks" in comment, (
+        "the clean comment should say it offers to clear outputs/ and asks first")

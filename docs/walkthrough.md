@@ -89,7 +89,8 @@ a literal string — which matters, because an LLM judge shown
 The prompt is an input like any other. That is what makes *did it do what was
 asked* something you can write an eval for.
 
-**An output** is whatever your generator wrote. Here, plain text:
+**An output** is whatever your generator wrote. Here,
+`outputs/october-trip/run-3.txt`, plain text:
 
 ```
 ## Reimbursement summary — Dana Okafor
@@ -102,6 +103,13 @@ asked* something you can write an eval for.
 | R-1045 | 2026-10-04 | meals | $91.40 | $75.00 |
 | R-1046 | 2026-10-05 | ground | $41.15 | $41.15 |
 | R-1049 | 2026-10-05 | meals | $28.00 | $28.00 |
+
+### Reductions
+
+- R-1043 reduced by $18.00. Lodging is capped at $250 per night (policy 4.1).
+- R-1045 reduced by $16.40. Meals are capped at $75 per day (policy 4.1).
+
+Total reimbursable: $912.70
 ```
 
 fieldtest never generated these. It only ever reads
@@ -160,7 +168,13 @@ Look back at `outputs/october-trip/run-3.txt`. It lists `R-1049`. Now
 `sources/receipts-october.csv`:
 
 ```
-R-1041,R-1042,R-1043,R-1044,R-1045,R-1046
+receipt_id,date,category,merchant,amount
+R-1041,2026-10-03,airfare,United Airlines,412.60
+R-1042,2026-10-03,ground,Uber,38.20
+R-1043,2026-10-03,lodging,Hyatt Regency,268.00
+R-1044,2026-10-04,meals,Blue Fig Cafe,52.75
+R-1045,2026-10-04,meals,Harbor Grill,91.40
+R-1046,2026-10-05,ground,Uber,41.15
 ```
 
 There is no R-1049. The assistant invented a receipt and reimbursed $28.00 for
@@ -299,15 +313,15 @@ fieldtest score --set full
 Then compare against the answer key:
 
 ```bash
-fieldtest score --config reference-evals.yaml --set full
+fieldtest score --config evals/reference-evals.yaml --set full
 ```
 
 A `calibration.panel` is commented out at the bottom of that file. Uncomment it
 and you can run two judges over the same outputs and see where they disagree:
 
 ```bash
-fieldtest calibrate --config reference-evals.yaml --set smoke --dry-run
-fieldtest calibrate --config reference-evals.yaml --set smoke
+fieldtest calibrate --config evals/reference-evals.yaml --set smoke --dry-run
+fieldtest calibrate --config evals/reference-evals.yaml --set smoke
 ```
 
 ```
@@ -324,8 +338,11 @@ is a fact about the words.
 Read the answer key for its failures as much as its passes. Its `caps_applied` eval states
 in its own `fail_criteria` that it should judge two daily caps and ignore
 everything else, and the judge still fails outputs for unrelated defects —
-66.7% agreement with a human against 100% for every rule eval. That gap is what
-`fieldtest calibrate` and human labels exist to measure.
+66.7% agreement with a human against 100% for every rule eval. To see that
+agreement row yourself, first uncomment the `caps_applied` human labels in
+`evals/fixtures/october-trip.yaml` (they ship commented out, with instructions
+in the fixture); without them the report has no human row for that eval. That
+gap is what `fieldtest calibrate` and human labels exist to measure.
 
 ## Then your own project
 

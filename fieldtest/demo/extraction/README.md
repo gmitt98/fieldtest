@@ -58,6 +58,7 @@ def check_amount_numeric(output: str, inputs: dict) -> dict:
 Add the eval to `config.yaml` under `evals:`, then re-run `fieldtest score`.
 
 **4. Add a new fixture**
-Create `evals/fixtures/variations/purchase-order.yaml` with `id: purchase-order`
-and an `inputs.invoice_text` field. Add it to the `full:` set. Add output files
-in `evals/outputs/purchase-order/`. Re-run `fieldtest score`.
+Create `evals/fixtures/golden/purchase-order.yaml` with `id: purchase-order`
+and an `inputs.invoice_text` field. (The config's `fixtures.directory` is
+`fixtures/golden`, and its `full: all` set picks up every fixture there.)
+Add output files in `evals/outputs/purchase-order/`. Re-run `fieldtest score`.
