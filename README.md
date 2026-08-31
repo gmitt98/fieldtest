@@ -1104,14 +1104,30 @@ fieldtest clean --results --keep 10
 fieldtest clean --outputs --results --keep 5
 ```
 
-Interactive mode:
+Interactive mode names every file it will delete, then asks:
 
 ```
 Would remove:
-  outputs/: 33 run files
-  results/: 8 old result sets (keeping 20)
+  outputs/ — 9 file(s), and the directory's contents:
+    outputs/june-trip/run-1.txt
+    outputs/june-trip/run-2.txt
+    outputs/march-trip/run-1.txt
+    … and 6 more
+  results/ — 15 file(s) from old runs (keeping 20):
+    results/2026-01-02T10-00-00-aaaa-data.json
+    … and 14 more
 Proceed? [y/N]:
 ```
+
+`--outputs` clears the whole `outputs/` directory, not only the `run-N.txt`
+files fieldtest wrote — anything you put there goes too, and `fieldtest init`
+gitignores it, so it is not recoverable. `--results` removes only the five
+artifacts of each pruned run; a file of your own named after a run id is left
+alone.
+
+`clean` refuses to run unless it is looking at a valid fieldtest config. A bare
+`config.yaml` beside an `outputs/` directory describes most projects, and
+deleting one of those was not worth the convenience.
 
 Only what's listed in the prompt gets removed. If only results need pruning, outputs are untouched.
 

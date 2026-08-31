@@ -2567,3 +2567,113 @@ def test_the_demos_closing_instructions_actually_work(tmp_path, monkeypatch):
         assert "No results found" not in r.output, (
             f"the demo tells you to run '{cmd}' and it finds nothing:\n{r.output}")
         assert r.exit_code == 0, f"'{cmd}' exited {r.exit_code}:\n{r.output}"
+
+
+# ---------------------------------------------------------------------------
+# Destroying the user's work (third audit round)
+#
+# `clean` deleted more than it named, and did it in directories that were not
+# fieldtest projects at all. `outputs/` is gitignored by `init`, so what it took
+# was unrecoverable.
+# ---------------------------------------------------------------------------
+
+def test_clean_refuses_a_directory_that_is_not_a_fieldtest_project(tmp_path, monkeypatch):
+    """
+    _default_config_path() falls back to ./config.yaml, and `config.yaml` beside
+    an `outputs/` directory describes most ML projects ever written.
+    `clean --outputs` deleted their checkpoints and exited 0.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("database:\n  host: localhost\n")
+    (tmp_path / "outputs" / "checkpoints").mkdir(parents=True)
+    weights = tmp_path / "outputs" / "checkpoints" / "model.bin"
+    weights.write_text("model weights")
+
+    result = CliRunner().invoke(main, ["clean", "--outputs"], catch_exceptions=False)
+    assert result.exit_code == 1, result.output
+    assert weights.exists(), "clean deleted a non-fieldtest project's outputs"
+    assert "not a usable fieldtest config" in result.output
+
+
+def test_clean_names_every_file_it_will_delete(tmp_path, monkeypatch):
+    """It counted only *.txt and then rmtree'd the whole tree."""
+    evals = _setup_project(tmp_path)
+    outputs = evals / "outputs"
+    (outputs / "fix1").mkdir(parents=True, exist_ok=True)
+    (outputs / "fix1" / "run-1.txt").write_text("a run")
+    (outputs / "notes.md").write_text("MY NOTES")
+    (outputs / "manual").mkdir(exist_ok=True)
+    (outputs / "manual" / "day1.json").write_text("precious")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["clean"], input="n\n", catch_exceptions=False)
+    out = result.output
+    assert "3 file(s)" in out, f"the count does not match reality:\n{out}"
+    for named in ("notes.md", "day1.json", "run-1.txt"):
+        assert named in out, f"clean does not name {named} before deleting it:\n{out}"
+    assert (outputs / "notes.md").exists(), "declining still deleted"
+
+
+def test_clean_results_removes_only_the_five_artifacts_of_a_run(tmp_path, monkeypatch):
+    """Globbing {run_id}-* took a write-up the user had named after a run."""
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    for i in range(1, 26):
+        rid = f"2026-01-{i:02d}T10-00-00-aaaa"
+        for suffix in ("data.json", "data.csv", "report.md", "report.csv", "report.html"):
+            (results / f"{rid}-{suffix}").write_text("{}")
+    writeup = results / "2026-01-01T10-00-00-aaaa-my-writeup.md"
+    writeup.write_text("MY ANALYSIS")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["clean", "--results", "--keep", "20"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert writeup.exists(), "clean deleted a file it never counted or named"
+
+
+def test_clean_refuses_a_symlinked_outputs_directory(tmp_path, monkeypatch):
+    evals = _setup_project(tmp_path)
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "important.txt").write_text("PRECIOUS")
+    outputs = evals / "outputs"
+    if outputs.exists():
+        import shutil
+        shutil.rmtree(outputs)
+    outputs.symlink_to(real)
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["clean", "--outputs"], catch_exceptions=False)
+    assert "Traceback" not in result.output
+    assert "symlink" in result.output
+    assert (real / "important.txt").read_text() == "PRECIOUS"
+
+
+def test_dataset_use_dest_naming_a_file_says_so(tmp_path, monkeypatch):
+    """exists() is true for a file; iterdir() then raised NotADirectoryError."""
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "myevals"
+    target.write_text("my config")
+
+    result = CliRunner().invoke(
+        main, ["dataset", "use", "expense-report", "--dest", "myevals"],
+        catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "is a file, not a directory" in result.output
+    assert target.read_text() == "my config"
+
+
+def test_init_force_says_it_replaced_your_config(tmp_path, monkeypatch):
+    """The output was byte-identical to scaffolding an empty directory."""
+    monkeypatch.chdir(tmp_path)
+    evals = tmp_path / "evals"
+    evals.mkdir()
+    (evals / "config.yaml").write_text("# 300 lines of my carefully written evals\n")
+
+    result = CliRunner().invoke(main, ["init", "--force"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "replaced the existing" in result.output, (
+        f"--force overwrote a config and said nothing:\n{result.output}")
