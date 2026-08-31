@@ -48,10 +48,10 @@ of mistake as one that gets an amount wrong.
 ## The answer key, and what it gets wrong
 
 ```bash
-fieldtest score --config reference-evals.yaml --set full
+fieldtest score --config evals/reference-evals.yaml --set full
 ```
 
-Seven evals, all five judge types.
+Seven evals, all four judge types.
 
 `final_message_matches_the_trace` is worth studying. It catches
 `outside-window/run-3` exactly, and explains it well. It also fails three

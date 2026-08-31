@@ -49,7 +49,8 @@ Open `evals/config.yaml` and add a regex eval that checks the response cites a s
 Re-run `fieldtest score` — the new eval appears as a column in the report.
 
 **4. Add a new fixture**
-Create `evals/fixtures/variations/parental-leave.yaml` with `id: parental-leave`,
+Create `evals/fixtures/golden/parental-leave.yaml` with `id: parental-leave`,
 an `inputs.context` field with a handbook excerpt about parental leave policy,
-and an `inputs.question` field. Add `parental-leave` to the `full:` set in `config.yaml`.
+and an `inputs.question` field. (The config's `fixtures.directory` is
+`fixtures/golden`, and its `full: all` set picks up every fixture there.)
 Add output files in `evals/outputs/parental-leave/`. Re-run `fieldtest score`.
