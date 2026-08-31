@@ -1671,3 +1671,133 @@ def test_the_report_puts_a_shared_eval_id_delta_on_the_right_row(tmp_path):
     assert "↔" in uc1_block, f"uc1's eval did not move; it should read ↔:\n{uc1_block}"
     assert "%" in uc2_block.split("| shared |")[1].split("\n")[0], (
         f"uc2's regression is missing from its own row:\n{uc2_block}")
+
+
+# ---------------------------------------------------------------------------
+# The floor-hit review list, and the judge_runs-mismatch caveat.
+#
+# The list is the only place the report names files for a human to open. It has
+# to name the outputs the count counted, under the same rule, attributed to the
+# eval that actually scored them at the floor.
+# ---------------------------------------------------------------------------
+
+def test_floor_hit_list_names_only_the_outputs_the_count_counted():
+    """floor_hits is collapsed by majority; the list has to use the same rule.
+
+    Listing the raw per-judge-call flag and de-duplicating by output listed
+    every output where one repetition of three hit the floor. An output the
+    judge scored 1, 5, 5 is not a floor hit — the count excludes it — yet the
+    warning beside that count handed it to the user to review.
+    """
+    from fieldtest.results.report import format_report
+
+    config = _make_config(evals=[_make_eval_def("s1", is_scored=True)], judge_runs=3)
+    rows = []
+    for run, scores in ((1, (1, 1, 5)), (2, (1, 5, 5))):
+        for judge_run, score in enumerate(scores, start=1):
+            rows.append(_row(
+                passed=None, score=score, eval_id="s1", tag="good", ev_type="llm",
+                floor_hit=score == 1, fixture_id="f1", run=run, judge_run=judge_run,
+            ))
+
+    summary = build_summary(rows, config)
+    assert summary["uc1"]["good"]["s1"]["floor_hits"] == 1, "majority rule: only run-1"
+
+    report = format_report(
+        rows=rows, summary=summary, delta={},
+        config=config, run_id="r", set_name="full",
+    )
+    listed = [ln for ln in report.splitlines() if ln.startswith("⚠ floor hits")]
+    assert len(listed) == 1, f"expected one floor-hit block:\n{report}"
+    assert "outputs/f1/run-1.txt" in listed[0], listed[0]
+    assert "outputs/f1/run-2.txt" not in listed[0], (
+        "run-2 scored 1, 5, 5 — the count does not call it a floor hit, so the "
+        f"review list must not either:\n{listed[0]}"
+    )
+
+
+def test_floor_hit_list_attributes_each_output_to_the_eval_that_scored_it():
+    """Two scored evals, two scales, one output at the floor of both.
+
+    A single flat list labelled with one eval id printed the filename twice and
+    reported grounding's 0 on a 0-10 scale as `helpfulness scored 1/5`.
+    """
+    from fieldtest.results.report import format_report
+
+    helpfulness = Eval(
+        id="helpfulness", tag="good", type="llm", binary=False,
+        description="rate it", scale=[1, 5], anchors={1: "bad", 5: "great"},
+    )
+    grounding = Eval(
+        id="grounding", tag="good", type="llm", binary=False,
+        description="rate it", scale=[0, 10], anchors={0: "bad", 10: "great"},
+    )
+    config = _make_config(evals=[helpfulness, grounding])
+    rows = [
+        _row(passed=None, score=1, eval_id="helpfulness", tag="good", ev_type="llm",
+             floor_hit=True, fixture_id="f1", run=1),
+        _row(passed=None, score=4, eval_id="helpfulness", tag="good", ev_type="llm",
+             fixture_id="f1", run=2),
+        _row(passed=None, score=0, eval_id="grounding", tag="good", ev_type="llm",
+             floor_hit=True, fixture_id="f1", run=1),
+        _row(passed=None, score=7, eval_id="grounding", tag="good", ev_type="llm",
+             fixture_id="f1", run=2),
+    ]
+
+    summary = build_summary(rows, config)
+    assert summary["uc1"]["good"]["helpfulness"]["floor_hits"] == 1
+    assert summary["uc1"]["good"]["grounding"]["floor_hits"] == 1
+
+    report = format_report(
+        rows=rows, summary=summary, delta={},
+        config=config, run_id="r", set_name="full",
+    )
+    blocks = [ln for ln in report.splitlines() if ln.startswith("⚠ floor hits")]
+    captions = [ln for ln in report.splitlines() if "review these outputs" in ln]
+    assert len(blocks) == 2, f"one block per eval with floor hits:\n{report}"
+    for block in blocks:
+        assert block.count("outputs/f1/run-1.txt") == 1, (
+            f"the same output is listed twice in one block:\n{block}"
+        )
+    assert any("helpfulness scored 1/5" in c for c in captions), captions
+    assert any("grounding scored 0/10" in c for c in captions), (
+        "grounding's floor hit is at 0 on a 0-10 scale, not 1 on a 1-5 one: "
+        f"{captions}"
+    )
+
+
+def test_judge_runs_mismatch_caveat_is_a_whole_sentence(tmp_path):
+    """The caveat lost its subject to an edit and rendered as a fragment:
+    `— judge spread figures do not.` It has to state what is not comparable."""
+    from fieldtest.results.report import format_report
+
+    config = _make_config(evals=[_make_eval_def("ev1", is_scored=False)], judge_runs=2)
+    rows = [
+        _row(passed=True, fixture_id="f1", run=1, judge_run=1),
+        _row(passed=True, fixture_id="f1", run=1, judge_run=2),
+    ]
+    summary = build_summary(rows, config)
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "set": "full", "judge": {}, "judge_runs": 1,
+        "summary": summary,
+    }))
+
+    report = format_report(
+        rows=rows, summary=summary, delta=build_delta(summary, baseline),
+        config=config, run_id="r", set_name="full",
+    )
+    caveat = next(
+        ln for ln in report.splitlines()
+        if ln.startswith("⚠ baseline judged each output")
+    )
+    tail = caveat.split("—", 1)[1]
+    assert tail.strip() != "judge spread figures do not.", (
+        f"the sentence is still truncated: {caveat}"
+    )
+    assert "ties" in tail and "fail" in tail, (
+        f"the caveat must say why the rates move — ties resolve to fail: {caveat}"
+    )
+    assert "not comparable" in tail, (
+        f"the caveat must say the judge spread figures are not comparable: {caveat}"
+    )
