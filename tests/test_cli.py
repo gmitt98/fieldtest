@@ -1931,3 +1931,184 @@ def test_requires_python_the_classifiers_and_the_ci_matrix_agree():
     assert claimed == tested, (
         f"classifiers claim {claimed}, CI runs {tested}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Every command the docs tell a reader to type (Track A, made permanent)
+#
+# Doc drift is the failure mode this project has actually had: `--template
+# extraction`, `fieldtest diff RUN1 RUN2`, `fieldtest list`, "four output files"
+# when there are five. Each was found by hand, twice. This finds them all, on
+# every push, and fails rather than waiting for a reader to hit one.
+# ---------------------------------------------------------------------------
+
+def _documentation_files():
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    files = [root / n for n in
+             ("README.md", "CHANGELOG.md", "docs/walkthrough.md",
+              "docs/index.html", "docs/philosophy.md")]
+    # docs/specs are design records, not instructions. They legitimately discuss
+    # commands that do not exist ("if a `fieldtest scan` is ever built") and
+    # propose ones that were never accepted. What a reader follows is here.
+    files += sorted(root.glob("fieldtest/datasets/*/README.md"))
+    files += sorted(root.glob("fieldtest/demo/*/README.md"))
+    return [f for f in files if f.exists()]
+
+
+def _typed_command_lines(path: Path) -> list[str]:
+    """
+    Lines a reader would type, from code contexts only.
+
+    Prose is excluded ("fieldtest does not run your system" is not an
+    invocation), and so are python blocks, where `from fieldtest import rule`
+    is an import rather than a command.
+    """
+    import html as htmlmod
+    import re
+
+    text = path.read_text()
+    blocks = []
+    for fence, body in re.findall(r"```([a-z]*)\n(.*?)```", text, re.S):
+        if fence != "python":
+            blocks.append(body)
+    blocks += re.findall(r"`([^`\n]+)`", text)
+    if path.suffix == ".html":
+        blocks += [htmlmod.unescape(b) for b in
+                   re.findall(r"<(?:code|pre)[^>]*>(.*?)</(?:code|pre)>", text, re.S)]
+
+    out = []
+    for block in blocks:
+        for line in block.splitlines():
+            line = line.strip().lstrip("$ ").strip()
+            # A command is typed at the start of a line, not mentioned mid-sentence.
+            if line.startswith("fieldtest ") and "←" not in line:
+                out.append(line)
+    return out
+
+
+def _cli_surface():
+    """
+    Commands, their flags, and each flag's allowed values — from the click
+    objects, not from parsing --help. Parsing --help missed a flag written
+    after a positional argument, and missed flag *values* entirely, which is
+    the shape of the `--template extraction` defect that shipped twice.
+    """
+    import click
+
+    surface = {}
+    for name, cmd in main.commands.items():
+        flags, choices, subs = set(), {}, set()
+        for p in cmd.params:
+            flags.update(o for o in getattr(p, "opts", []) if o.startswith("--"))
+            flags.update(o for o in getattr(p, "secondary_opts", []) if o.startswith("--"))
+            ptype = getattr(p, "type", None)
+            if isinstance(ptype, click.Choice):
+                for o in getattr(p, "opts", []):
+                    if o.startswith("--"):
+                        choices[o] = set(ptype.choices)
+        sub_detail = {}
+        if isinstance(cmd, click.Group):
+            subs = set(cmd.commands)
+            for sname, scmd in cmd.commands.items():
+                sflags, schoices = set(), {}
+                for p in scmd.params:
+                    sflags.update(o for o in getattr(p, "opts", []) if o.startswith("--"))
+                    stype = getattr(p, "type", None)
+                    if isinstance(stype, click.Choice):
+                        for o in getattr(p, "opts", []):
+                            if o.startswith("--"):
+                                schoices[o] = set(stype.choices)
+                sub_detail[sname] = {"flags": sflags, "choices": schoices}
+        surface[name] = {"flags": flags, "choices": choices,
+                         "subs": subs, "sub_detail": sub_detail}
+    # --help is added by click on every command and never appears in params.
+    global_flags = {"--help"} | {o for p in main.params
+                                 for o in getattr(p, "opts", []) if o.startswith("--")}
+    return surface, global_flags
+
+
+def test_every_command_the_docs_tell_you_to_type_exists():
+    import shlex
+
+    surface, global_flags = _cli_surface()
+    assert {"score", "validate", "init", "view"} <= set(surface), sorted(surface)
+
+    problems, checked = [], 0
+    for doc in _documentation_files():
+        for line in _typed_command_lines(doc):
+            try:
+                tokens = shlex.split(line, comments=True)
+            except ValueError:
+                continue
+            if len(tokens) < 2:
+                continue
+            cmd = tokens[1]
+            checked += 1
+            if cmd.startswith("-"):
+                # `fieldtest --version`, `fieldtest --help <command>`
+                if cmd not in global_flags:
+                    problems.append(f"{doc.name}: no global {cmd} — {line!r}")
+                continue
+            if cmd not in surface:
+                problems.append(f"{doc.name}: '{cmd}' is not a command — {line!r}")
+                continue
+
+            spec = surface[cmd]
+            rest = tokens[2:]
+
+            # A group's flags live on its subcommand: `dataset use --dest`.
+            if spec["subs"] and rest and not rest[0].startswith("-"):
+                sub = spec["sub_detail"].get(rest[0])
+                if sub:
+                    spec = {**spec, "flags": spec["flags"] | sub["flags"],
+                            "choices": {**spec["choices"], **sub["choices"]}}
+            for i, tok in enumerate(rest):
+                if not tok.startswith("--"):
+                    continue
+                flag, _, inline = tok.partition("=")
+                if flag not in spec["flags"] and flag not in global_flags:
+                    problems.append(
+                        f"{doc.name}: '{cmd}' has no {flag} — {line!r}")
+                    continue
+                allowed = spec["choices"].get(flag)
+                if allowed:
+                    value = inline or (rest[i + 1] if i + 1 < len(rest) else None)
+                    if value and not value.startswith("-") and value not in allowed:
+                        problems.append(
+                            f"{doc.name}: '{cmd} {flag} {value}' — allowed: "
+                            f"{sorted(allowed)} — {line!r}")
+
+            # `dataset use expense-report`: the subcommand has to exist too.
+            if spec["subs"] and rest and not rest[0].startswith("-"):
+                if rest[0] not in spec["subs"]:
+                    problems.append(
+                        f"{doc.name}: '{cmd} {rest[0]}' — {cmd} offers "
+                        f"{sorted(spec['subs'])} — {line!r}")
+
+    assert checked >= 100, f"only {checked} documented invocations found — parser broke?"
+    assert not problems, "documentation names things the CLI does not have:\n  " + \
+        "\n  ".join(problems)
+
+
+def test_every_command_the_cli_offers_is_documented_somewhere():
+    """A command nobody can find is the same as one that does not exist."""
+    import re
+    import subprocess
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    ft = str(root / ".venv" / "bin" / "fieldtest")
+    if not Path(ft).exists():
+        ft = "fieldtest"
+
+    top = subprocess.run([ft, "--help"], capture_output=True, text=True).stdout
+    commands = set(re.findall(r"^\s{2}(\w[\w-]*)", top, re.M)) - {"fieldtest", "help"}
+
+    shown = set()
+    for doc in _documentation_files():
+        for line in _typed_command_lines(doc):
+            m = re.match(r"fieldtest\s+([a-z][\w-]*)", line)
+            if m:
+                shown.add(m.group(1))
+
+    missing = sorted(commands - shown)
+    assert not missing, f"the CLI offers these and no doc demonstrates them: {missing}"
