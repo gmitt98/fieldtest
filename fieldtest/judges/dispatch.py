@@ -15,6 +15,18 @@ from fieldtest.judges.regex_ import judge_regex
 from fieldtest.judges.registry import get_rule
 
 
+def _unusable_rule(eval_id: str, result: object) -> str:
+    """Error text for a rule return that carries no usable boolean verdict."""
+    try:
+        got = repr(result)
+    except Exception:  # pragma: no cover - a __repr__ that raises
+        got = f"<unreprable {type(result).__name__}>"
+    return (
+        f"rule '{eval_id}' returned no usable verdict "
+        f'(wanted {{"passed": bool, "detail": str}}); got {got[:200]}'
+    )
+
+
 def dispatch_judge(
     use_case_id: str,
     eval: Eval,
@@ -54,9 +66,22 @@ def dispatch_judge(
             )
         try:
             result = fn(output, fixture.get("inputs", {}))
+            # A rule that returns no usable verdict is a rule failure, not a
+            # passing output. `passed=result.get("passed")` made every
+            # non-conforming shape — a misspelled key, a branch that forgets to
+            # return, a dict of some other shape — arrive as passed=None with
+            # error=None, which lands in the denominator but is never counted a
+            # failure: the headline read 100% pass with a confidence interval
+            # and zero errors while Tag Health on the same rows read 0%. The LLM
+            # branch already guards this class (llm.py); the rule branch did not,
+            # and it failed in the more dangerous direction. The contract is
+            # documented as {"passed": bool, "detail": str}.
+            verdict = result.get("passed") if isinstance(result, dict) else None
+            if not isinstance(verdict, bool):
+                return ResultRow(**base, error=_unusable_rule(eval.id, result))
             return ResultRow(
                 **base,
-                passed=result.get("passed"),
+                passed=verdict,
                 detail=result.get("detail"),
             )
         except ConfigError:

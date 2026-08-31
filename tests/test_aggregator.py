@@ -718,7 +718,11 @@ def test_scored_variance_decomposes_into_system_and_judge():
 
     assert stats["judge_runs"] == 2
     assert stats["system_stddev"] == 0.0
-    assert stats["judge_stddev"] == 1.0
+    # Pooled within-output sample variance: each output contributes
+    # ((2-3)^2 + (4-3)^2) / (2-1) = 2, so judge_var = 4/2 = 2 and the judge SD
+    # is sqrt(2). Was 1.0 while judge spread was the mean of population (n)
+    # SDs, which understates a sample of 2 by sqrt(1/2).
+    assert stats["judge_stddev"] == 1.4142
     assert stats["stddev"] == 1.0        # unchanged definition over all values
 
 
@@ -735,7 +739,11 @@ def test_scored_variance_attributes_spread_to_system_when_judge_is_stable():
     stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
 
     assert stats["judge_stddev"] == 0.0
-    assert stats["system_stddev"] == 1.0
+    # Per-output means are 2 and 4; the judge contributes nothing to subtract,
+    # so system SD is the sample (n-1) SD of the means: sqrt(2). Was 1.0 while
+    # system spread was a population (n) SD of the means. The n-1 form is what
+    # makes the variance subtraction unbiased, so both halves move together.
+    assert stats["system_stddev"] == 1.4142
 
 
 def test_scored_summary_has_no_judge_fields_at_one_repetition():
@@ -1300,3 +1308,174 @@ def test_a_split_verdict_on_the_floor_collapses_the_way_a_binary_one_does():
     ]
     stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
     assert stats["floor_hits"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Variance decomposition — unbiasedness
+# ---------------------------------------------------------------------------
+
+def _rule_eval(eval_id: str) -> Eval:
+    return Eval(id=eval_id, tag="safe", type="rule", description="check it")
+
+
+def test_decompose_variance_does_not_blame_the_system_for_judge_noise():
+    """
+    Four outputs of identical true quality, judged three times each by a noisy
+    judge. True system spread is exactly 0 by construction, so a decomposition
+    reporting system > judge sends the reader to fix the wrong thing.
+
+    The old pair of formulas — SD of the per-output means, and the mean of the
+    per-output population SDs — reported system 0.4714 > judge 0.4398 here.
+    """
+    from fieldtest.results.aggregator import decompose_variance
+
+    system_sd, judge_sd = decompose_variance([[2, 3, 4], [2, 2, 3], [4, 4, 3], [3, 3, 3]])
+
+    assert judge_sd > system_sd, (
+        f"all spread here is judge noise; got system={system_sd} judge={judge_sd}"
+    )
+    # Pooled within-output variance: squared deviations 2, 2/3, 2/3, 0 over
+    # 8 degrees of freedom = 0.41667, so judge SD = sqrt(0.41667) = 0.6455.
+    assert round(judge_sd, 4) == 0.6455
+
+
+def test_decompose_variance_recovers_known_components():
+    """
+    Hand-computable. Three outputs, two judge calls each:
+      f1 [10, 12]   f2 [20, 22]   f3 [30, 32]
+
+    Within each output the sample variance is (1 + 1) / (2 - 1) = 2, so the
+    pooled judge variance is 2 and judge_sd = sqrt(2) = 1.41421.
+    The means are 11, 21, 31, with sample variance 100. Each mean carries
+    judge_var / 2 = 1 of that, so system_var = 100 - 1 = 99 and
+    system_sd = sqrt(99) = 9.94987.
+    """
+    from fieldtest.results.aggregator import decompose_variance
+
+    system_sd, judge_sd = decompose_variance([[10, 12], [20, 22], [30, 32]])
+
+    assert round(judge_sd, 5) == 1.41421
+    assert round(system_sd, 5) == 9.94987
+
+
+def test_decompose_variance_clamps_system_spread_to_zero():
+    """
+    Identical per-output means with a disagreeing judge: the between-means term
+    is smaller than the judge noise it carries, so the unclamped estimate goes
+    negative. 0.0 is the honest reading, and a negative variance would take the
+    sqrt down with it.
+    """
+    from fieldtest.results.aggregator import decompose_variance
+
+    system_sd, judge_sd = decompose_variance([[1, 5], [5, 1], [3, 3]])
+
+    assert system_sd == 0.0
+    assert judge_sd > 0.0
+
+
+def test_scored_summary_names_the_judge_when_the_judge_is_the_larger_source():
+    """
+    The Judge Repeatability table exists to answer one question: is the spread
+    the system or the criteria? On data where the judge dominates, the summary
+    has to say so, or the reader leaves an ambiguous pass_criteria in place.
+    """
+    evals = [_make_eval_def("ev1", is_scored=True)]
+    config = _make_config(evals, judge_runs=3)
+
+    # Four outputs of identical true quality, judged three times each. Every
+    # point of spread here is the judge; true system spread is 0. The old
+    # formulas inverted this exact case, reporting system 0.4714 > judge 0.4398.
+    scores_by_output = [[2, 3, 4], [2, 2, 3], [4, 4, 3], [3, 3, 3]]
+    rows = []
+    for run, rep_scores in enumerate(scores_by_output, start=1):
+        for jr, score in enumerate(rep_scores, start=1):
+            rows.append(_row(passed=None, score=score, run=run, judge_run=jr,
+                             eval_id="ev1", tag="good", ev_type="llm"))
+
+    stats = build_summary(rows, config)["uc1"]["good"]["ev1"]
+
+    assert stats["judge_stddev"] > stats["system_stddev"], (
+        "outputs are of identical quality, so the judge is the only source of "
+        f"spread; got system={stats['system_stddev']} judge={stats['judge_stddev']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule returns carrying no verdict
+# ---------------------------------------------------------------------------
+
+def test_rule_without_passed_key_is_an_error_not_a_pass():
+    """
+    A rule returning {"pass": ...} instead of {"passed": ...} used to produce
+    passed=None with error=None. That row landed in the failure_rate denominator
+    but was never counted a failure, so a `safe` eval on which every check failed
+    reported 100% pass with a confidence interval and zero errors — while Tag
+    Health, reading the same rows in the same report, reported 0%.
+    """
+    from fieldtest.judges.dispatch import dispatch_judge
+    from fieldtest.judges.registry import _rule_registry, rule
+
+    ev = _rule_eval("no_banned")
+
+    @rule("no_banned")
+    def _misspelled(output: str, inputs: dict) -> dict:
+        return {"pass": False, "detail": "output contained a banned phrase"}
+
+    try:
+        config = _make_config([ev])
+        rows = [
+            dispatch_judge("uc1", ev, "bad", {"id": f"f{i}"}, 1, config)
+            for i in range(4)
+        ]
+
+        assert all(r.passed is None for r in rows)
+        assert all(r.error is not None for r in rows)
+        assert "no usable verdict" in rows[0].error
+
+        stats = build_summary(rows, config)["uc1"]["safe"]["no_banned"]
+        assert stats["error_count"] == 4
+        assert stats["total_runs"] == 0
+        assert stats["failure_rate"] is None, (
+            "four unusable rule returns must not read as a 0% failure rate"
+        )
+    finally:
+        _rule_registry.pop("no_banned", None)
+
+
+def test_rule_returning_non_dict_is_an_error():
+    """A rule that falls off the end and returns None carries no verdict."""
+    from fieldtest.judges.dispatch import dispatch_judge
+    from fieldtest.judges.registry import _rule_registry, rule
+
+    ev = _rule_eval("bare")
+
+    @rule("bare")
+    def _bare(output: str, inputs: dict):
+        return None
+
+    try:
+        row = dispatch_judge("uc1", ev, "out", {"id": "f1"}, 1, _make_config([ev]))
+        assert row.passed is None
+        assert row.error is not None and "no usable verdict" in row.error
+    finally:
+        _rule_registry.pop("bare", None)
+
+
+def test_rule_with_a_proper_verdict_still_passes_through():
+    """The guard must not disturb a conforming rule."""
+    from fieldtest.judges.dispatch import dispatch_judge
+    from fieldtest.judges.registry import _rule_registry, rule
+
+    ev = _rule_eval("ok")
+
+    @rule("ok")
+    def _ok(output: str, inputs: dict) -> dict:
+        return {"passed": False, "detail": "banned phrase found"}
+
+    try:
+        row = dispatch_judge("uc1", ev, "out", {"id": "f1"}, 1, _make_config([ev]))
+        assert row.passed is False
+        assert row.error is None
+        assert row.detail == "banned phrase found"
+    finally:
+        _rule_registry.pop("ok", None)
