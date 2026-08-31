@@ -1605,3 +1605,116 @@ def test_the_drop_path_recovers_from_an_sdk_signature_mismatch():
     assert unsupported == ["temperature"]
     assert "temperature" not in calls[-1]
     assert calls[-1]["max_tokens"] == 8
+
+
+# ---------------------------------------------------------------------------
+# A parameter the client library drops but the API still takes
+#
+# anthropic 1.x removed temperature/top_p/top_k from messages.create(). A fresh
+# `pip install fieldtest` gets that SDK, so every default judge ran unpinned —
+# reported as unsupported, but unpinned, which is the guarantee spec 02 exists
+# to give. Only CI caught it: the repo venv still had anthropic 0.86.
+# ---------------------------------------------------------------------------
+
+def test_a_param_the_sdk_drops_is_relocated_not_reported_unsupported():
+    from fieldtest.providers.base import call_dropping_unsupported
+    from fieldtest.providers.anthropic import RELOCATE_TO_EXTRA_BODY
+
+    seen = []
+
+    def invoke(kwargs):
+        seen.append(dict(kwargs))
+        if "temperature" in kwargs:
+            # Exactly what anthropic 1.2.0 raises: a TypeError from the signature.
+            raise TypeError(
+                "Messages.create() got an unexpected keyword argument 'temperature'"
+            )
+        return "ok"
+
+    unsupported, relocated = [], []
+    result = call_dropping_unsupported(
+        invoke,
+        {"model": "m", "max_tokens": 8, "temperature": 0.0},
+        unsupported,
+        relocate=RELOCATE_TO_EXTRA_BODY,
+        relocated=relocated,
+    )
+
+    assert result == "ok"
+    assert relocated == ["temperature"]
+    assert unsupported == [], "a relocated parameter is still in force, not lost"
+    assert seen[-1]["extra_body"] == {"temperature": 0.0}
+    assert "temperature" not in seen[-1], "it must not be sent both ways"
+
+
+def test_a_param_the_api_also_refuses_is_dropped_after_the_relocate():
+    """Relocating is an attempt, not a guarantee. A real 400 still drops."""
+    from fieldtest.providers.base import call_dropping_unsupported
+    from fieldtest.providers.anthropic import RELOCATE_TO_EXTRA_BODY
+
+    class Rejected(Exception):
+        status_code = 400
+
+    def invoke(kwargs):
+        if "temperature" in kwargs:
+            raise TypeError(
+                "Messages.create() got an unexpected keyword argument 'temperature'"
+            )
+        if "temperature" in kwargs.get("extra_body", {}):
+            raise Rejected("temperature is not supported on this model")
+        return "ok"
+
+    unsupported, relocated = [], []
+    result = call_dropping_unsupported(
+        invoke, {"model": "m", "temperature": 0.0}, unsupported,
+        relocate=RELOCATE_TO_EXTRA_BODY, relocated=relocated,
+    )
+
+    assert result == "ok"
+    assert unsupported == ["temperature"], "the model really did refuse it"
+    assert relocated == [], "a relocate that the API then refused is not a relocate"
+
+
+def test_a_server_side_refusal_is_dropped_without_trying_extra_body():
+    """A 400 says the model refused. Retrying it in extra_body just wastes a call."""
+    from fieldtest.providers.base import call_dropping_unsupported
+    from fieldtest.providers.anthropic import RELOCATE_TO_EXTRA_BODY
+
+    class Rejected(Exception):
+        status_code = 400
+
+    calls = []
+
+    def invoke(kwargs):
+        calls.append(dict(kwargs))
+        if "temperature" in kwargs:
+            raise Rejected("temperature is not supported on this model")
+        return "ok"
+
+    unsupported = []
+    call_dropping_unsupported(
+        invoke, {"model": "m", "temperature": 0.0}, unsupported,
+        relocate=RELOCATE_TO_EXTRA_BODY,
+    )
+    assert unsupported == ["temperature"]
+    assert not any("extra_body" in c for c in calls), \
+        "a server refusal must not be retried through the passthrough"
+
+
+def test_the_installed_anthropic_sdk_decides_which_path_runs():
+    """
+    Documents which case this machine exercises, so a green run on an old SDK is
+    not mistaken for proof that the new one works.
+    """
+    import inspect
+
+    import anthropic
+
+    sig = inspect.signature(anthropic.Anthropic(api_key="x").messages.create)
+    typed = "temperature" in sig.parameters
+    assert "extra_body" in sig.parameters, (
+        f"anthropic {anthropic.__version__} has no extra_body; the relocate path "
+        f"cannot work and temperature would be dropped"
+    )
+    if not typed:
+        assert anthropic.__version__ >= "1", anthropic.__version__

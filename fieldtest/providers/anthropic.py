@@ -20,6 +20,15 @@ from fieldtest.providers.base import (
 )
 
 
+# Sampling parameters anthropic 1.x removed from its typed signature. The API
+# still honours them, so they travel in extra_body rather than being dropped.
+RELOCATE_TO_EXTRA_BODY = {
+    "temperature": "extra_body",
+    "top_p":       "extra_body",
+    "top_k":       "extra_body",
+}
+
+
 class AnthropicAdapter(ProviderAdapter):
     def call(
         self,
@@ -59,6 +68,13 @@ class AnthropicAdapter(ProviderAdapter):
         # already says the right thing to do — drop what the provider does not
         # support, complete the run, and name it once — so this joins seed rather
         # than failing every call.
+        #
+        # Separately, anthropic 1.x dropped `temperature` from messages.create()
+        # altogether while the API kept accepting it. A fresh `pip install
+        # fieldtest` gets that SDK, so every default judge ran unpinned until
+        # RELOCATE_TO_EXTRA_BODY moved the value past the typed signature. The
+        # two cases must not be conflated: the client refusing to send it says
+        # nothing about whether the model would have taken it.
         kwargs = {
             "model": model,
             "max_tokens": gen.max_tokens,
@@ -68,7 +84,8 @@ class AnthropicAdapter(ProviderAdapter):
 
         def _once() -> dict:
             message = call_dropping_unsupported(
-                lambda k: client.messages.create(**k), kwargs, unsupported
+                lambda k: client.messages.create(**k), kwargs, unsupported,
+                relocate=RELOCATE_TO_EXTRA_BODY,
             )
             content = message.content[0].text.strip()
             try:
