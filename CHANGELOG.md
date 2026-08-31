@@ -32,6 +32,13 @@ parameter, and if the provider refuses it, drops it and completes the run:
 
 A judge that dropped `temperature` is not pinned. Treat its run-to-run variation as real.
 
+A client library refusing a parameter is a different thing from a model refusing it, and the two
+are no longer conflated. anthropic 1.x removed `temperature` from `messages.create()` while the
+API went on accepting it, so a fresh install — which is exactly what `pip install fieldtest`
+gets — would have run every default judge unpinned and merely said so. Those parameters now
+travel in `extra_body` and stay in force. If the model itself refuses one, it is still dropped
+and named.
+
 ### The judge sees what your system was answering
 
 LLM judges previously saw the output and nothing else — not the question, not the retrieved
@@ -365,7 +372,7 @@ a literal string.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 569, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 573, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 

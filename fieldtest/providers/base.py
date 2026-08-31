@@ -114,6 +114,22 @@ _REJECTION_MARKERS = (
 )
 
 
+# The one marker that means the *client library* refused, not the API. A client
+# that has dropped a parameter from its typed signature says nothing about
+# whether the endpoint still honours it — anthropic 1.x removed `temperature`
+# while the API kept accepting it — so this case is relocated, not dropped.
+_CLIENT_SIDE_MARKER = "unexpected keyword argument"
+
+
+def rejected_by_the_client_library(e: BaseException, name: str) -> bool:
+    """True when the SDK refused a parameter before any request was sent."""
+    return (
+        isinstance(e, TypeError)
+        and name in str(e)
+        and _CLIENT_SIDE_MARKER in str(e).lower()
+    )
+
+
 def rejects_parameter(e: BaseException, name: str) -> bool:
     """
     Whether a provider refused the request because of one named generation
@@ -132,6 +148,13 @@ def rejects_parameter(e: BaseException, name: str) -> bool:
     return name in text and any(marker in text for marker in _REJECTION_MARKERS)
 
 
+def _present(attempt: dict, name: str, relocate: dict) -> bool:
+    """Whether the request still carries `name`, directly or after a relocate."""
+    if name in attempt:
+        return True
+    container = relocate.get(name)
+    return bool(container) and name in attempt.get(container, {})
+
 def call_dropping_unsupported(
     invoke: Callable[[dict], Any],
     kwargs: dict,
@@ -139,6 +162,8 @@ def call_dropping_unsupported(
     droppable: tuple = DROPPABLE_PARAMS,
     renames: Optional[dict] = None,
     renamed: Optional[list] = None,
+    relocate: Optional[dict] = None,
+    relocated: Optional[list] = None,
 ) -> Any:
     """
     Call invoke(kwargs), dropping any generation parameter the provider rejects
@@ -153,6 +178,13 @@ def call_dropping_unsupported(
     `renamed`, when given, collects (from, to) pairs so a caller can see that a
     rename fired rather than inferring it from the call having succeeded.
 
+    `relocate` handles the case where the client library has dropped a parameter
+    from its typed signature but the API still honours it: the value moves into
+    a passthrough container (`extra_body`) rather than being dropped. Without
+    it, installing fieldtest fresh got anthropic 1.x, whose messages.create()
+    no longer takes `temperature`, and every default judge ran unpinned —
+    reported, but unpinned, which is the guarantee spec 02 exists to give.
+
     `renames` handles the case where a provider still accepts the capability
     under a different key — OpenAI's reasoning models reject `max_tokens` and
     require `max_completion_tokens`. That is a rename, not a loss, so it is not
@@ -160,6 +192,7 @@ def call_dropping_unsupported(
     spec 02 §2.4 requires every adapter to prevent.
     """
     renames = renames or {}
+    relocate = relocate or {}
     # Start from what a previous attempt already learned. call_dropping_unsupported
     # runs inside the function with_retry retries, so without this a transient 429
     # discards every rejection the adapter has seen and pays for them again.
@@ -179,13 +212,36 @@ def call_dropping_unsupported(
                     renamed.append((rename_from, rename_to))
                 continue
 
+            # Client-library rejection: the SDK will not pass it, but the API
+            # may still take it. Move it into the passthrough container and try
+            # again before concluding the provider does not support it.
+            moved = next(
+                (p for p in relocate
+                 if p in attempt and rejected_by_the_client_library(e, p)),
+                None,
+            )
+            if moved is not None:
+                container = relocate[moved]
+                attempt.setdefault(container, {})[moved] = attempt.pop(moved)
+                if relocated is not None and moved not in relocated:
+                    relocated.append(moved)
+                continue
+
             dropped = next(
-                (p for p in droppable if p in attempt and rejects_parameter(e, p)),
+                (p for p in droppable
+                 if _present(attempt, p, relocate) and rejects_parameter(e, p)),
                 None,
             )
             if dropped is None:
                 raise
-            attempt.pop(dropped)
+            # It may be sitting in the passthrough container after a relocate —
+            # the API rejected what the client would not even send.
+            if dropped in attempt:
+                attempt.pop(dropped)
+            else:
+                attempt.get(relocate.get(dropped), {}).pop(dropped, None)
+                if relocated is not None and dropped in relocated:
+                    relocated.remove(dropped)
             if dropped not in unsupported:
                 unsupported.append(dropped)
 
