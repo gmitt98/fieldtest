@@ -129,7 +129,7 @@ def _build_html(run_data: dict, config) -> str:
     )
 
     judge_meta = ""
-    if judge:
+    if judge and judge.get("judged") is not False:
         temp = judge.get("temperature")
         bits = [f"{judge.get('provider', '?')}/{judge.get('model', '?')}"]
         if temp is not None:

@@ -3418,6 +3418,36 @@ def test_diff_says_a_baseline_is_unreadable_rather_than_old(tmp_path, monkeypatc
         f"diff asserted the baseline is old when it is unreadable:\n{result.output}")
 
 
+def test_diff_says_a_baseline_is_gone_rather_than_old(tmp_path, monkeypatch):
+    """
+    The sibling of the test above, and the branch its fix missed. `fieldtest
+    clean --results` deletes old runs, so a stored delta routinely names a
+    baseline that is no longer on disk — and that path produced the identical
+    false claim: "predates judge tracking" about a run whose judge block
+    fieldtest wrote itself, minutes earlier.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    judge = {"provider": "anthropic", "model": "m", "fingerprint": "aaaa1111"}
+    # baseA is named by the delta and deliberately never written.
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full", "judge": judge,
+        "fixture_count": 1, "runs": 1, "summary": {},
+        "delta": {"baseline_run_id": "baseA", "increased": [], "decreased": [],
+                  "unchanged": []},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert "no longer in" in result.output, (
+        f"a deleted baseline vanished silently:\n{result.output}")
+    assert "predates judge tracking" not in result.output, (
+        f"diff asserted the baseline is old when it was deleted:\n{result.output}")
+
+
 def test_diff_refuses_an_unreadable_current_run(tmp_path, monkeypatch):
     """It raised JSONDecodeError as a traceback."""
     evals = _setup_project(tmp_path)
@@ -3564,3 +3594,70 @@ def test_run_ids_are_derived_in_exactly_one_place():
     assert not offenders, (
         "use run_id_from_path() rather than deriving it inline:\n  "
         + "\n  ".join(offenders))
+
+
+def test_diff_resolves_the_run_id_history_prints(tmp_path, monkeypatch):
+    """
+    find_result_by_run_id exists because filename and run id are not always the
+    same string — the bundled demo ships demo-offline-data.json whose run_id is
+    a timestamp. `view` and the auto-baseline branch called it; diff's two
+    explicit-id branches built the path by hand, so `fieldtest diff <id>`
+    rejected the id `fieldtest history` had just printed, in the documented
+    first workflow. diff also named the run by its file stem while history
+    named it by its recorded run_id.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    # Filename and embedded run id deliberately differ, as the demo's do.
+    (results / "demo-offline-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-aaaa", "set": "full",
+        "fixture_count": 1, "runs": 1, "summary": {}, "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["diff", "2026-01-02T00-00-00-aaaa"], catch_exceptions=False)
+    assert result.exit_code == 0, (
+        f"diff rejected the run id history prints:\n{result.output}")
+    assert "2026-01-02T00-00-00-aaaa" in result.output, (
+        f"diff named the run by its file stem, not its run_id:\n{result.output}")
+    assert "Comparing: demo-offline" not in result.output
+
+    # An id that really is absent must still fail cleanly, not silently pass.
+    missing = CliRunner().invoke(main, ["diff", "no-such-run"], catch_exceptions=False)
+    assert missing.exit_code == 1 and "not found" in missing.output.lower()
+
+
+def test_diff_does_not_call_every_eval_new_when_the_baseline_is_unreadable(tmp_path, monkeypatch):
+    """
+    The Phase 4 sentinel is truthy, and only the judge-warning branch was
+    guarded on it. Its sibling — the added/removed-eval report — then ran
+    against an empty base_keys and announced every eval in the run as "only in
+    this run". Pre-Phase-4 the empty dict was falsy and the block was skipped,
+    so the fix introduced the false sentence while closing another.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "baseA-data.json").write_text('{"run_id": "baseA", "sum')
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full",
+        "judge": {"provider": "a", "model": "m", "fingerprint": "aaaa1111"},
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {"evals": {"e1": {"pass_rate": 1.0},
+                                      "e2": {"pass_rate": 1.0}}}},
+        "delta": {"baseline_run_id": "baseA", "increased": [], "decreased": [],
+                  "unchanged": []},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert "could not be read" in result.output
+    assert "only in this run" not in result.output, (
+        f"diff called every eval new against a baseline it could not read:\n"
+        f"{result.output}")

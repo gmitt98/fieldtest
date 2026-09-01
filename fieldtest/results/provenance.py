@@ -27,6 +27,17 @@ def build_judge_block(config: Config) -> dict:
     and serializes as {} rather than being omitted, so consumers can index it
     unconditionally.
     """
+    # report.py already declines to name a judge for a rules-only project,
+    # for the reason stated there: it would describe an instrument that never
+    # ran. This block is that concept's other home, and recording defaults
+    # here anyway made `defaults.model` — inert for such a project — invalidate
+    # the baseline, so editing a field no eval reads destroyed the regression
+    # comparison and blamed a judge the same report declines to name.
+    if not any(ev.is_judged for uc in config.use_cases for ev in uc.evals):
+        judge = {"judged": False, "overrides": {}, "blinded_evals": []}
+        judge["fingerprint"] = judge_fingerprint(judge)
+        return judge
+
     provider = config.defaults.provider
     model    = config.defaults.model
 

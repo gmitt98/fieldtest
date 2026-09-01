@@ -380,8 +380,12 @@ def test_eval_not_marked_when_fully_scored():
 def test_data_json_includes_judge_block(tmp_path):
     from fieldtest.results.writer import write_results
 
-    config = _make_config()
-    rows = [_row(passed=True)]
+    # A judged eval, because that is what a judge block describes. This test
+    # used the default regex eval and asserted a rules-only run still records
+    # provider/model — encoding the defect that
+    # test_a_rules_only_project_records_no_judge now forbids.
+    config = _make_config(evals=[_make_eval_def("ev1", is_scored=True)])
+    rows = [_row(passed=True, ev_type="llm", tag="good")]
     write_results(
         rows=rows, summary=build_summary(rows, config), delta={},
         config=config, run_id="run-1", output_dir=tmp_path, set_name="full",
@@ -440,8 +444,8 @@ def test_judge_fingerprint_changes_when_generation_config_changes():
     """Spec 02 §2.7: temperature and seed join the fingerprint payload."""
     from fieldtest.results.provenance import build_judge_block
 
-    base = _make_config()
-    hot  = _make_config()
+    base = _make_config(evals=[_make_eval_def("ev1", is_scored=True)])
+    hot  = _make_config(evals=[_make_eval_def("ev1", is_scored=True)])
     hot.defaults.judge_temperature = 1.0
 
     assert build_judge_block(base)["fingerprint"] != build_judge_block(hot)["fingerprint"]
@@ -1139,7 +1143,8 @@ def test_collapsed_row_detail_unannotated_when_judges_agree():
 def _config_with_endpoint(base_url: str) -> Config:
     from fieldtest.config import ProviderSettings
 
-    cfg = _make_config()
+    # A judged eval: a judge fingerprint describes an instrument that runs.
+    cfg = _make_config(evals=[_make_eval_def("ev1", is_scored=True)])
     cfg.defaults.provider = "openai_compatible"
     cfg.defaults.model    = "llama-3.3-70b-instruct"
     cfg.providers = {"openai_compatible": ProviderSettings(base_url=base_url)}
@@ -1183,7 +1188,7 @@ def test_fingerprint_unchanged_for_configs_without_endpoints():
 
     from fieldtest.results.provenance import build_judge_block, judge_fingerprint
 
-    judge = build_judge_block(_make_config())
+    judge = build_judge_block(_make_config(evals=[_make_eval_def("ev1", is_scored=True)]))
     assert "endpoints" not in judge
 
     before = {
@@ -2624,3 +2629,48 @@ def test_row_order_never_changes_a_summary(seed):
         rng.shuffle(shuffled)
         assert build_summary(shuffled, config) == baseline, (
             "row arrival order changed the summary")
+
+
+def test_a_rules_only_project_records_no_judge(tmp_path):
+    """
+    build_judge_block wrote provider/model from defaults regardless of whether
+    any eval was judged, so `defaults.model` — inert on a rules-only project —
+    changed the fingerprint and invalidated the baseline. Editing a field no
+    eval reads destroyed the regression comparison and blamed a judge that
+    never ran, in a report that (correctly, at report.py) declines to name one.
+
+    Both directions are asserted: a judged project must still invalidate.
+    """
+    from pathlib import Path
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.provenance import build_judge_block
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest" / "datasets" / "expense-report"
+
+    rules_only = parse_and_validate(root / "config.yaml")
+    assert not any(ev.is_judged for uc in rules_only.use_cases for ev in uc.evals), (
+        "fixture drifted: expense-report/config.yaml is supposed to be rules-only")
+    judged = parse_and_validate(root / "reference-evals.yaml")
+    assert any(ev.is_judged for uc in judged.use_cases for ev in uc.evals), (
+        "fixture drifted: reference-evals.yaml is supposed to carry llm evals")
+
+    block = build_judge_block(rules_only)
+    assert block.get("judged") is False
+    assert "provider" not in block and "model" not in block, (
+        f"a rules-only run named an instrument that never ran: {block}")
+
+    bumped = parse_and_validate(root / "config.yaml")
+    bumped.defaults.model = "some-other-model"
+    assert build_judge_block(bumped)["fingerprint"] == block["fingerprint"], (
+        "an inert defaults.model edit still invalidates a rules-only baseline")
+
+    # The sibling: a judged project must keep invalidating on a judge change.
+    j_block = build_judge_block(judged)
+    assert j_block.get("provider") and j_block.get("model"), j_block
+    j_bumped = parse_and_validate(root / "reference-evals.yaml")
+    j_bumped.defaults.model = "some-other-model"
+    assert build_judge_block(j_bumped)["fingerprint"] != j_block["fingerprint"], (
+        "a judged project stopped noticing that its judge changed")
+    # And adding a judge where there was none is itself a change of instrument.
+    assert j_block["fingerprint"] != block["fingerprint"]

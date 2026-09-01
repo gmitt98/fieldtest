@@ -3356,10 +3356,19 @@ def test_the_readme_data_json_judge_sample_has_no_phantom_keys(tmp_path, monkeyp
     when an endpoint-bearing provider is in play, never as an empty dict."""
     import re
 
-    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
-    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
-    data_file = next((tmp_path / "evals" / "results").glob("*-data.json"))
-    real_judge = json.loads(data_file.read_text())["judge"]
+    from pathlib import Path
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.provenance import build_judge_block
+
+    # The sample documents a run with an LLM judge, so it must be compared
+    # against a judged project. _keyless_scored_project is regex-only, and a
+    # rules-only run deliberately records no provider/model at all — comparing
+    # against it would call every judge key phantom. writer.py embeds
+    # build_judge_block(config) verbatim, so this is what such a run writes.
+    real_judge = build_judge_block(parse_and_validate(
+        Path(__file__).resolve().parent.parent
+        / "fieldtest" / "datasets" / "expense-report" / "reference-evals.yaml"))
 
     doc = _readme()
     m = re.search(r"### `data\.json` summary schema.*?```json\n(\{.*?\})\n```", doc, re.S)

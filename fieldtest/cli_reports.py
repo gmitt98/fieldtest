@@ -217,14 +217,22 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         )
         return
 
-    # Resolve current and baseline
+    # Resolve current and baseline. find_result_by_run_id, not string
+    # concatenation: filename and run id are not always the same string, and
+    # the bundled demo is exactly that case — demo-offline-data.json whose
+    # run_id is a timestamp. `view` resolves it and the auto-baseline branch
+    # below resolves it; these two explicit-id branches were the siblings that
+    # still built a path by hand, so `fieldtest diff <id>` rejected the id
+    # `fieldtest history` had just printed, in the documented first workflow.
     if run_id:
-        current_path = results_dir / f"{run_id}-data.json"
+        current_path = find_result_by_run_id(results_dir, run_id) or (
+            results_dir / f"{run_id}-data.json")
     else:
         current_path = result_files[0]
 
     if baseline_id:
-        baseline_path = results_dir / f"{baseline_id}-data.json"
+        baseline_path = find_result_by_run_id(results_dir, baseline_id) or (
+            results_dir / f"{baseline_id}-data.json")
     else:
         # most recent that isn't current
         others = [f for f in result_files if f != current_path]
@@ -301,9 +309,28 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
                         err=True,
                     )
                     baseline_data = {"__unreadable__": True}
+            else:
+                # The sibling branch, missed when the read-error one was fixed.
+                # `fieldtest clean --results` deletes old runs, so the baseline
+                # named in a stored delta is routinely gone — and an empty dict
+                # here produced the identical false claim the comment above
+                # describes: "predates judge tracking" about a run whose judge
+                # block fieldtest wrote itself, minutes earlier.
+                click.echo(
+                    f"⚠ baseline {base_id} is no longer in {results_dir} — "
+                    f"the deltas below are from the stored summary, and the "
+                    f"comparison cannot be re-checked.",
+                    err=True,
+                )
+                baseline_data = {"__unreadable__": True}
 
-    # .stem leaves the -data suffix, and `fieldtest view <that>` then fails.
-    click.echo(f"Comparing: {run_id_from_path(current_path)}")
+    # The run's recorded identity, as `history` prints it — not the file stem.
+    # run_id_from_path is the filename concept (`clean` builds sibling paths
+    # with it, and must keep doing so); for the bundled demo the two differ,
+    # and diff named the run `demo-offline` while history called it a
+    # timestamp. Same precedence as history: embedded run_id, then the stem.
+    current_id = current_data.get("run_id") or run_id_from_path(current_path)
+    click.echo(f"Comparing: {current_id}")
     # The key is always present and is None when there is no baseline, so a
     # `.get(..., '—')` default is unreachable and the line read "Baseline:
     # None" — the literal string, as though a run were named that.
@@ -390,7 +417,12 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # rename dropped a row out of the diff without a word. Say which ones were
     # left out rather than reporting a comparison over a changed eval set as if
     # it covered everything.
-    if baseline_data:
+    # The sentinel is truthy, so guarding only the judge line above let this
+    # sibling run against an empty base_keys and report every eval in the run
+    # as "only in this run" — a false sentence the Phase 4 fix introduced
+    # while closing a different one. When the baseline could not be loaded,
+    # added/removed evals are unknowable; the warning already said so.
+    if baseline_data and not baseline_data.get("__unreadable__"):
         cur_keys  = _summary_eval_keys(current_data.get("summary", {}))
         base_keys = _summary_eval_keys(baseline_data.get("summary", {}))
         only_current = sorted(cur_keys - base_keys)
@@ -495,7 +527,6 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             # claim this is the only run when the directory says so, since the
             # usual cause is a baseline that was rejected, not one that is
             # missing.
-            current_id = run_id_from_path(current_path)
             if no_baseline_reason:
                 click.echo(
                     f"Nothing to compare — no usable baseline: {no_baseline_reason}."
