@@ -146,7 +146,7 @@ def _build_html(run_data: dict, config) -> str:
         ev.id for uc in config.use_cases for ev in uc.evals
         if ev.is_scored
     }
-    delta_html = _build_delta_html(delta, scored_eval_ids)
+    delta_html = _build_delta_html(delta, scored_eval_ids, judge_runs)
 
     # Build use_case sections HTML
     uc_sections_html = ""
@@ -769,7 +769,8 @@ def _build_judge_tables(uc_summary: dict) -> str:
     return html
 
 
-def _build_delta_html(delta: dict, scored_eval_ids: set | None = None) -> str:
+def _build_delta_html(delta: dict, scored_eval_ids: set | None = None,
+                      judge_runs: int | None = None) -> str:
     scored_eval_ids = scored_eval_ids or set()
     """Build delta comparison section HTML. Returns empty string if no baseline."""
     baseline_id = delta.get("baseline_run_id")
@@ -787,6 +788,22 @@ def _build_delta_html(delta: dict, scored_eval_ids: set | None = None) -> str:
             f"The baseline lost {delta['baseline_error_share'] * 100:.0f}% of its "
             f"judge calls to errors, so its rates are over whatever survived. "
             f"These are not a like-for-like comparison."
+        )
+    # The markdown report has carried this since judge_runs existed and the HTML
+    # never has, so the same run said two different things depending on which
+    # file you opened. judge_runs arrives as an argument from the one call site,
+    # where it is a local read from run_data — the previous attempt put this
+    # inside the function without the parameter and NameErrored every score run.
+    # A baseline with no baseline_judge_runs predates the key and is not
+    # evidence of a change, so it says nothing.
+    base_runs = delta.get("baseline_judge_runs")
+    if (delta.get("baseline_run_id") and base_runs is not None
+            and judge_runs is not None and base_runs != judge_runs):
+        caveats.append(
+            f"The baseline judged each output {base_runs}× and this run "
+            f"{judge_runs}× — collapsing resolves ties to fail, so failure "
+            f"rates move with the repetition count on their own, and the judge "
+            f"spread figures are not comparable."
         )
     if delta.get("baseline_judge_change"):
         caveats.append(

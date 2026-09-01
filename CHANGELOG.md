@@ -135,7 +135,9 @@ Judge spread near zero means the eval is well specified. Judge spread close to s
 means the criteria are ambiguous.
 
 `failure_rate` still comes from one verdict per output — majority across repetitions, ties resolved
-to fail — so rates stay comparable across `judge_runs` settings.
+to fail. That keeps the denominator in outputs at any `judge_runs`, but it does **not** make rates
+comparable across settings: because ties resolve to fail, even settings are stricter than odd ones.
+Change `judge_runs` in its own run. The report says so when a baseline used a different number.
 
 ### Human labels — score the judge, not the system
 
@@ -484,16 +486,15 @@ tracking" about a run whose judge it had recorded minutes earlier and that
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 846, in three tiers (`unit`, `integration`, opt-in `live`),
-- Known, deferred to 0.3.1: `fieldtest clean` does not prune `-calibration.json`
-  / `-calibration.md`, because a calibration run has no `-data.json` and is never
-  a prune candidate; delete them by hand. The HTML report omits the `judge_runs`
-  caveat the markdown report carries. An eval that keeps its id and changes
-  between `llm` and `rule` is compared across two instruments with no flag — a
-  guard for this was written and reverted, because computing it from
-  `judge_calls` marked every eval of every pre-0.3 baseline as changed.
+- Test suite: 130 → 853, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
+- Known, deferred to 0.3.1: `fieldtest clean` does not prune `-calibration.json`
+  / `-calibration.md`, because a calibration run has no `-data.json` and is never
+  a prune candidate; delete them by hand. And an eval that keeps its id while
+  changing between `llm` and `rule` is compared across two instruments with no
+  flag — a guard for this was written and reverted, because computing it from
+  `judge_calls` marked every eval of every pre-0.3 baseline as changed.
 
 **Breaking:** results move. Pinning temperature removes sampling noise; showing the judge your
 fixture inputs changes what it can see. Both are corrections, and both mean your first run on
