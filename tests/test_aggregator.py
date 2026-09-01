@@ -1836,3 +1836,107 @@ def test_a_provider_error_still_gets_provider_advice():
                       error="Connection reset by peer")]
     report = format_report(rows, build_summary(rows, config), {}, config, "r", "full")
     assert "check your API key" in report or "concurrency 1" in report, report
+
+
+# ---------------------------------------------------------------------------
+# Agreement tripwires
+#
+# Every defect I introduced in this project has one shape: a concept with
+# several homes, changed in one of them. `view` resolved its config default
+# differently from six sibling commands; a warning went on one branch of a
+# conditional and not the other; the HTML delta table computed direction
+# independently of the markdown and got the sign backwards; `judge_calls`
+# counted rows that make no provider call, while `calibrate` had already fixed
+# exactly that.
+#
+# The right long-term fix is fewer homes per concept. Collapsing seven of them
+# across nine files immediately before a release is its own risk, so these pin
+# the agreement where it stands: they fail the moment two homes diverge, which
+# is the event, rather than asserting a value I might have wrong in both places.
+# ---------------------------------------------------------------------------
+
+def test_judge_calls_counts_only_evals_that_call_a_judge():
+    """
+    A regex, rule or reference eval makes no provider call. Counting them
+    inflated the denominator — a total outage printed "27 of 48" while
+    `validate` had just projected 27 — and disarmed the exit gate.
+    """
+    config = _make_config([
+        Eval(id="llm_one", tag="right", type="llm", description="d",
+             pass_criteria="a", fail_criteria="b"),
+        Eval(id="by_regex", tag="good", type="regex", description="d",
+             pattern="x", match=True),
+        Eval(id="by_rule", tag="safe", type="rule", description="d"),
+    ])
+    rows = [
+        ResultRow(use_case="uc1", eval_id="llm_one", tag="right", type="llm",
+                  fixture_id="f1", run=1, error="provider down"),
+        ResultRow(use_case="uc1", eval_id="by_regex", tag="good", type="regex",
+                  fixture_id="f1", run=1, passed=True, detail=""),
+        ResultRow(use_case="uc1", eval_id="by_rule", tag="safe", type="rule",
+                  fixture_id="f1", run=1, passed=True, detail=""),
+    ]
+    summary = build_summary(rows, config)
+    assert summary["uc1"]["right"]["llm_one"]["judge_calls"] == 1
+    for eid, tag in (("by_regex", "good"), ("by_rule", "safe")):
+        assert summary["uc1"][tag][eid]["judge_calls"] == 0, (
+            f"{eid} is not judged by a provider; it must not count judge calls")
+
+    from fieldtest.results.aggregator import summarize_judge_errors
+    errs = summarize_judge_errors(summary)
+    assert errs["failed"] == 1 and errs["total"] == 1, (
+        f"the banner denominator counts non-judge rows: {errs}")
+
+
+def test_history_and_the_report_agree_on_a_tag_rate(tmp_path):
+    """
+    Two artifacts of one run printed different numbers under identical RIGHT /
+    GOOD / SAFE headings — 12% in history against 95% in the report. The value
+    each computes is pinned here against the other, not against a constant.
+    """
+    import json
+    import re
+
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+    from fieldtest.results.report import format_report
+
+    config = _make_config([_make_eval_def("ev1")])
+    rows = [
+        ResultRow(use_case="uc1", eval_id="ev1", tag="right", type="regex",
+                  fixture_id="fix1", run=i, passed=(i != 3), detail="")
+        for i in (1, 2, 3, 4)
+    ]
+    summary = build_summary(rows, config)
+
+    report = format_report(rows, summary, {}, config, "run-x", "full")
+    from_report = re.search(r"\| RIGHT \| (\d+)% \|", report)
+    assert from_report, report
+
+    results = tmp_path / "evals" / "results"
+    results.mkdir(parents=True)
+    (tmp_path / "evals" / "config.yaml").write_text(
+        (Path(__file__).parent / "evals" / "config.yaml").read_text()
+        if (Path(__file__).parent / "evals" / "config.yaml").exists()
+        else "schema_version: 1\nsystem:\n  name: s\n  domain: d\nuse_cases:\n"
+             "  - id: uc1\n    description: d\n    evals:\n"
+             "      - id: ev1\n        tag: right\n        type: regex\n"
+             "        description: d\n        pattern: x\n        match: true\n"
+             "    fixtures:\n      directory: fixtures/\n      sets:\n        full: []\n")
+    (results / "2026-01-01T00-00-00-aaaa-data.json").write_text(json.dumps({
+        "run_id": "2026-01-01T00-00-00-aaaa", "set": "full",
+        "fixture_count": 1, "runs": 4, "summary": summary,
+    }))
+
+    out = CliRunner().invoke(
+        main, ["history", "--config", str(tmp_path / "evals" / "config.yaml")],
+        catch_exceptions=False)
+    row = [l for l in out.output.splitlines() if "2026-01-01T00-00-00" in l]
+    assert row, out.output
+    from_history = re.findall(r"(\d+)%", row[0])
+    assert from_history, row[0]
+
+    assert from_history[0] == from_report.group(1), (
+        f"history says RIGHT {from_history[0]}%, the report says "
+        f"{from_report.group(1)}% for the same run")
