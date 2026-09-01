@@ -586,7 +586,8 @@ def _intervals_overlap(current_ci, baseline_ci) -> bool:
     return current_ci[0] <= baseline_ci[1] and baseline_ci[0] <= current_ci[1]
 
 
-def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
+def build_delta(current: dict, baseline_path: Optional[Path],
+                config_id: Optional[str] = None) -> dict:
     """
     Compare current summary to baseline.
 
@@ -615,6 +616,8 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged_keys":      [],
         "baseline_pre_judge":  False,
         "baseline_pre_config": False,
+        "baseline_config": None,
+        "baseline_config_differs": False,
         "baseline_judge_runs": None,
         "baseline_error_share": 0.0,
         "baseline_fixture_count": None,
@@ -647,6 +650,15 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # from an entirely different config was adopted and its deltas printed
     # without a word.
     baseline_pre_config = baseline_data.get("config") is None
+    # Both recorded a config and they differ. find_baseline never selects such
+    # a pair, but an explicit --baseline does — and `score --baseline` said
+    # nothing while `diff` on the identical pair warned, because diff computed
+    # the comparison itself instead of reading it from here. One home, both
+    # surfaces.
+    baseline_config_differs = bool(
+        config_id and baseline_data.get("config")
+        and baseline_data.get("config") != config_id
+    )
     # Collapsed failure_rate values are roughly comparable across repetition
     # counts — but not exactly, and not monotonically. collapse_verdicts
     # resolves ties to fail (spec 06 §2.7), so the collapsed rate depends on the
@@ -737,6 +749,17 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                     # in a failure rate were the same line. Consumers that
                     # predate this key fall back to reading the summary.
                     "metric":   "mean" if is_scored else "failure_rate",
+                    # Whether a model or Python decided this eval's verdicts,
+                    # per run. The judge fingerprint catches an instrument
+                    # change for the whole run; an eval that keeps its id and
+                    # changes type between `llm` and `rule`/`regex` changes
+                    # instrument for that eval alone, and the run-level rule
+                    # cannot see it — so a verdict moving from a model to a
+                    # Python function was reported as the system improving.
+                    "instrument_changed": (
+                        bool(prev_stats.get("judge_calls"))
+                        != bool(stats.get("judge_calls"))
+                    ),
                     "previous": round(prev_val, 6),
                     "current":  round(cur_val, 6),
                     "delta":    round(delta, 6),
@@ -763,6 +786,8 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged_keys":    unchanged_keys,
         "baseline_pre_judge": baseline_pre_judge,
         "baseline_pre_config": baseline_pre_config,
+        "baseline_config": baseline_data.get("config"),
+        "baseline_config_differs": baseline_config_differs,
         "baseline_judge_runs": baseline_judge_runs,
         "baseline_error_share": round(baseline_error_share, 4),
         "baseline_fixture_count": baseline_fixture_count,

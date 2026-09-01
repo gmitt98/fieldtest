@@ -22,7 +22,12 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
-from fieldtest.results.writer import RESULT_SUFFIXES, REPORT_HTML
+from fieldtest.results.writer import (
+    DATA_JSON,
+    REPORT_HTML,
+    REPORT_MD,
+    RESULT_SUFFIXES,
+)
 from fieldtest.results.aggregator import (
     run_id_from_path,
     find_result_by_run_id,
@@ -322,7 +327,7 @@ def view_cmd(run_id: Optional[str], config_path: Optional[str]):
                 err=True,
             )
             sys.exit(1)
-        html_files = sorted(results_dir.glob("*-report.html"), key=lambda p: p.stat().st_mtime)
+        html_files = sorted(results_dir.glob(f"*{REPORT_HTML}"), key=lambda p: p.stat().st_mtime)
         if not html_files:
             click.echo(
                 f"No HTML reports found at {results_dir}.\n"
@@ -406,7 +411,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
                 shutil.copy2(f, dest_results / f.name)
 
         # Generate HTML from the bundled JSON (so fieldtest view works offline too)
-        json_files = list(dest_results.glob("*-data.json"))
+        json_files = list(dest_results.glob(f"*{DATA_JSON}"))
         if json_files:
             try:
                 from fieldtest.config import parse_and_validate
@@ -419,7 +424,7 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
                 pass  # HTML generation is best-effort; don't fail offline mode
 
         # Print pre-rendered markdown report if available
-        md_files = list(dest_results.glob("*-report.md"))
+        md_files = list(dest_results.glob(f"*{REPORT_MD}"))
         if md_files:
             click.echo(md_files[0].read_text(encoding="utf-8"))
         else:

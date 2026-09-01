@@ -1156,3 +1156,30 @@ def test_nothing_asks_whether_an_eval_is_llm_by_comparing_its_type():
     assert not offenders, (
         "use .is_judged — the domain predicate — rather than comparing the "
         "type literal:\n  " + "\n  ".join(offenders))
+
+
+def test_config_identity_uses_the_name_the_filesystem_spells(tmp_path):
+    """
+    resolve() follows symlinks but does not canonicalise case, and macOS is
+    case-insensitive — so `--config evals/Config.yaml` opened the very same
+    file, recorded a second identity, severed the baseline chain and printed a
+    rejection sentence that was false. Same class as the symlink case fixed
+    beside it.
+    """
+    from fieldtest.config import config_identity, parse_and_validate
+
+    root = Path(__file__).resolve().parent.parent
+    src = (root / "fieldtest" / "datasets" / "expense-report" / "config.yaml").read_text()
+    real = tmp_path / "config.yaml"
+    real.write_text(src)
+
+    canonical = config_identity(parse_and_validate(real))
+    assert canonical == "config.yaml"
+
+    miscased = tmp_path / "Config.yaml"
+    if not miscased.exists():
+        # A case-sensitive filesystem: the miscased path is a different file
+        # and would not open at all, so there is nothing to canonicalise.
+        pytest.skip("filesystem is case-sensitive")
+    assert config_identity(parse_and_validate(miscased)) == canonical, (
+        "the same file reached by a differently-cased path became a second config")

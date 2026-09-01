@@ -3,6 +3,7 @@
   "run_id": "2026-08-27T10-39-32-6c0f",
   "set": "full",
   "dataset_version": null,
+  "config": "config.yaml",
   "judge": {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",

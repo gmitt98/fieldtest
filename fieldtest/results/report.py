@@ -288,6 +288,26 @@ def format_report(
             f"like-for-like comparison"
         )
 
+    swapped = sorted(
+        f"{e['use_case']}/{e['eval_id']}"
+        for k in ("increased", "decreased", "unchanged")
+        for e in (delta.get(k) or [])
+        if isinstance(e, dict) and e.get("instrument_changed")
+    )
+    if swapped:
+        lines.append(
+            "⚠ instrument changed for " + ", ".join(swapped) + " — a model "
+            "decided these in one run and Python in the other, so the movement "
+            "shown is not the system changing."
+        )
+
+    if delta.get("baseline_run_id") and delta.get("baseline_config_differs"):
+        lines.append(
+            f"⚠ baseline was scored from {delta.get('baseline_config')}, not "
+            f"this config — a different config measures different evals, so "
+            f"these deltas compare two different questions."
+        )
+
     if delta.get("baseline_run_id") and delta.get("baseline_pre_config"):
         lines.append(
             "⚠ baseline does not record which config produced it — it may have "

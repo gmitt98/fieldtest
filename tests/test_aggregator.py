@@ -2955,3 +2955,113 @@ def test_find_baseline_survives_a_result_file_that_is_not_an_object(tmp_path):
     assert path is None
 
     assert build_delta({}, bad)["baseline_run_id"] is None
+
+
+def test_an_explicit_cross_config_baseline_is_flagged_in_the_delta(tmp_path):
+    """
+    The Config-mismatch warning went into `diff` only, and computed there from
+    the two files. `score --baseline` is the other explicit-baseline entry
+    point, skips find_baseline entirely, and said nothing on any surface about
+    the pairing `diff` warned about. The fact is now computed once, in
+    build_delta, so both entry points and both report formats carry it.
+    """
+    from fieldtest.results.aggregator import build_delta
+
+    summary = {"uc1": {"right": {"e1": {"failure_rate": 0.0, "total_runs": 4}}}}
+    baseline = tmp_path / "old-data.json"
+
+    def write(cfg):
+        body = {"run_id": "old", "set": "full",
+                "summary": {"uc1": {"right": {"e1": {"failure_rate": 1.0,
+                                                     "total_runs": 4}}}}}
+        if cfg is not None:
+            body["config"] = cfg
+        baseline.write_text(json.dumps(body))
+
+    write("reference-evals.yaml")
+    d = build_delta(summary, baseline, config_id="config.yaml")
+    assert d["baseline_config_differs"] is True
+    assert d["baseline_config"] == "reference-evals.yaml"
+
+    # Same config: no flag.
+    write("config.yaml")
+    assert build_delta(summary, baseline,
+                       config_id="config.yaml")["baseline_config_differs"] is False
+
+    # Unrecorded config: the pre_config caveat, not a mismatch claim.
+    write(None)
+    d3 = build_delta(summary, baseline, config_id="config.yaml")
+    assert d3["baseline_config_differs"] is False
+    assert d3["baseline_pre_config"] is True
+
+
+def test_diff_and_score_agree_about_a_one_sided_judge(tmp_path):
+    """
+    `score` accepts a baseline that consulted no judge — the walkthrough step
+    that adds your first llm eval — while `diff` called the identical pair a
+    "Judge mismatch" whose deltas "may reflect the instrument changing". Two
+    surfaces, opposite answers, about the same two runs. describe_judge_change
+    now returns None for a one-sided judge, matching the rule find_baseline
+    applies, and diff says the accurate thing instead.
+    """
+    from fieldtest.results.provenance import describe_judge_change
+
+    judged   = {"provider": "anthropic", "model": "haiku", "fingerprint": "aaaa1111"}
+    unjudged = {"judged": False, "fingerprint": "cccc3333"}
+
+    assert describe_judge_change(judged, unjudged) is None, (
+        "adding the first llm eval was reported as a judge mismatch")
+    assert describe_judge_change(unjudged, judged) is None
+
+    # A real judge change is still described.
+    other = {"provider": "anthropic", "model": "sonnet", "fingerprint": "bbbb2222"}
+    change = describe_judge_change(other, judged)
+    assert change and "haiku" in change and "sonnet" in change
+
+
+def test_an_eval_that_changed_instrument_is_flagged_not_reported_as_movement(tmp_path):
+    """
+    The judge fingerprint catches an instrument change for the whole run. An
+    eval that keeps its id and changes between `llm` and `rule` changes
+    instrument for that eval alone, which the run-level rule cannot see — so a
+    verdict moving from a model to a Python function was reported as a 0.6 ->
+    0.1 improvement in the system. judge_calls crossing zero is the signal, and
+    it is already recorded per eval.
+    """
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "set": "full", "config": "config.yaml",
+        "summary": {"uc1": {"good": {
+            "swap":   {"failure_rate": 0.6, "total_runs": 10, "judge_calls": 10},
+            "stable": {"failure_rate": 0.5, "total_runs": 10, "judge_calls": 0},
+        }}},
+    }))
+    delta = build_delta({"uc1": {"good": {
+        "swap":   {"failure_rate": 0.1, "total_runs": 10, "judge_calls": 0},
+        "stable": {"failure_rate": 0.2, "total_runs": 10, "judge_calls": 0},
+    }}}, baseline, config_id="config.yaml")
+
+    flags = {
+        e["eval_id"]: e["instrument_changed"]
+        for k in ("increased", "decreased", "unchanged")
+        for e in (delta.get(k) or []) if isinstance(e, dict)
+    }
+    assert flags["swap"] is True, (
+        "a verdict that moved from a model to Python read as system movement")
+    assert flags["stable"] is False, (
+        "an eval judged the same way in both runs was flagged as changed")
+
+
+def test_the_report_names_an_eval_whose_instrument_changed():
+    """The flag is only useful if a surface prints it."""
+    import inspect
+
+    import fieldtest.results.html as html_mod
+    import fieldtest.results.report as report_mod
+
+    assert "instrument changed for" in inspect.getsource(report_mod), (
+        "the markdown report does not name an eval whose instrument changed")
+    assert "in one run and Python" in inspect.getsource(html_mod), (
+        "the HTML report does not name an eval whose instrument changed")

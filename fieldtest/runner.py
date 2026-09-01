@@ -238,7 +238,7 @@ def score(
             config_id=config_identity(config),
         )
 
-    delta = build_delta(summary, baseline_path)
+    delta = build_delta(summary, baseline_path, config_id=config_identity(config))
     if baseline_path is None and no_baseline_reason:
         # Every `vs prior` reads `—` whether this is a first run or the judge
         # changed. Only one of those is something the user did.
