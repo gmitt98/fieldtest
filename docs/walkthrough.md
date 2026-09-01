@@ -323,10 +323,12 @@ different config measures different evals.
 
 Editing your own `config.yaml` keeps its history — including filling in the
 TODOs above, which adds your first LLM eval. The new eval reports as new and
-everything beside it still compares. The one edit that does break the chain is
-changing the judge itself, in `defaults.provider` or `defaults.model`: rescoring
-the same outputs with a different judge is not a measurement of your system, so
-fieldtest says so and shows `—` rather than a delta it cannot stand behind.
+everything beside it still compares. The edit that does interrupt it is changing
+the judge itself, in `defaults.provider` or `defaults.model`: rescoring the same
+outputs with a different judge is not a measurement of your system, so fieldtest
+skips the runs judged differently. If an earlier comparable run remains it uses
+that one; if none does, `vs prior` reads `—` and the report says why, rather
+than showing a delta it cannot stand behind.
 
 A `calibration.panel` is commented out at the bottom of that file. Uncomment it
 and you can run two judges over the same outputs and see where they disagree:
