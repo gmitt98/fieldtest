@@ -159,7 +159,30 @@ def describe_judge_change(current: Optional[dict], baseline: Optional[dict]) -> 
         changed = sorted(set(cur_ov) | set(base_ov))
         changes.append(f"per-eval overrides changed ({', '.join(changed)})")
 
+    # blinded_evals is in the fingerprint payload, so flipping judge_sees_inputs
+    # on one eval rejects the baseline — and with no branch here the user was
+    # told only "judge configuration changed", naming nothing. Six of the seven
+    # hashed fields could be named; this was the seventh.
+    cur_bl, base_bl = current.get("blinded_evals", []), baseline.get("blinded_evals", [])
+    if cur_bl != base_bl:
+        gained = sorted(set(cur_bl) - set(base_bl))
+        lost   = sorted(set(base_bl) - set(cur_bl))
+        parts = []
+        if gained:
+            parts.append(f"{', '.join(gained)} no longer see the inputs")
+        if lost:
+            parts.append(f"{', '.join(lost)} now see the inputs")
+        changes.append("judge input visibility changed: " + "; ".join(parts))
+
     if not changes:
-        changes.append("judge configuration changed")
+        # Something in the hashed payload differs that this version cannot name
+        # — a field a newer fieldtest wrote, most likely. "judge configuration
+        # changed" told the reader nothing they could act on; the hashes at
+        # least identify the two runs. Placed here rather than in the caller so
+        # score, diff and the HTML report all say the same thing.
+        changes.append(
+            f"fingerprint {baseline.get('fingerprint')} → "
+            f"{current.get('fingerprint')}"
+        )
 
     return ", ".join(changes)
