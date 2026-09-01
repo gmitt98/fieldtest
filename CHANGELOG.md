@@ -330,7 +330,7 @@ a literal string.
 
 ### What the release audits caught
 
-Three adversarial audit rounds ran against 0.3.0 before shipping. The fixes
+Nine adversarial audit rounds ran against 0.3.0 before shipping. The fixes
 below are part of this release; each one is something that could have cost you
 data, money, or a wrong conclusion.
 
@@ -406,10 +406,44 @@ the same headings the report uses, instead of a failure rate that read "RIGHT
 claiming failure rates are comparable across `judge_runs` settings — ties
 resolve to fail, so they are not.
 
+**`fieldtest diff` takes the run id `fieldtest history` prints.** In the bundled
+demo — the first thing the docs tell you to run — `diff <id>` answered "Run not
+found" for the id `history` had just printed, while `view <id>` opened it fine.
+`score --baseline <id>` was worse: it silently produced no comparison at all and
+exited 0, so passing the documented flag gave you less than passing nothing.
+Both resolve run ids now, and `--baseline` fails loudly when it cannot.
+
+**`history` no longer shows a failed run as a healthy one.** A run in which every
+judge call errored was listed as a clean 100%, indistinguishable from a good run
+and reading as an improvement on its baseline. A rate that had to exclude an
+errored eval is now marked `!`, a tag whose every eval errored reads `err`, and
+a legend explains both.
+
+**Your history survives editing your own config, and will not come from someone
+else's.** Scoring the bundled answer key into your own `results/` made it the
+automatic baseline for your next run — a different set of evals, compared
+silently. Separately, on a project with no LLM evals, editing `defaults.model` —
+a field nothing in such a project reads — discarded your baseline and blamed a
+judge that had never run. Runs now record which config produced them, and a
+judge counts as changed only when both runs consulted one.
+
+**A broken `rules.py` fails the run.** A project whose every rule raised exited
+0, so a CI job went green on a run that measured nothing at all. It now exits 1
+and points at your Python rather than at a provider. Partial failure still exits
+0 and reports the errors, as before.
+
+**Messages say only what is true.** With no API key the extraction demo printed
+real pass rates for its deterministic evals and then announced that nothing had
+been scored. A rule that raised was counted into "judge errors: N of M calls
+failed", whose denominator counts provider calls — so a project with no judge
+could read "2 of 0 calls failed". And `diff` told you a baseline "predates judge
+tracking" about a run whose judge it had recorded minutes earlier and that
+`fieldtest clean` had just deleted.
+
 ## Changes from v0.2.2
 
 - Config `schema_version: 2`. Version 1 configs load unchanged for one minor release
-- `-data.json` adds `schema_version`, `judge`, `judge_runs`; summaries add `failure_rate_ci`,
+- `-data.json` adds `schema_version`, `judge`, `judge_runs`, `config`; summaries add `failure_rate_ci`,
   `confidence_level`, `judge_calls`, `outputs_attempted`; rows add `judge_run`
 - New: `fieldtest calibrate [SET] [--dry-run]`
 - New: `fieldtest dataset list` / `fieldtest dataset use <name>`
