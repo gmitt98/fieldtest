@@ -443,12 +443,29 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
     # Run fieldtest score from the demo directory
     click.echo(f"Running fieldtest score in {dest}/evals/ ...")
     try:
+        # sys.executable -m, not the console script off PATH. Resolving
+        # "fieldtest" by name fails for a working install invoked as
+        # `python -m fieldtest.cli`, or from a venv whose bin/ is not on PATH —
+        # and it failed here AFTER copytree, so the half-created directory then
+        # defeated the `--offline` retry this command suggests.
         result = subprocess.run(
-            ["fieldtest", "score", "--config", str(evals_dir / "config.yaml")],
+            [sys.executable, "-m", "fieldtest.cli", "score",
+             "--config", str(evals_dir / "config.yaml")],
             check=False,
         )
         if result.returncode != 0:
-            click.echo("fieldtest score failed — check output above.", err=True)
+            # The copy succeeded and the scoring did not, so dest stays — but
+            # the obvious retry then hits the dest-exists guard. Say what to do
+            # from here rather than leaving the user to discover that.
+            click.echo(
+                f"fieldtest score failed — see the output above.\n"
+                f"  {dest}/ is already set up, so retry in place with:\n"
+                f"    cd {dest} && fieldtest score\n"
+                f"  or, for the pre-scored results with no key:\n"
+                f"    rm -rf {dest} && fieldtest demo --example {example} "
+                f"--offline --dir {dest}",
+                err=True,
+            )
             sys.exit(1)
     except Exception as e:
         _handle_error(e)
