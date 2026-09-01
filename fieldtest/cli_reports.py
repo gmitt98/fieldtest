@@ -84,6 +84,23 @@ def history(config_path: Optional[str]):
             f"No results found at {results_dir}.\n"
             f"  Run 'fieldtest score' to generate results."
         )
+        # This function's rule is that anything present but unlisted gets
+        # counted and named — "listing the rest without a word reads as 'that
+        # is all there is'". The notices for calibration and legacy files sit
+        # after this return, so a directory holding only those was reported as
+        # empty while holding seven files.
+        if calibrations:
+            click.echo(
+                f"\n  {len(calibrations)} calibration run(s) are here but not "
+                f"listed — they measure the judge, not the system. Read the "
+                f"-calibration.md beside each."
+            )
+        if legacy:
+            click.echo(
+                f"\n  {len(legacy)} older result file(s) are here but not "
+                f"listed — they predate the current naming and carry no summary "
+                f"fieldtest can read."
+            )
         return
 
     # Header
@@ -452,9 +469,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             f"⚠ {'This run consults a judge and the baseline did not' if added else 'The baseline consulted a judge and this run does not'} "
             f"— an eval only one of them judges has no counterpart and is "
             f"reported as added or removed. An eval that kept its id and "
-            f"changed between llm and rule is flagged in the report as an "
-            f"instrument change, because its movement is not the system "
-            f"changing."
+            f"changed between llm and rule is still compared, and that "
+            f"comparison spans two different instruments."
         )
         click.echo("")
 

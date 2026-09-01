@@ -3019,49 +3019,40 @@ def test_diff_and_score_agree_about_a_one_sided_judge(tmp_path):
     assert change and "haiku" in change and "sonnet" in change
 
 
-def test_an_eval_that_changed_instrument_is_flagged_not_reported_as_movement(tmp_path):
+def test_a_pre_0_3_baseline_is_not_called_an_instrument_change(tmp_path):
     """
-    The judge fingerprint catches an instrument change for the whole run. An
-    eval that keeps its id and changes between `llm` and `rule` changes
-    instrument for that eval alone, which the run-level rule cannot see — so a
-    verdict moving from a model to a Python function was reported as a 0.6 ->
-    0.1 improvement in the system. judge_calls crossing zero is the signal, and
-    it is already recorded per eval.
+    The reverted feature, kept as a tripwire so it cannot come back the same way.
+
+    An eval that keeps its id and changes between `llm` and `rule` really does
+    change instrument, and its delta really is misleading. A flag computed from
+    `judge_calls` crossing zero looked like the fix — but a baseline written by
+    fieldtest <= 0.2.x records no judge_calls at all, so `bool(None) != bool(10)`
+    flagged every eval of every upgrading user as "a model decided this in one
+    run and Python in the other". The guard was wrong for every real user in
+    order to be right for an exotic one, and it was reverted rather than
+    patched: see CHANGELOG for the 0.3.1 note.
+
+    What this asserts is the invariant any future attempt must satisfy — a
+    baseline that simply predates a field is not evidence of anything.
     """
     from fieldtest.results.aggregator import build_delta
 
     baseline = tmp_path / "b-data.json"
     baseline.write_text(json.dumps({
-        "run_id": "b", "set": "full", "config": "config.yaml",
-        "summary": {"uc1": {"good": {
-            "swap":   {"failure_rate": 0.6, "total_runs": 10, "judge_calls": 10},
-            "stable": {"failure_rate": 0.5, "total_runs": 10, "judge_calls": 0},
-        }}},
+        "run_id": "b", "set": "full",
+        # no judge_calls key at all, as every pre-0.3 run was written
+        "summary": {"uc1": {"good": {"quality": {"failure_rate": 0.5,
+                                                 "total_runs": 10}}}},
     }))
-    delta = build_delta({"uc1": {"good": {
-        "swap":   {"failure_rate": 0.1, "total_runs": 10, "judge_calls": 0},
-        "stable": {"failure_rate": 0.2, "total_runs": 10, "judge_calls": 0},
-    }}}, baseline, config_id="config.yaml")
+    delta = build_delta(
+        {"uc1": {"good": {"quality": {"failure_rate": 0.4, "total_runs": 10,
+                                      "judge_calls": 10}}}},
+        baseline)
 
-    flags = {
-        e["eval_id"]: e["instrument_changed"]
-        for k in ("increased", "decreased", "unchanged")
-        for e in (delta.get(k) or []) if isinstance(e, dict)
-    }
-    assert flags["swap"] is True, (
-        "a verdict that moved from a model to Python read as system movement")
-    assert flags["stable"] is False, (
-        "an eval judged the same way in both runs was flagged as changed")
-
-
-def test_the_report_names_an_eval_whose_instrument_changed():
-    """The flag is only useful if a surface prints it."""
-    import inspect
-
-    import fieldtest.results.html as html_mod
-    import fieldtest.results.report as report_mod
-
-    assert "instrument changed for" in inspect.getsource(report_mod), (
-        "the markdown report does not name an eval whose instrument changed")
-    assert "in one run and Python" in inspect.getsource(html_mod), (
-        "the HTML report does not name an eval whose instrument changed")
+    entries = [e for k in ("increased", "decreased", "unchanged")
+               for e in (delta.get(k) or []) if isinstance(e, dict)]
+    assert entries, "the delta compared nothing"
+    for e in entries:
+        assert not e.get("instrument_changed"), (
+            f"a baseline that predates judge_calls was read as an instrument "
+            f"change: {e}")

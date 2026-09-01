@@ -450,7 +450,14 @@ resolve to fail, so they are not.
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 845, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 846, in three tiers (`unit`, `integration`, opt-in `live`),
+- Known, deferred to 0.3.1: `fieldtest clean` does not prune `-calibration.json`
+  / `-calibration.md`, because a calibration run has no `-data.json` and is never
+  a prune candidate; delete them by hand. The HTML report omits the `judge_runs`
+  caveat the markdown report carries. An eval that keeps its id and changes
+  between `llm` and `rule` is compared across two instruments with no flag — a
+  guard for this was written and reverted, because computing it from
+  `judge_calls` marked every eval of every pre-0.3 baseline as changed.
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 
