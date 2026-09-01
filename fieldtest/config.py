@@ -134,6 +134,26 @@ class UseCase(BaseModel):
     evals:       list[Eval]
     fixtures:    FixturesConfig
 
+    @model_validator(mode="after")
+    def eval_ids_unique_within_the_use_case(self) -> "UseCase":
+        # Everything downstream keys on (use_case, eval_id): eval_meta, the
+        # delta index, the summary grouping. Two evals sharing an id inside one
+        # use case silently merged — the later definition's type won, and rows
+        # from both landed under one key. Fixture ids are already checked for
+        # global uniqueness; this is the same invariant one level down, and the
+        # code has always assumed it.
+        seen: set = set()
+        for ev in self.evals:
+            if ev.id in seen:
+                raise ValueError(
+                    f"use_case '{self.id}' declares eval '{ev.id}' twice. "
+                    f"Eval ids must be unique within a use case — results are "
+                    f"keyed by (use case, eval id), so a duplicate merges the "
+                    f"two evals' rows into one."
+                )
+            seen.add(ev.id)
+        return self
+
 
 class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

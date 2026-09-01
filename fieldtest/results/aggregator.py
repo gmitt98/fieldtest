@@ -446,16 +446,27 @@ def build_summary(
                         collapsed = {
                             key: collapse_verdicts(reps) for key, reps in by_output.items()
                         }
+                        # Only outputs the judge actually answered more than
+                        # once can disagree. Counting an output whose other
+                        # repetitions were lost to provider errors as "agreed"
+                        # made a flaky provider hide an unreliable judge: one
+                        # genuine disagreement out of one comparable output
+                        # reported 0.5 rather than 1.0.
+                        comparable = [
+                            reps for reps in by_output.values()
+                            if len([r for r in reps if r.passed is not None]) > 1
+                        ]
                         disagreeing = sum(
-                            1 for reps in by_output.values()
-                            if len({r.passed for r in reps}) > 1
+                            1 for reps in comparable
+                            if len({r.passed for r in reps if r.passed is not None}) > 1
                         )
                         total_runs   = len(collapsed)
                         failed_count = sum(1 for v in collapsed.values() if v is False)
                         judge_fields = {
                             **judge_fields,
                             "judge_disagreement_rate": (
-                                round(disagreeing / len(by_output), 6) if by_output else None
+                                round(disagreeing / len(comparable), 6)
+                                if comparable else None
                             ),
                             "judge_runs": judge_runs,
                         }

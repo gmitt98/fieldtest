@@ -1940,3 +1940,80 @@ def test_history_and_the_report_agree_on_a_tag_rate(tmp_path):
     assert from_history[0] == from_report.group(1), (
         f"history says RIGHT {from_history[0]}%, the report says "
         f"{from_report.group(1)}% for the same run")
+
+
+def test_two_evals_cannot_share_an_id_within_a_use_case():
+    """
+    eval_meta, the delta index and the summary grouping all key on
+    (use_case, eval_id). Nothing enforced that it was a key, so a duplicate
+    merged the two evals' rows and the later definition's type won.
+    """
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError) as exc:
+        Config.model_validate({
+            "schema_version": 1, "system": {"name": "s", "domain": "d"},
+            "use_cases": [{"id": "uc1", "description": "d", "evals": [
+                {"id": "dup", "tag": "right", "type": "regex", "description": "a",
+                 "pattern": "a", "match": True},
+                {"id": "dup", "tag": "safe", "type": "regex", "description": "b",
+                 "pattern": "b", "match": False},
+            ], "fixtures": {"directory": "fixtures/", "sets": {"full": ["f"]}}}],
+        })
+    assert "declares eval 'dup' twice" in str(exc.value)
+
+
+def test_the_same_eval_id_in_two_use_cases_is_still_allowed():
+    """The sibling case, which is legitimate and must not be caught."""
+    Config.model_validate({
+        "schema_version": 1, "system": {"name": "s", "domain": "d"},
+        "use_cases": [
+            {"id": u, "description": "d",
+             "evals": [{"id": "shared", "tag": "right", "type": "regex",
+                        "description": "d", "pattern": "x", "match": True}],
+             "fixtures": {"directory": "fixtures/", "sets": {"full": [f"f-{u}"]}}}
+            for u in ("uc1", "uc2")
+        ],
+    })
+
+
+def test_disagreement_ignores_outputs_the_judge_answered_only_once():
+    """
+    An output whose other repetitions were lost to provider errors cannot
+    disagree with itself. Counting it as agreement let a flaky provider hide an
+    unreliable judge: one real disagreement out of one comparable output
+    reported 0.5.
+    """
+    config = _make_config([
+        Eval(id="ev", tag="right", type="llm", description="d",
+             pass_criteria="a", fail_criteria="b")], judge_runs=3)
+
+    rows = [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                      fixture_id="f1", run=1, judge_run=i + 1, passed=v, detail="")
+            for i, v in enumerate([True, True, False])]
+    rows.append(ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                          fixture_id="f2", run=1, judge_run=1, passed=True, detail=""))
+    rows += [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                       fixture_id="f2", run=1, judge_run=i, error="provider down")
+             for i in (2, 3)]
+
+    stats = build_summary(rows, config)["uc1"]["right"]["ev"]
+    assert stats["judge_disagreement_rate"] == 1.0, (
+        f"one comparable output, and it disagreed: got "
+        f"{stats['judge_disagreement_rate']}")
+
+
+def test_disagreement_is_none_when_no_output_was_judged_twice():
+    """Nothing to compare is not the same as perfect agreement."""
+    config = _make_config([
+        Eval(id="ev", tag="right", type="llm", description="d",
+             pass_criteria="a", fail_criteria="b")], judge_runs=3)
+    rows = [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                      fixture_id="f1", run=1, judge_run=1, passed=True, detail="")]
+    rows += [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                       fixture_id="f1", run=1, judge_run=i, error="down")
+             for i in (2, 3)]
+    stats = build_summary(rows, config)["uc1"]["right"]["ev"]
+    assert stats["judge_disagreement_rate"] is None, (
+        f"no output was judged twice; a rate of "
+        f"{stats['judge_disagreement_rate']} claims agreement never measured")
