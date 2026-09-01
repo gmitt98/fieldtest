@@ -486,7 +486,7 @@ tracking" about a run whose judge it had recorded minutes earlier and that
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 853, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 858, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 - Known, deferred to 0.3.1: `fieldtest clean` does not prune `-calibration.json`
@@ -498,8 +498,14 @@ tracking" about a run whose judge it had recorded minutes earlier and that
 
 **Breaking:** results move. Pinning temperature removes sampling noise; showing the judge your
 fixture inputs changes what it can see. Both are corrections, and both mean your first run on
-0.3.0 is not comparable to your last on 0.2.2. `find_baseline()` will not compare across judge
-fingerprints, so the first post-upgrade run simply finds no baseline.
+0.3.0 is not comparable to your last on 0.2.2.
+
+fieldtest does not stop you, and an earlier note here said it did. A 0.2.2 run records no judge
+at all, so it is still accepted as a baseline — the report carries "baseline predates judge
+tracking" and the deltas are computed. Read that caveat as meaning what it says: the run on the
+other side of it was judged differently, so treat the first post-upgrade delta as unreliable
+rather than as a measurement. `find_baseline()` declines a baseline only when both runs recorded
+a judge and the two differ.
 
 A key fieldtest does not recognise is now an error naming the key, rather than a value
 silently dropped. That is the second half of the `confidence` → `confidence_level` rename:
