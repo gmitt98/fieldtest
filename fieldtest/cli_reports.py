@@ -69,6 +69,7 @@ def history(config_path: Optional[str]):
     # format, moments ago — and calling them files that "predate the current
     # naming" sent people looking for a migration that does not exist.
     calibrations = sorted(results_dir.glob("*-calibration.json"))
+    unreadable: list = []
     legacy = [
         f for f in results_dir.glob("*.json")
         if not f.name.endswith("-data.json")
@@ -92,6 +93,11 @@ def history(config_path: Optional[str]):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
+            # history's own rule is that anything present but unlisted gets
+            # counted and named — "listing the rest without a word reads as
+            # 'that is all there is'". A truncated -data.json from an
+            # interrupted score was the one case it stayed silent about.
+            unreadable.append(p.name)
             continue
 
         run_id        = data.get("run_id", p.stem)
@@ -161,6 +167,13 @@ def history(config_path: Optional[str]):
             f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
         )
 
+    if unreadable:
+        click.echo(
+            f"\n  ⚠ {len(unreadable)} result file(s) could not be read and are "
+            f"not listed: {', '.join(sorted(unreadable))}. A run interrupted "
+            f"mid-write leaves one; delete it or re-score."
+        )
+
     if legacy:
         click.echo(
             f"\n  {len(legacy)} older result file(s) in this directory are not "
@@ -220,7 +233,18 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo(f"Run not found: {current_path}", err=True)
         sys.exit(1)
 
-    current_data = json.loads(current_path.read_text(encoding="utf-8"))
+    # Unguarded, this raised JSONDecodeError as a traceback. A result file
+    # truncated by an interrupted score is an ordinary condition, not a bug.
+    try:
+        current_data = json.loads(current_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        click.echo(
+            f"Cannot read {current_path.name}: {str(e).splitlines()[0]}\n"
+            f"  The file is unreadable — a run interrupted mid-write leaves one. "
+            f"Delete it, or pass a different run id.",
+            err=True,
+        )
+        sys.exit(1)
 
     # An explicit --baseline has to actually recompute. The stored delta was
     # frozen at score time against whatever find_baseline() auto-detected then,
@@ -244,7 +268,15 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             sys.exit(1)
         from fieldtest.results.aggregator import build_delta
 
-        baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+        try:
+            baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            click.echo(
+                f"Cannot read baseline {baseline_path.name}: "
+                f"{str(e).splitlines()[0]}",
+                err=True,
+            )
+            sys.exit(1)
         delta = build_delta(current_data.get("summary", {}), baseline_path)
     else:
         delta = current_data.get("delta", {})
@@ -254,8 +286,20 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             if auto_path is not None:
                 try:
                     baseline_data = json.loads(auto_path.read_text(encoding="utf-8"))
-                except Exception:
-                    baseline_data = {}
+                except Exception as e:
+                    # An empty dict here drove every downstream branch to a
+                    # false statement: diff asserted the baseline "predates
+                    # judge tracking" about a run that records its judge, and
+                    # silently suppressed the dataset-version and added/removed
+                    # eval checks. The file was simply unreadable.
+                    click.echo(
+                        f"⚠ baseline {base_id} could not be read "
+                        f"({str(e).splitlines()[0]}) — comparing against it is "
+                        f"not possible; the deltas below are from the stored "
+                        f"summary only.",
+                        err=True,
+                    )
+                    baseline_data = {"__unreadable__": True}
 
     # .stem leaves the -data suffix, and `fieldtest view <that>` then fails.
     click.echo(f"Comparing: {current_path.stem.removesuffix('-data')}")
@@ -309,7 +353,11 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
                 f"Deltas may reflect the instrument changing, not model behavior."
             )
             click.echo("")
-    elif cur_judge and base_run_id and base_judge is None:
+    elif (cur_judge and base_run_id and base_judge is None
+          and not baseline_data.get("__unreadable__")):
+        # Guarded on readability: an unreadable baseline also has no judge
+        # block, and this line then asserted something false about a run that
+        # records its judge perfectly well.
         click.echo(
             "⚠ Baseline predates judge tracking — the judge that produced it is unknown."
         )

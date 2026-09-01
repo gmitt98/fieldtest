@@ -76,8 +76,12 @@ def project_calls(config: Config, base_dir: Path, set_name: str) -> dict:
             continue
         try:
             fixtures = len(resolve_set(set_name, uc, base_dir))
-        except Exception:
-            fixtures = 0
+        except ConfigError:
+            # `fixtures = 0` made --dry-run print "Projected: 0 judge call(s)"
+            # and exit 0 for a set the real run rejects. The dry run is the cost
+            # check made before paying for a panel; reporting a cheap zero for a
+            # misspelled set is the one answer it must not give.
+            raise
         per_judge += fixtures * resolve_runs(config, uc) * resolve_judge_runs(config, uc) * llm_evals
 
     return {

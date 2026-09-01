@@ -83,6 +83,30 @@ place, highest first:
 | scored-ness of an eval | 4 | 4 |
 
 Each of the last three has an agreement tripwire; the first four do not yet.
+
+### Sequence, ordered by value against risk
+
+Re-examined per site rather than by grep count, which overstated two of them.
+
+1. **scored-ness → a property on `Eval`** (4 sites, 4 files). `not ev.binary`
+   spelled out at each. Mechanical, no behaviour change, safest first move.
+2. **llm-ness → a property on `Eval`** (14 sites, 10 files). `ev.type == "llm"`
+   is a domain predicate — "is this judged by a model" — written as a type
+   comparison. The exit-gate blocker and the `judge_calls` blocker were both
+   this predicate, got wrong in one place.
+3. **results directory → one helper** (11 sites, 4 files). `base_dir / "results"`
+   repeated. No defect has come from it yet; it is one layout change away.
+4. **run id from a filename** (10 sites, 6 files). Needs care: several `.stem`
+   uses are unrelated to run ids. Audit each before touching any.
+5. **config default resolution — do not collapse.** The count of 10 is
+   misleading: seven are the identical idiom delegating to one function, two are
+   comments, one is the definition. The `view` crash was a site that did not use
+   the idiom, and a tripwire now makes that impossible. Collapsing further would
+   add indirection for no reduction in ways to be wrong.
+
+Sequenced one at a time with the suite green between each. Not parallelised:
+two agents refactoring adjacent concepts is how two implementations of the same
+fixture lookup arrived in one merge.
 Collapsing them is a refactor, and doing it immediately before a release —
 with the defect rate this document exists to describe — would be the same
 mistake in a new form. It is the first work after 0.3.0 ships.

@@ -16,6 +16,7 @@ import sys
 
 import click
 
+from fieldtest.config import resolve_set
 from fieldtest.errors import ConfigError
 from fieldtest.fixtures import find_fixture_path
 from fieldtest.cli_common import (
@@ -124,6 +125,7 @@ def validate(config_path: Optional[str]):
     total_evals   = sum(len(uc.evals) for uc in config.use_cases)
     tag_counts    = {"right": 0, "good": 0, "safe": 0}
     listed_fixtures: set = set()
+    rules_errors_seen: set = set()
     warnings      = []
 
     for uc in config.use_cases:
@@ -143,13 +145,23 @@ def validate(config_path: Optional[str]):
             if ev.type == "rule":
                 from fieldtest.judges.registry import get_rule
                 rules_path = base_dir / "rules.py"
+                rules_error = None
                 if rules_path.exists():
                     from fieldtest.judges.registry import load_rules
                     try:
                         load_rules(rules_path)
-                    except Exception:
-                        pass
-                if get_rule(ev.id) is None:
+                    except Exception as e:
+                        # Swallowing this made validate report a false cause: it
+                        # said the rule was not registered when the decorators
+                        # were there and the file had failed to import, sending
+                        # the user to add something already present. score fails
+                        # on the same tree with the true message.
+                        rules_error = str(e).splitlines()[0]
+                if rules_error is not None:
+                    if rules_error not in rules_errors_seen:
+                        rules_errors_seen.add(rules_error)
+                        warnings.append(f"  ⚠ {rules_path} did not import: {rules_error}")
+                elif get_rule(ev.id) is None:
                     warnings.append(
                         f"  ⚠ use_case '{uc.id}', eval '{ev.id}': "
                         f"type:rule but no @rule('{ev.id}') registered in evals/rules.py"
@@ -172,6 +184,20 @@ def validate(config_path: Optional[str]):
                             f"  ⚠ fixture '{fid}' referenced in '{uc.id}': "
                             f"{str(e).splitlines()[0]}"
                         )
+
+    # Every declared set must resolve. This used to live inside the cost
+    # projection, which is skipped for a use case with no llm evals — so a
+    # malformed set value in a rules-only project passed validate and then
+    # failed the moment `score --set <that>` ran.
+    for uc in config.use_cases:
+        for set_name in uc.fixtures.sets:
+            try:
+                resolve_set(set_name, uc, base_dir)
+            except ConfigError as e:
+                warnings.append(
+                    f"  ⚠ set '{set_name}' in '{uc.id}' cannot be resolved — "
+                    f"`--set {set_name}` will fail: {str(e).splitlines()[-1]}"
+                )
 
     # A set declared in one use case and not another cannot be scored at all:
     # resolve_set raises for the use case that lacks it. The config looks fine
@@ -231,6 +257,8 @@ def validate(config_path: Optional[str]):
             try:
                 uc_fixtures = len(_resolve_set(set_name, uc, base_dir))
             except Exception:
+                # Cost only. Whether the set resolves at all is checked for
+                # every use case above, not just those with llm evals.
                 continue
             projected[set_name] = (
                 projected.get(set_name, 0) + uc_fixtures * runs * judge_runs * llm_evals

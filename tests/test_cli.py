@@ -3325,3 +3325,192 @@ def test_init_rejects_an_unknown_template_before_scaffolding_anything(tmp_path):
     assert result.exit_code == 2, result.output
     assert "is not one of" in result.output
     assert not target.exists(), "a rejected template left the destination scaffolded"
+
+
+# ---------------------------------------------------------------------------
+# Errors that were swallowed, then reported as something untrue (Phase 4)
+#
+# The coverage census classified 255 unreached regions. Six were REACHABLE and
+# misbehaved, and all six are one class: a bare `except Exception` that discards
+# the real error and lets the code state something false in its place.
+# ---------------------------------------------------------------------------
+
+def test_validate_reports_a_rules_import_failure_not_a_missing_decorator(tmp_path, monkeypatch):
+    """
+    It said "no @rule('x') registered" when the decorators were there and the
+    file had failed to import — sending the user to add what already existed.
+    """
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["dataset", "use", "expense-report"], catch_exceptions=False)
+    rules = tmp_path / "evals" / "rules.py"
+    rules.write_text("import nonexistent_helper_module\n" + rules.read_text())
+
+    result = CliRunner().invoke(main, ["validate"], catch_exceptions=False)
+    assert "did not import" in result.output, result.output
+    assert "nonexistent_helper_module" in result.output
+    assert "no @rule(" not in result.output, (
+        f"validate still blames a missing decorator:\n{result.output}")
+
+
+def test_validate_warns_about_a_set_score_will_refuse(tmp_path, monkeypatch):
+    """
+    A malformed set value was dropped from both the projection and the
+    warnings, so validate exited 0 and `score --set <that>` then failed. The
+    check lived inside the cost projection, which is skipped entirely for a
+    use case with no llm evals — so a rules-only project never reached it.
+    """
+    import re
+
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["dataset", "use", "expense-report"], catch_exceptions=False)
+    cfg = tmp_path / "evals" / "config.yaml"
+    cfg.write_text(re.sub(r"(\n\s+)smoke:", r"\1bogus: golden\1smoke:", cfg.read_text(), count=1))
+
+    result = CliRunner().invoke(main, ["validate"], catch_exceptions=False)
+    assert "bogus" in result.output, (
+        f"validate blessed a set score refuses:\n{result.output}")
+    assert "will fail" in result.output
+
+
+def test_history_names_a_result_file_it_could_not_read(tmp_path, monkeypatch):
+    """
+    history's own rule: anything present but unlisted must be counted and
+    named. A truncated -data.json was the one case it stayed silent about.
+    """
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-00-good-data.json").write_text(
+        '{"run_id": "2026-01-01T00-00-00-good", "set": "full", '
+        '"fixture_count": 1, "runs": 1, "summary": {}}')
+    (results / "2026-01-02T00-00-00-bad-data.json").write_text("not json {{{")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert "could not be read" in result.output, (
+        f"an unreadable run vanished silently:\n{result.output}")
+    assert "2026-01-02T00-00-00-bad-data.json" in result.output
+
+
+def test_diff_says_a_baseline_is_unreadable_rather_than_old(tmp_path, monkeypatch):
+    """
+    Swallowing the parse error left baseline_data empty, and diff then asserted
+    the baseline "predates judge tracking" about a run that records its judge.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    judge = {"provider": "anthropic", "model": "m", "fingerprint": "aaaa1111"}
+    (results / "baseA-data.json").write_text('{"run_id": "baseA", "sum')
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full", "judge": judge,
+        "fixture_count": 1, "runs": 1, "summary": {},
+        "delta": {"baseline_run_id": "baseA", "increased": [], "decreased": [],
+                  "unchanged": []},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert "could not be read" in result.output, result.output
+    assert "predates judge tracking" not in result.output, (
+        f"diff asserted the baseline is old when it is unreadable:\n{result.output}")
+
+
+def test_diff_refuses_an_unreadable_current_run(tmp_path, monkeypatch):
+    """It raised JSONDecodeError as a traceback."""
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-00-aaaa-data.json").write_text('{"run_id": "x", "sum')
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert "Traceback" not in result.output, result.output
+    assert "Cannot read" in result.output
+    assert result.exit_code == 1
+
+
+def test_demo_runs_score_through_this_interpreter_not_the_path(tmp_path):
+    """
+    subprocess.run(["fieldtest", ...]) resolved the console script from PATH, so
+    a working install invoked as `python -m fieldtest.cli`, or a venv whose bin
+    is not on PATH, produced a traceback and a bug link — after copytree, so the
+    suggested --offline retry then hit the dest-exists guard.
+    """
+    # demo_cmd is a click Command, not a function, so read the module source.
+    from fieldtest import cli_project
+
+    src = Path(cli_project.__file__).read_text()
+    assert '["fieldtest", "score"' not in src, (
+        "demo resolves the console script from PATH")
+    assert "sys.executable" in src, "demo should run score through this interpreter"
+
+
+def test_no_command_discards_an_error_and_carries_on_silently():
+    """
+    All six Phase-4 defects were one shape: a bare `except Exception` whose body
+    neither re-raises nor tells the user, letting the code state something false
+    in its place. This lists the survivors so a new one has to be argued for.
+
+    The allowlist is the point: each entry is a place where silence is the right
+    behaviour, and adding to it is a decision someone has to make deliberately.
+    """
+    import ast
+
+    ALLOWED = {
+        # display fallbacks — a malformed run id must not stop the listing
+        ("cli_reports.py", "ts_display"),
+        ("results/html.py", "timestamp"),
+        # repr of an object whose own repr raised, inside an error message
+        ("judges/dispatch.py", "unreprable"),
+        # retry loop: the exception is carried in `last` and re-raised after
+        ("providers/base.py", "last"),
+        # a baseline that cannot be read is not a baseline; build_delta returns
+        # the empty delta and the report says there is none
+        ("results/aggregator.py", "return empty"),
+        # scanning for a baseline: an unreadable candidate is skipped, and
+        # `history` is the command that reports unreadable files
+        ("results/aggregator.py", "continue"),
+        # labels are optional; a fixture that will not parse is reported by
+        # validate and score, not by the calibration label collector
+        ("results/calibration_analysis.py", "continue"),
+        ("cli_project.py", "pass"),
+        # cost projection only; whether a set resolves is checked for every use
+        # case separately, and that check does report
+        ("cli.py", "continue"),
+    }
+
+    root = Path(fieldtest.__file__).resolve().parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in str(path) or "/demo/" in str(path) or "/datasets/" in str(path):
+            continue
+        rel = str(path.relative_to(root))
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            broad = node.type is None or getattr(node.type, "id", "") == "Exception"
+            if not broad:
+                continue
+            body = " ".join(ast.unparse(b) for b in node.body)
+            # A handler that references the exception is doing something with
+            # it — re-raising, printing it, storing it to report later, or
+            # returning it as an error row. Discarding is the case where the
+            # exception is never mentioned again.
+            names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+            uses_exception = bool(node.name) and node.name in names
+            # `append(` counts: recording the file for the command to report
+            # later surfaces the fact even when the exception object is dropped.
+            surfaces = uses_exception or any(k in body for k in (
+                "raise", "click.echo", "sys.exit", "_handle_error", "append("))
+            if surfaces:
+                continue
+            if any(rel == f and marker in body for f, marker in ALLOWED):
+                continue
+            offenders.append(f"{rel}:{node.lineno}  {body[:60]}")
+
+    assert not offenders, (
+        "these discard an error and continue without telling anyone — the shape "
+        "of every Phase-4 defect:\n  " + "\n  ".join(offenders))

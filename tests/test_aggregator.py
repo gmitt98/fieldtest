@@ -2440,3 +2440,36 @@ def test_duplicate_eval_ids_are_refused_rather_than_rendered_around():
             assert leftover not in text, (
                 f"{name} still handles duplicate eval ids ({leftover}); the "
                 f"config layer refuses them, so that code cannot run")
+
+
+def test_a_pre_judge_runs_summary_still_reports_its_judge_errors():
+    """
+    Result files written before judge repetitions existed carry neither
+    judge_calls nor outputs_attempted. The fallback that handles them was
+    unreached by any test — the coverage census called it dead, and it is not:
+    an old -data.json on disk reaches it, and `fieldtest diff` reads those.
+    """
+    from fieldtest.results.aggregator import summarize_judge_errors
+
+    old_style = {"uc1": {"right": {"ev1": {
+        "failure_rate": 0.25, "total_runs": 3, "error_count": 1,
+        # judge_calls and outputs_attempted absent, as in a v1 summary
+    }}}}
+    errs = summarize_judge_errors(old_style)
+    assert errs is not None
+    assert errs["failed"] == 1
+    assert errs["total"] == 4, (
+        f"scored + errors is the call count for a v1 summary; got {errs['total']}")
+    assert errs["affected"] == [("ev1", 3, 4)]
+
+
+def test_a_current_summary_is_not_routed_through_the_v1_fallback():
+    """The sibling: judge_calls present and zero must stay zero."""
+    from fieldtest.results.aggregator import summarize_judge_errors
+
+    current = {"uc1": {"good": {"by_regex": {
+        "failure_rate": 0.0, "total_runs": 3, "error_count": 0,
+        "judge_calls": 0, "outputs_attempted": 3,
+    }}}}
+    assert summarize_judge_errors(current) is None, (
+        "a deterministic eval makes no judge calls and has no judge errors")
