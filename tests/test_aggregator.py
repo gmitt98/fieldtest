@@ -2473,3 +2473,154 @@ def test_a_current_summary_is_not_routed_through_the_v1_fallback():
     }}}}
     assert summarize_judge_errors(current) is None, (
         "a deterministic eval makes no judge calls and has no judge errors")
+
+
+# ---------------------------------------------------------------------------
+# Property tests over generated inputs (Phase 6)
+#
+# 65% of this suite tests one function against a case I thought of, and the
+# defects that escaped five audit rounds were the cases I did not. These
+# generate row sets and assert invariants that must hold for all of them.
+#
+# Seeded `random`, not Hypothesis: the value is in not choosing the input, and
+# that needs no dependency. Seeds are fixed so a failure is reproducible.
+# ---------------------------------------------------------------------------
+
+def _random_rows(rng, *, n_evals=3, n_fixtures=4, runs=3, judge_runs=1,
+                 error_rate=0.0, scored=False):
+    """A plausible run: some evals, some fixtures, some repetitions."""
+    from fieldtest.config import Config
+
+    evals = []
+    for i in range(n_evals):
+        if scored:
+            evals.append({"id": f"ev{i}", "tag": "good", "type": "llm",
+                          "description": "d", "binary": False, "scale": [1, 5],
+                          "anchors": {1: "a", 5: "b"}})
+        else:
+            evals.append({"id": f"ev{i}", "tag": "right", "type": "llm",
+                          "description": "d", "pass_criteria": "a",
+                          "fail_criteria": "b"})
+    config = Config.model_validate({
+        "schema_version": 1, "system": {"name": "s", "domain": "d"},
+        "use_cases": [{"id": "uc1", "description": "d", "evals": evals,
+                       "fixtures": {"directory": "fixtures/", "runs": runs,
+                                    "judge_runs": judge_runs,
+                                    "sets": {"full": [f"f{j}" for j in range(n_fixtures)]}}}],
+    })
+    rows = []
+    for ev in evals:
+        for j in range(n_fixtures):
+            for r in range(1, runs + 1):
+                for jr in range(1, judge_runs + 1):
+                    if rng.random() < error_rate:
+                        rows.append(ResultRow(
+                            use_case="uc1", eval_id=ev["id"], tag=ev["tag"],
+                            type="llm", fixture_id=f"f{j}", run=r, judge_run=jr,
+                            error="provider blew up"))
+                    elif scored:
+                        rows.append(ResultRow(
+                            use_case="uc1", eval_id=ev["id"], tag=ev["tag"],
+                            type="llm", fixture_id=f"f{j}", run=r, judge_run=jr,
+                            score=rng.choice([1, 2, 3, 4, 5]), detail=""))
+                    else:
+                        rows.append(ResultRow(
+                            use_case="uc1", eval_id=ev["id"], tag=ev["tag"],
+                            type="llm", fixture_id=f"f{j}", run=r, judge_run=jr,
+                            passed=rng.random() < 0.7, detail=""))
+    return config, rows
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_a_rate_is_always_a_rate(seed):
+    """failure_rate in [0,1], its interval brackets it, and n never exceeds outputs."""
+    import random
+
+    rng = random.Random(seed)
+    config, rows = _random_rows(
+        rng, n_evals=rng.randint(1, 4), n_fixtures=rng.randint(1, 5),
+        runs=rng.randint(1, 4), judge_runs=rng.choice([1, 2, 3]),
+        error_rate=rng.choice([0.0, 0.2, 0.5]))
+    summary = build_summary(rows, config)
+
+    for uc_stats in summary.values():
+        for tag_stats in uc_stats.values():
+            for eval_id, st in tag_stats.items():
+                fr = st.get("failure_rate")
+                if fr is None:
+                    continue
+                assert 0.0 <= fr <= 1.0, f"{eval_id}: failure_rate {fr}"
+                ci = st.get("failure_rate_ci")
+                if ci:
+                    lo, hi = ci
+                    assert 0.0 <= lo <= hi <= 1.0, f"{eval_id}: interval {ci}"
+                    assert lo <= fr <= hi, (
+                        f"{eval_id}: rate {fr} outside its own interval {ci}")
+                outputs = len({(r.fixture_id, r.run) for r in rows
+                               if r.eval_id == eval_id})
+                assert st["total_runs"] <= outputs, (
+                    f"{eval_id}: n={st['total_runs']} exceeds {outputs} outputs")
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_judge_calls_never_exceed_what_was_dispatched(seed):
+    """The denominator cannot be larger than the rows that produced it."""
+    import random
+
+    rng = random.Random(100 + seed)
+    config, rows = _random_rows(
+        rng, n_evals=rng.randint(1, 3), n_fixtures=rng.randint(1, 4),
+        runs=rng.randint(1, 3), judge_runs=rng.choice([1, 2, 3]),
+        error_rate=rng.choice([0.0, 0.3]))
+    summary = build_summary(rows, config)
+
+    for uc_stats in summary.values():
+        for tag_stats in uc_stats.values():
+            for eval_id, st in tag_stats.items():
+                dispatched = sum(1 for r in rows if r.eval_id == eval_id)
+                assert st["judge_calls"] <= dispatched, (
+                    f"{eval_id}: {st['judge_calls']} calls from {dispatched} rows")
+                assert st["error_count"] <= st["judge_calls"]
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_a_scored_eval_mean_lies_inside_its_own_scale(seed):
+    import random
+
+    rng = random.Random(200 + seed)
+    config, rows = _random_rows(
+        rng, n_evals=rng.randint(1, 3), n_fixtures=rng.randint(1, 4),
+        runs=rng.randint(1, 3), judge_runs=rng.choice([1, 2, 3]),
+        error_rate=rng.choice([0.0, 0.25]), scored=True)
+    summary = build_summary(rows, config)
+
+    for uc_stats in summary.values():
+        for tag_stats in uc_stats.values():
+            for eval_id, st in tag_stats.items():
+                mean = st.get("mean")
+                if mean is None:
+                    continue
+                assert 1 <= mean <= 5, f"{eval_id}: mean {mean} outside 1-5"
+                assert st["min"] <= mean <= st["max"]
+                assert st["floor_hits"] <= st["total_runs"], (
+                    f"{eval_id}: {st['floor_hits']} floor hits over "
+                    f"{st['total_runs']} outputs")
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_row_order_never_changes_a_summary(seed):
+    """Rows arrive from as_completed(); order must not reach the numbers."""
+    import random
+
+    rng = random.Random(300 + seed)
+    config, rows = _random_rows(
+        rng, n_evals=rng.randint(1, 3), n_fixtures=rng.randint(1, 4),
+        runs=rng.randint(1, 3), judge_runs=rng.choice([1, 2, 3]),
+        error_rate=rng.choice([0.0, 0.3]))
+
+    baseline = build_summary(rows, config)
+    for _ in range(3):
+        shuffled = rows[:]
+        rng.shuffle(shuffled)
+        assert build_summary(shuffled, config) == baseline, (
+            "row arrival order changed the summary")
