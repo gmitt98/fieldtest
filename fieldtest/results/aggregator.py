@@ -614,6 +614,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged":           [],
         "unchanged_keys":      [],
         "baseline_pre_judge":  False,
+        "baseline_pre_config": False,
         "baseline_judge_runs": None,
         "baseline_error_share": 0.0,
         "baseline_fixture_count": None,
@@ -625,6 +626,12 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
 
     try:
         baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+        # Parsing is not the only way a file can be wrong: `[]` parses and then
+        # AttributeErrors on the first .get, outside this try. history and diff
+        # were given this guard a round ago; these two readers are the siblings
+        # that were not.
+        if not isinstance(baseline_data, dict):
+            raise ValueError("not a fieldtest result object")
     except Exception:
         return empty
 
@@ -633,6 +640,13 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # Accepted as a baseline, but the comparison carries a caveat: we cannot
     # tell whether the instrument was the same one.
     baseline_pre_judge = baseline_data.get("judge") is None
+    # find_baseline accepts a candidate with no `config` key, because blanking
+    # every historical delta on upgrade is worse than a caveated comparison —
+    # the same call already made for the judge. The judge version of that call
+    # ships a caveat on three surfaces; this one shipped none, so a v0.3.0 run
+    # from an entirely different config was adopted and its deltas printed
+    # without a word.
+    baseline_pre_config = baseline_data.get("config") is None
     # Collapsed failure_rate values are roughly comparable across repetition
     # counts — but not exactly, and not monotonically. collapse_verdicts
     # resolves ties to fail (spec 06 §2.7), so the collapsed rate depends on the
@@ -748,6 +762,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         # carries the use case the report needs to attribute a row correctly.
         "unchanged_keys":    unchanged_keys,
         "baseline_pre_judge": baseline_pre_judge,
+        "baseline_pre_config": baseline_pre_config,
         "baseline_judge_runs": baseline_judge_runs,
         "baseline_error_share": round(baseline_error_share, 4),
         "baseline_fixture_count": baseline_fixture_count,
@@ -765,6 +780,20 @@ def run_id_from_path(path: Path) -> str:
     then rejected. That is the same defect already fixed once in `diff`.
     """
     return path.stem.removesuffix("-data")
+
+def result_data_path(results_dir: Path, run_id: str) -> Path:
+    """
+    Where a run's -data.json would be if its filename matched its run id.
+
+    The inverse of run_id_from_path, and only a fallback: filename and run id
+    are not always the same string, so resolution goes through
+    find_result_by_run_id. This exists so the "not found" message can name a
+    path without four callers spelling the suffix out themselves.
+    """
+    from fieldtest.results.writer import RESULT_SUFFIXES
+
+    return results_dir / f"{run_id}{RESULT_SUFFIXES[0]}"
+
 
 def result_files_newest_first(results_dir: Path) -> list[Path]:
     """
@@ -812,11 +841,13 @@ def find_baseline(
     set_name: str,
     dataset_version: Optional[str] = None,
     judge_fingerprint: Optional[str] = None,
+    config_id: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Find the most recent results JSON in results_dir that:
       - is not the current run
       - was scored on the same set (smoke/full/regression/etc.)
+      - was produced by the same config, if both runs record one
       - matches dataset_version if one is provided
 
     Filtering by set prevents misleading deltas when fixture populations differ
@@ -828,6 +859,12 @@ def find_baseline(
     runs match any baseline (backwards compatible). Versioned current runs
     only match baselines tagged with the same version.
 
+    Filtering by config_id keeps a run that measured a different set of evals
+    out of the chain: a results directory is shared by every config beside it,
+    and the walkthrough has the reader score an answer key into their own.
+    Candidates written before this carry no `config` and are accepted as
+    unknown, with the caveat surfaced through delta.baseline_pre_config.
+
     Filtering by judge_fingerprint prevents the same artifact again when the
     instrument changes: rescoring an unchanged outputs/ directory with a
     different judge model otherwise reads as a system regression. Baselines
@@ -838,7 +875,8 @@ def find_baseline(
     Returns None if no matching baseline found.
     """
     path, _ = find_baseline_with_reason(
-        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint
+        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint,
+        config_id,
     )
     return path
 
@@ -849,6 +887,7 @@ def find_baseline_with_reason(
     set_name: str,
     dataset_version: Optional[str] = None,
     judge_fingerprint: Optional[str] = None,
+    config_id: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[str]]:
     """
     find_baseline(), plus why the newest rejected candidate was rejected.
@@ -873,11 +912,27 @@ def find_baseline_with_reason(
             continue
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not a fieldtest result object")
         except Exception:
             continue
 
         if data.get("set") != set_name:
             note(f"the last run scored the '{data.get('set')}' set, not '{set_name}'")
+            continue
+        # A results directory is shared by every config beside it. Scoring an
+        # answer key, or a second config, put a run measuring different evals
+        # into the chain and it was adopted silently. Absent on the candidate
+        # means a file written before this existed: comparable, as for the
+        # judge block.
+        if (config_id is not None
+                and data.get("config") is not None
+                and data.get("config") != config_id):
+            note(
+                f"the last run scored {data.get('config')}, not {config_id} — "
+                f"a different config measures different evals, so its rates "
+                f"are not a prior for these"
+            )
             continue
         if dataset_version is not None and data.get("dataset_version") != dataset_version:
             note(
@@ -885,9 +940,19 @@ def find_baseline_with_reason(
                 f"{data.get('dataset_version') or 'none'}, this one uses {dataset_version}"
             )
             continue
+        # The rule, whole: a judge changed only if both runs consulted one.
+        # A run that consulted none has no judged eval for the other run's
+        # judged evals to be compared against — the delta reports those as new
+        # — while the deterministic evals on both sides measured exactly the
+        # same thing. Rejecting the whole baseline threw that away: adding the
+        # first llm eval, which the walkthrough instructs, lost the history of
+        # every rule eval beside it and said "the judge changed since the last
+        # run" about a run that never had one.
         if judge_fingerprint is not None:
             candidate_judge = data.get("judge") or {}
-            if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
+            if (candidate_judge
+                    and candidate_judge.get("judged") is not False
+                    and candidate_judge.get("fingerprint") != judge_fingerprint):
                 was = " ".join(
                     str(candidate_judge.get(k)) for k in ("provider", "model")
                     if candidate_judge.get(k)

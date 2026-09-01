@@ -7,6 +7,7 @@ Uses click.testing.CliRunner — no subprocess overhead.
 """
 from __future__ import annotations
 
+import ast
 import json
 import textwrap
 from pathlib import Path
@@ -3581,22 +3582,58 @@ def test_history_prints_a_run_id_view_accepts_even_without_the_key(tmp_path, mon
         f"view rejected the id history printed:\n{result.output}")
 
 
-def test_run_ids_are_derived_in_exactly_one_place():
-    """Five of six sites agreed; the sixth is how the defect above happened."""
+def test_result_filenames_are_spelled_in_exactly_one_place():
+    """
+    This test used to ban a single spelling — `.stem.removesuffix("-data")` —
+    and reported zero offenders while the concept was live in four other
+    spellings. The round-six defect went straight past it: `diff` built
+    `results_dir / f"{run_id}-data.json"` by hand and rejected the id `history`
+    had just printed. A tripwire that matches a spelling rather than the concept
+    reports green and protects nothing.
+
+    So: the run-artifact suffixes are spelled once, in writer.RESULT_SUFFIXES.
+    Deriving a run id from a path goes through run_id_from_path; building the
+    path back goes through result_data_path. Both live in aggregator.py, which
+    is why it is the only module allowed to spell them.
+    """
     import re
 
     import fieldtest
 
     root = Path(fieldtest.__file__).resolve().parent
+    # writer.py declares the suffixes; aggregator.py owns both directions of the
+    # filename<->run id conversion. Nothing else may spell an artifact suffix.
+    ALLOWED = {"writer.py", "aggregator.py"}
+    LITERAL = re.compile(r'["\']-(?:data|report)\.(?:json|csv|md|html)["\']')
+
     offenders = []
     for path in sorted(root.rglob("*.py")):
-        if "__pycache__" in str(path) or path.name == "aggregator.py":
+        if "__pycache__" in str(path) or path.name in ALLOWED:
             continue
-        for i, line in enumerate(path.read_text().splitlines(), 1):
-            if re.search(r'\.stem\.removesuffix\(\s*["\']-data["\']', line):
-                offenders.append(f"{path.relative_to(root)}:{i}")
+        source = path.read_text()
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:            # pragma: no cover - would fail elsewhere
+            continue
+        # Constants only: a docstring or comment naming the file is prose, and
+        # banning prose would push people to describe the format less clearly.
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef,
+                                 ast.FunctionDef, ast.AsyncFunctionDef)):
+                doc = ast.get_docstring(node, clean=False)
+                if doc:
+                    docstrings.add(doc)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and node.value not in docstrings
+                    and LITERAL.search(f'"{node.value}"')):
+                offenders.append(
+                    f"{path.relative_to(root)}:{node.lineno}  {node.value!r}")
+
     assert not offenders, (
-        "use run_id_from_path() rather than deriving it inline:\n  "
+        "spell run-artifact suffixes once, in writer.RESULT_SUFFIXES, and "
+        "convert with run_id_from_path / result_data_path:\n  "
         + "\n  ".join(offenders))
 
 
@@ -3801,3 +3838,73 @@ def test_history_and_diff_survive_valid_json_that_is_not_a_result(tmp_path, monk
     assert diff.exit_code == 1
     assert "Cannot read" in diff.output
     assert "Traceback" not in diff.output
+
+
+def test_clean_deletes_every_artifact_write_results_writes():
+    """
+    `clean` enumerated the five artifact suffixes independently of the writer
+    that creates them — two lists that happened to agree, with nothing keeping
+    them agreeing. A sixth artifact added to the writer would have left an
+    orphan behind every prune, and nothing would have failed.
+    """
+    import inspect
+
+    from fieldtest import cli_project
+    from fieldtest.results import writer
+    from fieldtest.results.writer import RESULT_SUFFIXES
+
+    source = inspect.getsource(writer.write_results)
+    # The constant name each declared suffix is bound to, e.g. "-data.json" -> DATA_JSON.
+    names = {v: k for k, v in vars(writer).items()
+             if isinstance(v, str) and v in RESULT_SUFFIXES}
+    assert len(names) == len(RESULT_SUFFIXES), (
+        f"a declared suffix has no named constant: {RESULT_SUFFIXES}")
+
+    unwritten = [s for s in RESULT_SUFFIXES
+                 if "{run_id}{" + names[s] + "}" not in source]
+    assert not unwritten, (
+        f"write_results declares suffixes it never writes: {unwritten}")
+
+    # And clean consumes that declaration rather than keeping its own copy.
+    assert "for suffix in RESULT_SUFFIXES" in inspect.getsource(cli_project), (
+        "clean enumerates artifact suffixes independently of the writer")
+
+
+def test_diff_warns_when_the_baseline_came_from_another_config(tmp_path, monkeypatch):
+    """
+    `score` refuses to auto-select a baseline from another config. `diff
+    --baseline` performs that exact comparison on request and said nothing —
+    so the one path where the user explicitly points at the wrong run was the
+    one without a warning, while judge and dataset-version mismatches both warn
+    right beside it.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+
+    def run(rid, cfg):
+        (results / f"{rid}-data.json").write_text(json.dumps({
+            "run_id": rid, "set": "full", "config": cfg,
+            "fixture_count": 1, "runs": 1, "summary": {}, "delta": {},
+        }))
+
+    run("2026-01-02T00-00-00-cur", "config.yaml")
+    run("2026-01-01T00-00-00-ref", "reference-evals.yaml")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["diff", "2026-01-02T00-00-00-cur",
+               "--baseline", "2026-01-01T00-00-00-ref"], catch_exceptions=False)
+    assert "Config mismatch" in result.output, (
+        f"an explicit cross-config diff said nothing:\n{result.output}")
+    assert "reference-evals.yaml" in result.output
+
+    # The sibling direction: same config, no warning.
+    run("2026-01-01T00-00-00-mine", "config.yaml")
+    same = CliRunner().invoke(
+        main, ["diff", "2026-01-02T00-00-00-cur",
+               "--baseline", "2026-01-01T00-00-00-mine"], catch_exceptions=False)
+    assert "Config mismatch" not in same.output, (
+        f"warned about a baseline from the same config:\n{same.output}")

@@ -3379,6 +3379,21 @@ def test_the_readme_data_json_judge_sample_has_no_phantom_keys(tmp_path, monkeyp
         f"the schema sample's judge block shows keys a default run never "
         f"writes: {sorted(phantom)} (real keys: {sorted(real_judge)})")
 
+    # The same invariant one level up, which was checked only on the judge
+    # block: `config` became a top-level key of every -data.json and the schema
+    # sample went on not mentioning it. The sample may omit keys (it is a
+    # summary; `rows` is deliberately absent) but must not invent them.
+    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
+    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
+    real_top = set(json.loads(
+        next((tmp_path / "evals" / "results").glob("*-data.json")).read_text()))
+    phantom_top = set(sample) - real_top
+    assert not phantom_top, (
+        f"the schema sample shows top-level keys a run never writes: "
+        f"{sorted(phantom_top)}")
+    assert "config" in sample, (
+        "every run records `config`; the published schema does not show it")
+
 
 def test_the_site_history_card_promises_what_history_prints(tmp_path, monkeypatch):
     """The site said history lists runs 'with their judge fingerprint' — the

@@ -17,6 +17,7 @@ from fieldtest.config import (
     ResultRow,
     extract_labels,
     load_fixture,
+    config_identity,
     resolve_dataset_version,
     resolve_judge_runs,
     resolve_runs,
@@ -227,7 +228,14 @@ def score(
         baseline_path, no_baseline_reason = find_baseline_with_reason(
             results_dir, run_id, set_name,
             dataset_version=resolve_dataset_version(config),
-            judge_fingerprint=build_judge_block(config)["fingerprint"],
+            # None when nothing is judged: the other half of the same rule.
+            # There is no judge for a candidate's judge to differ from.
+            judge_fingerprint=(
+                build_judge_block(config)["fingerprint"]
+                if any(ev.is_judged for uc in config.use_cases for ev in uc.evals)
+                else None
+            ),
+            config_id=config_identity(config),
         )
 
     delta = build_delta(summary, baseline_path)

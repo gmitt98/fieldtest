@@ -23,6 +23,19 @@ from fieldtest.results.html import write_html
 from fieldtest.results.report import format_report, format_report_csv
 
 
+# The five artifacts a run writes. `clean` enumerates the same five to delete a
+# run, and enumerated them independently — two lists that happened to agree,
+# with nothing to keep them agreeing. A sixth artifact added here would have
+# left orphans behind every `fieldtest clean`.
+DATA_JSON   = "-data.json"
+DATA_CSV    = "-data.csv"
+REPORT_MD   = "-report.md"
+REPORT_CSV  = "-report.csv"
+REPORT_HTML = "-report.html"
+
+RESULT_SUFFIXES = (DATA_JSON, DATA_CSV, REPORT_MD, REPORT_CSV, REPORT_HTML)
+
+
 def write_results(
     rows: list[ResultRow],
     summary: dict,
@@ -43,11 +56,11 @@ def write_results(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    json_path        = output_dir / f"{run_id}-data.json"
-    data_csv_path    = output_dir / f"{run_id}-data.csv"
-    md_path          = output_dir / f"{run_id}-report.md"
-    report_csv_path  = output_dir / f"{run_id}-report.csv"
-    html_path        = output_dir / f"{run_id}-report.html"
+    json_path        = output_dir / f"{run_id}{DATA_JSON}"
+    data_csv_path    = output_dir / f"{run_id}{DATA_CSV}"
+    md_path          = output_dir / f"{run_id}{REPORT_MD}"
+    report_csv_path  = output_dir / f"{run_id}{REPORT_CSV}"
+    html_path        = output_dir / f"{run_id}{REPORT_HTML}"
 
     # Build all content before writing — fail fast before any file is created
     json_content        = _build_json(
@@ -95,7 +108,7 @@ def _build_json(
         from fieldtest.config import resolve_runs
         runs = resolve_runs(config, config.use_cases[0])
 
-    from fieldtest.config import resolve_dataset_version, resolve_judge_runs
+    from fieldtest.config import config_identity, resolve_dataset_version, resolve_judge_runs
     dataset_version = resolve_dataset_version(config)
 
     judge_runs = 1
@@ -109,6 +122,7 @@ def _build_json(
         "run_id":          run_id,
         "set":             set_name,
         "dataset_version": dataset_version,
+        "config":          config_identity(config),
         "judge":           build_judge_block(config),
         "fixture_count":   len(fixture_ids),
         "runs":            runs,

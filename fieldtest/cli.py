@@ -16,6 +16,8 @@ import sys
 
 import click
 
+from fieldtest.results.writer import REPORT_MD
+
 from fieldtest.config import resolve_set
 from fieldtest.errors import ConfigError
 from fieldtest.fixtures import find_fixture_path
@@ -446,7 +448,7 @@ def score(
 
     # Print report to terminal
     results_dir = path.resolve().parent / "results"
-    md_path     = results_dir / f"{run_id}-report.md"
+    md_path     = results_dir / f"{run_id}{REPORT_MD}"
     if md_path.exists():
         click.echo(md_path.read_text(encoding="utf-8"))
     click.echo(f"\nResults written to: {results_dir / run_id}")

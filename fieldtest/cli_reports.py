@@ -18,9 +18,11 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path
+from fieldtest.results.writer import RESULT_SUFFIXES
 from fieldtest.results.aggregator import (
     run_id_from_path,
     find_result_by_run_id,
+    result_data_path,
     result_files_newest_first,
 )
 
@@ -74,7 +76,7 @@ def history(config_path: Optional[str]):
     saw_errors = False
     legacy = [
         f for f in results_dir.glob("*.json")
-        if not f.name.endswith("-data.json")
+        if not f.name.endswith(RESULT_SUFFIXES[0])
         and not f.name.endswith("-calibration.json")
     ]
     if not result_files:
@@ -258,14 +260,14 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # still built a path by hand, so `fieldtest diff <id>` rejected the id
     # `fieldtest history` had just printed, in the documented first workflow.
     if run_id:
-        current_path = find_result_by_run_id(results_dir, run_id) or (
-            results_dir / f"{run_id}-data.json")
+        current_path = (find_result_by_run_id(results_dir, run_id)
+                        or result_data_path(results_dir, run_id))
     else:
         current_path = result_files[0]
 
     if baseline_id:
-        baseline_path = find_result_by_run_id(results_dir, baseline_id) or (
-            results_dir / f"{baseline_id}-data.json")
+        baseline_path = (find_result_by_run_id(results_dir, baseline_id)
+                         or result_data_path(results_dir, baseline_id))
     else:
         # most recent that isn't current
         others = [f for f in result_files if f != current_path]
@@ -404,6 +406,29 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         click.echo(
             f"⚠ Dataset version mismatch — current: {cur_ver}, baseline: {base_ver}. "
             f"Deltas may reflect fixture changes, not model behavior."
+        )
+        click.echo("")
+
+    # Same shape again, for which config's evals each run measured. `score`
+    # refuses to auto-select a baseline from another config; `diff --baseline`
+    # performs that exact comparison on request and said nothing, so the one
+    # path where the user is explicitly pointing at the wrong run was the one
+    # without a warning. Either side unrecorded is backwards-compat silence,
+    # as above.
+    cur_cfg  = current_data.get("config")
+    base_cfg = baseline_data.get("config")
+    if cur_cfg is not None and base_cfg is not None and cur_cfg != base_cfg:
+        click.echo(
+            f"⚠ Config mismatch — current: {cur_cfg}, baseline: {base_cfg}. "
+            f"A different config measures different evals, so these deltas "
+            f"compare two different questions."
+        )
+        click.echo("")
+    elif (cur_cfg is not None and base_run_id and base_cfg is None
+          and not baseline_data.get("__unreadable__")):
+        click.echo(
+            "⚠ Baseline does not record which config produced it — it may "
+            "have measured a different set of evals."
         )
         click.echo("")
 

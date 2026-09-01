@@ -82,7 +82,9 @@ place, highest first:
 | a tag's pass rate | 6 | 3 |
 | scored-ness of an eval | 4 | 4 |
 
-Each of the last three has an agreement tripwire; the first four do not yet.
+Each of the last three has an agreement tripwire. Of the first four, llm-ness and
+run id from a filename now have one too — see the outcome below for why the first
+attempt at the latter did not count.
 
 ### Sequence, ordered by value against risk
 
@@ -106,10 +108,28 @@ Re-examined per site rather than by grep count, which overstated two of them.
 
 **Outcome.** 1 and 2 done: `Eval.is_judged`, `Eval.is_scored` and
 `ResultRow.is_judged`, replacing 12 literal type comparisons, with a test that
-fails on any new one outside config.py. 4 done: `run_id_from_path()`, replacing
-six inline derivations — one of which differed, and that difference was a live
-defect (`history` printed an id `view` rejected, the same bug already fixed once
-in `diff`).
+fails on any new one outside config.py.
+
+4 was recorded as done and was not. `run_id_from_path()` replaced six inline
+derivations, and the tripwire written with it banned the single spelling those
+six used — `.stem.removesuffix("-data")`. It reported zero offenders while the
+concept stayed live in five other spellings, and round six walked straight past
+it: `diff` built `results_dir / f"{run_id}-data.json"` by hand and rejected the
+run id `history` had just printed, in the bundled demo.
+
+**A tripwire that matches a spelling rather than a concept reports green and
+protects nothing.** That is the more useful lesson than the original defect, and
+it is the one this spec was missing.
+
+Now actually done, and in both directions. The five artifact suffixes are
+declared once as named constants in `writer.py`; `clean` consumes that
+declaration instead of its own copy, with a test that fails if the writer ever
+declares a suffix it does not write. `run_id_from_path()` derives a run id from
+a path and `result_data_path()` builds the path back, both in `aggregator.py`,
+which is the only module permitted to spell an artifact suffix at all. The
+tripwire is now an AST scan for the literals themselves, excluding docstrings so
+prose can still name the format — it caught four further live sites the old one
+never saw.
 
 3 **not done, deliberately.** All 11 `base / "results"` sites are the identical
 trivial join. Unlike `is_judged`, where the *logic* could differ between homes,

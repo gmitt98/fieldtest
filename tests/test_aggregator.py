@@ -2741,3 +2741,217 @@ def test_html_delta_colours_a_binary_regression_red_despite_a_scored_namesake():
          "decreased": [], "unchanged": [], "baseline_run_id": "b"},
         scored_eval_ids=set())
     assert "delta-up" in scored_html and "+0.5" in scored_html
+
+
+def test_find_baseline_forwards_every_filter_to_the_reasoned_form():
+    """
+    find_baseline is a thin wrapper over find_baseline_with_reason, and a filter
+    added to one and not the other is a baseline rule that applies through one
+    entry point and not the other — this project's signature failure. An
+    inventory test over the signatures, so the next filter cannot drift.
+    """
+    import inspect
+
+    from fieldtest.results.aggregator import find_baseline, find_baseline_with_reason
+
+    wrapper = list(inspect.signature(find_baseline).parameters)
+    full    = list(inspect.signature(find_baseline_with_reason).parameters)
+    assert wrapper == full, (
+        f"find_baseline does not accept every filter find_baseline_with_reason "
+        f"does: missing {set(full) - set(wrapper)}, extra {set(wrapper) - set(full)}")
+
+
+def _run_file(results_dir, run_id, *, config=None, set_name="smoke", mtime=None):
+    """A minimal result file, optionally carrying a `config` identity."""
+    import json
+    import os
+
+    data = {"run_id": run_id, "set": set_name, "summary": {}, "delta": {}}
+    if config is not None:
+        data["config"] = config
+    p = results_dir / f"{run_id}-data.json"
+    p.write_text(json.dumps(data))
+    if mtime is not None:
+        os.utime(p, (mtime, mtime))
+    return p
+
+
+def test_a_run_from_a_different_config_is_not_used_as_a_baseline(tmp_path):
+    """
+    A results directory is shared by every config beside it, and the walkthrough
+    has the reader score reference-evals.yaml into the same one. That run then
+    became the automatic baseline for the next config.yaml run — different
+    evals, asking different questions, adopted silently. `set`,
+    `dataset_version` and the judge fingerprint each already reject a candidate
+    that measured something else; this is the fourth thing that can differ.
+    """
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    _run_file(tmp_path, "older",  config="config.yaml",           mtime=1000)
+    _run_file(tmp_path, "newer",  config="reference-evals.yaml",  mtime=2000)
+
+    path, reason = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="config.yaml")
+
+    assert path is not None and path.name.startswith("older"), (
+        f"adopted a run from another config as the baseline: {path}")
+    assert reason is None or "reference-evals.yaml" in reason
+
+    # The sibling direction: the answer key's own run must not adopt yours.
+    path2, reason2 = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="reference-evals.yaml")
+    assert path2 is None or path2.name.startswith("newer")
+
+
+def test_editing_your_own_config_keeps_its_baseline(tmp_path):
+    """
+    The ordinary case fieldtest exists for. The identity is the file, not a hash
+    of the evals, precisely so that adding or editing an eval — which the
+    walkthrough has the reader do — keeps the history it is meant to compare
+    against.
+    """
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    _run_file(tmp_path, "mine", config="config.yaml", mtime=1000)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="config.yaml")
+    assert path is not None, f"lost the baseline for the same config: {reason}"
+
+
+def test_a_baseline_written_before_config_identity_is_still_usable(tmp_path):
+    """
+    Blanking every historical delta on upgrade is a worse failure than a
+    caveated comparison — the same call already made for the judge fingerprint.
+    A candidate with no `config` key is accepted as unknown.
+    """
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    _run_file(tmp_path, "legacy", mtime=1000)          # no `config` key at all
+    path, reason = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="config.yaml")
+    assert path is not None, (
+        f"an upgrade blanked out a usable historical baseline: {reason}")
+
+
+def test_a_judge_changed_only_if_both_runs_consulted_one(tmp_path):
+    """
+    Recording no judge for a rules-only project gave that project a distinct
+    fingerprint, so adding the first llm eval — which the walkthrough
+    instructs — rejected the baseline and lost the history of every rule eval
+    beside it, saying "the judge changed since the last run" about a run that
+    never had one.
+
+    The rule, whole: a judge changed only if both runs consulted one. All three
+    cases asserted here, because the branch that is not asserted is the one
+    that goes wrong.
+    """
+    import os
+
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    def candidate(run_id, judge):
+        p = tmp_path / f"{run_id}-data.json"
+        p.write_text(json.dumps({"run_id": run_id, "set": "full",
+                                 "summary": {}, "delta": {}, "judge": judge}))
+        os.utime(p, (1000, 1000))
+        return p
+
+    judged_a = {"model": "haiku",  "fingerprint": "aaaa1111"}
+    judged_b = {"model": "sonnet", "fingerprint": "bbbb2222"}
+    unjudged = {"judged": False,   "fingerprint": "cccc3333"}
+
+    # 1. Both consulted a judge, and it differs — still rejected.
+    candidate("both", judged_a)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge_fingerprint=judged_b["fingerprint"])
+    assert path is None and reason and "judge changed" in reason
+
+    # 2. The baseline consulted none; this run does. Walkthrough step 9.
+    for f in tmp_path.glob("*-data.json"):
+        f.unlink()
+    candidate("rules_only", unjudged)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge_fingerprint=judged_b["fingerprint"])
+    assert path is not None, (
+        f"adding the first llm eval lost the rule evals' history: {reason}")
+
+    # 3. The mirror: this run consults none, the baseline did.
+    for f in tmp_path.glob("*-data.json"):
+        f.unlink()
+    candidate("was_judged", judged_a)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge_fingerprint=None)
+    assert path is not None, (
+        f"removing the llm evals lost the rule evals' history: {reason}")
+
+
+def test_the_config_identity_is_taken_from_the_resolved_path(tmp_path):
+    """
+    base_dir is resolved (runner.py and five other sites); the identity was
+    not. A symlinked config therefore wrote into the same results/ under a
+    second identity — history severed, and the rejection message claimed two
+    byte-identical files measure different evals.
+    """
+    from fieldtest.config import config_identity, parse_and_validate
+
+    root = Path(__file__).resolve().parent.parent
+    real = root / "fieldtest" / "datasets" / "expense-report" / "config.yaml"
+    link = tmp_path / "alias.yaml"
+    link.symlink_to(real)
+
+    assert config_identity(parse_and_validate(link)) == config_identity(
+        parse_and_validate(real)), "a symlink to a config became a second config"
+
+
+def test_a_baseline_with_no_config_key_is_caveated_not_silent(tmp_path):
+    """
+    find_baseline accepts a candidate with no `config`, for the same upgrade
+    reason the judge fingerprint is accepted unknown. But the judge version of
+    that call ships a caveat on three surfaces and this one shipped none, so a
+    v0.3.0 run from an entirely different config was adopted and its deltas
+    printed without a word.
+    """
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "old-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "old", "set": "full",
+        "summary": {"uc1": {"right": {"e1": {"failure_rate": 1.0,
+                                             "total_runs": 4}}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"e1": {"failure_rate": 0.0, "total_runs": 4}}}},
+        baseline)
+
+    assert delta["baseline_pre_config"] is True, (
+        "a baseline that does not say which config produced it was adopted "
+        "silently")
+
+    # And the caveat is off when the baseline does record one.
+    baseline.write_text(json.dumps({
+        "run_id": "old", "set": "full", "config": "config.yaml",
+        "summary": {"uc1": {"right": {"e1": {"failure_rate": 1.0,
+                                             "total_runs": 4}}}},
+    }))
+    delta2 = build_delta(
+        {"uc1": {"right": {"e1": {"failure_rate": 0.0, "total_runs": 4}}}},
+        baseline)
+    assert delta2["baseline_pre_config"] is False
+
+
+def test_find_baseline_survives_a_result_file_that_is_not_an_object(tmp_path):
+    """
+    history and diff were given this guard a round ago; build_delta and
+    find_baseline_with_reason are the siblings that were not. `[]` parses, gets
+    past the except, and AttributeErrors on the first .get.
+    """
+    from fieldtest.results.aggregator import build_delta, find_baseline_with_reason
+
+    bad = tmp_path / "2026-01-01T00-00-00-bad-data.json"
+    bad.write_text("[]")
+
+    # Must skip it rather than raise.
+    path, _ = find_baseline_with_reason(tmp_path, "cur", "full")
+    assert path is None
+
+    assert build_delta({}, bad)["baseline_run_id"] is None

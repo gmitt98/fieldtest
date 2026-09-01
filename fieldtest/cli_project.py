@@ -22,6 +22,7 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
+from fieldtest.results.writer import RESULT_SUFFIXES, REPORT_HTML
 from fieldtest.results.aggregator import (
     run_id_from_path,
     find_result_by_run_id,
@@ -94,8 +95,7 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         out = []
         for p in runs:
             run_id = run_id_from_path(p)
-            for suffix in ("-data.json", "-data.csv",
-                           "-report.md", "-report.csv", "-report.html"):
+            for suffix in RESULT_SUFFIXES:
                 f = results_dir / f"{run_id}{suffix}"
                 if f.is_file():
                     out.append(f)
@@ -300,7 +300,7 @@ def view_cmd(run_id: Optional[str], config_path: Optional[str]):
     results_dir = base_dir / "results"
 
     if run_id:
-        html_path = results_dir / f"{run_id}-report.html"
+        html_path = results_dir / f"{run_id}{REPORT_HTML}"
         if not html_path.exists():
             # Filename and run id are not always the same string — the bundled
             # demo ships demo-offline-*.html whose run_id is a timestamp — so an
@@ -308,7 +308,7 @@ def view_cmd(run_id: Optional[str], config_path: Optional[str]):
             data = find_result_by_run_id(results_dir, run_id)
             if data is not None:
                 candidate = data.with_name(
-                    data.name.removesuffix("-data.json") + "-report.html")
+                    run_id_from_path(data) + REPORT_HTML)
                 if candidate.exists():
                     html_path = candidate
         if not html_path.exists():
@@ -413,8 +413,8 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
                 from fieldtest.results.html import write_html
                 run_data = json.loads(json_files[0].read_text(encoding="utf-8"))
                 config   = parse_and_validate(evals_dir / "config.yaml")
-                run_id   = json_files[0].name.replace("-data.json", "")
-                write_html(run_data, config, dest_results / f"{run_id}-report.html")
+                run_id   = run_id_from_path(json_files[0])
+                write_html(run_data, config, dest_results / f"{run_id}{REPORT_HTML}")
             except Exception:
                 pass  # HTML generation is best-effort; don't fail offline mode
 
