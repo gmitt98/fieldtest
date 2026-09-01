@@ -463,10 +463,23 @@ def score(
     scored  = [r for r in judged if r.passed is not None or r.score is not None]
     errored = [r for r in judged if r.error]
     if errored and not scored:
+        # "nothing was scored" was false whenever deterministic evals ran: the
+        # README's keyless Mode 2 demo prints rates for three of them and then
+        # claims nothing scored. Exiting 1 is still right — no LLM eval was
+        # measured — but the sentence has to say which half failed.
+        deterministic = [
+            r for r in rows
+            if not r.is_judged and (r.passed is not None or r.score is not None)
+        ]
+        also = (
+            f" {len(deterministic)} deterministic eval row(s) scored normally "
+            f"and are in the report."
+            if deterministic else ""
+        )
         click.echo("")
         click.echo(
-            f"All {len(errored)} judge call(s) failed — nothing was scored. "
-            f"Check the provider credential and defaults.model.",
+            f"All {len(errored)} judge call(s) failed — no LLM eval was "
+            f"scored. Check the provider credential and defaults.model.{also}",
             err=True,
         )
         sys.exit(1)

@@ -2808,7 +2808,7 @@ def test_score_fails_when_every_judge_call_errored(tmp_path, monkeypatch):
         main, ["score", "--config", str(evals / "config.yaml"), "--set", "full"],
         catch_exceptions=False)
     assert result.exit_code == 1, f"a run that scored nothing exited 0:\n{result.output}"
-    assert "nothing was scored" in result.output
+    assert "no LLM eval was scored" in result.output
 
 
 def test_score_fails_when_the_llm_half_wholly_failed_beside_a_passing_regex(tmp_path, monkeypatch):
@@ -2838,7 +2838,11 @@ def test_score_fails_when_the_llm_half_wholly_failed_beside_a_passing_regex(tmp_
     assert result.exit_code == 1, (
         f"every judge call failed; a passing regex must not disarm the gate:\n"
         f"{result.output}")
-    assert "nothing was scored" in result.output
+    assert "no LLM eval was scored" in result.output
+    # ...and it must not claim nothing scored, because the regex did.
+    assert "nothing was scored" not in result.output
+    assert "deterministic eval row(s) scored normally" in result.output, (
+        f"the message hid the evals that did score:\n{result.output}")
 
 
 def test_score_succeeds_on_a_clean_offline_run(tmp_path, monkeypatch):
@@ -3712,3 +3716,64 @@ def test_a_rules_only_run_where_every_eval_errored_exits_nonzero(tmp_path):
     _write_outputs(ok_dir, "fix1", runs=2)
     _write_outputs(ok_dir, "fix2", runs=2)
     assert _run_score(ok_dir).exit_code == 0
+
+
+def test_history_marks_a_run_whose_evals_errored(tmp_path, monkeypatch):
+    """
+    _tag_rate skipped `failure_rate: null` silently, pooling over the survivors,
+    so a run in which every judge call failed listed as a clean 100% —
+    indistinguishable from a healthy run and reading as an improvement on its
+    baseline. The data file records error_count honestly; history read it and
+    threw it away. diff warns about exactly this; history was the silent
+    surface.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full",
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {
+            # right: one eval survives, one errored -> marked rate
+            "right": {"ok":  {"failure_rate": 0.0, "total_runs": 4},
+                      "dead": {"failure_rate": None, "error_count": 4}},
+            # good: every eval errored -> no rate at all
+            "good":  {"dead2": {"failure_rate": None, "error_count": 4}},
+        }},
+        "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "100%!" in result.output, (
+        f"a rate that excluded an errored eval printed bare:\n{result.output}")
+    assert "err" in result.output, (
+        f"a tag whose every eval errored printed a rate:\n{result.output}")
+    assert "excluded from that rate" in result.output, (
+        "the markers appear with no legend explaining them")
+
+
+def test_history_leaves_a_clean_run_unmarked(tmp_path, monkeypatch):
+    """The sibling direction: no markers and no legend on a healthy run."""
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full",
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {"right": {"ok": {"failure_rate": 0.0,
+                                             "total_runs": 4}}}},
+        "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert "100%" in result.output
+    assert "100%!" not in result.output
+    assert "excluded from that rate" not in result.output, (
+        "a clean run printed the error legend")

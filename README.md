@@ -85,7 +85,14 @@ cd fieldtest-demo
 fieldtest view
 ```
 
-Runs real `fieldtest score` on the extraction example. Rule and regex evals execute fully. LLM evals are gracefully skipped (marked as errors, excluded from rates) since no API key is present. Shows how the tool handles partial eval coverage cleanly.
+Runs real `fieldtest score` on the extraction example. Rule and regex evals execute
+fully and their rates appear in the report. The two LLM evals error, since no API key
+is present, and are excluded from the rates rather than counted as failures.
+
+**`score` exits 1 here, and the report is still written.** Every call to the judge
+failed, so no LLM eval was measured, and a run that measured nothing must not tell CI
+it did. `fieldtest view` opens the report and the deterministic rates are real. To see
+the same example scored end to end with no key, use `--offline` (Mode 1).
 
 ### Mode 3 — Full live run (requires `ANTHROPIC_API_KEY`)
 
@@ -106,7 +113,7 @@ Runs all four eval types including LLM judges. Each example uses `claude-haiku-4
 |---------|--------|----------------------|
 | `email` | Clearbook Support Assistant | LLM judge (tone, policy compliance), rule (greeting check), regex (forbidden terms), reference (golden fixture) |
 | `rag` | Meridian Handbook Assistant | RAG grounding eval, hallucination detection, answer-length rule, citation regex |
-| `extraction` | Invoice Data Extractor | JSON structure rules, field-presence rules, regex forbidden-field check — its deterministic evals run without an API key; its two LLM evals are skipped as errors (see Mode 2) |
+| `extraction` | Invoice Data Extractor | JSON structure rules, field-presence rules, regex forbidden-field check — its deterministic evals run without an API key; its two LLM evals error and `score` exits 1 (see Mode 2) |
 
 ### Demo flags
 

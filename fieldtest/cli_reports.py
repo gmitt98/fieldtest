@@ -71,6 +71,7 @@ def history(config_path: Optional[str]):
     # naming" sent people looking for a migration that does not exist.
     calibrations = sorted(results_dir.glob("*-calibration.json"))
     unreadable: list = []
+    saw_errors = False
     legacy = [
         f for f in results_dir.glob("*.json")
         if not f.name.endswith("-data.json")
@@ -140,10 +141,20 @@ def history(config_path: Optional[str]):
             """
             failures = total = 0.0
             bare = []            # summaries written before total_runs existed
+            dropped = 0          # evals excluded because every call errored
             for uc_stats in summary.values():
                 for stats in uc_stats.get(tag, {}).values():
                     fr = stats.get("failure_rate")
                     if fr is None:
+                        # The data file honestly records failure_rate: null
+                        # with error_count: N, and history read that and threw
+                        # it away — listing a run whose every judge call failed
+                        # as a clean 100%, indistinguishable from a healthy run
+                        # and reading as an improvement on its baseline. The
+                        # pooled rate over the survivors is still the right
+                        # number; it just must not be printed bare.
+                        if stats.get("error_count"):
+                            dropped += 1
                         continue
                     n = stats.get("total_runs") or 0
                     if n:
@@ -151,8 +162,12 @@ def history(config_path: Optional[str]):
                         total    += n
                     else:
                         bare.append(fr)
+            mark = "!" if dropped else ""
             if total:
-                return f"{round((1 - failures / total) * 100)}%"
+                return f"{round((1 - failures / total) * 100)}%{mark}"
+            if dropped:
+                # Every eval in the tag errored: there is no rate at all.
+                return "err"
             if bare:
                 # No denominators to weight by: fall back to the unweighted mean
                 # so an older result file still shows something sensible.
@@ -162,10 +177,20 @@ def history(config_path: Optional[str]):
         right = _tag_rate("right")
         good  = _tag_rate("good")
         safe  = _tag_rate("safe")
+        if any(v.endswith("!") or v == "err" for v in (right, good, safe)):
+            saw_errors = True
 
         click.echo(
             f"{run_id:<26}  {ts_display:<18}  {set_name:<12}  "
             f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
+        )
+
+    if saw_errors:
+        click.echo(
+            "\n  ! = evals whose every call errored were excluded from that "
+            "rate, so it covers fewer evals than the run declares. "
+            "err = every eval in the tag errored; there is no rate. "
+            "Open the run's report for which, and why."
         )
 
     if unreadable:
