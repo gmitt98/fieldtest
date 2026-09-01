@@ -2163,7 +2163,7 @@ def test_every_shipped_fixture_has_a_readable_expected_block():
 # so the same run read as trustworthy in one artifact and caveated in the other.
 # ---------------------------------------------------------------------------
 
-def _html_and_json(tmp_path, monkeypatch, *, delta=None, partial=False):
+def _html_and_json(tmp_path, monkeypatch, *, delta=None, partial=False, judge_runs=1):
     """Render the HTML report directly from a run_data dict."""
     from fieldtest.results.html import write_html
     from fieldtest.config import parse_and_validate
@@ -2175,7 +2175,7 @@ def _html_and_json(tmp_path, monkeypatch, *, delta=None, partial=False):
         "set": "full",
         "fixture_count": 2,
         "runs": 3,
-        "judge_runs": 1,
+        "judge_runs": judge_runs,
         "rows": [],
         "summary": {},
         "delta": delta or {},
@@ -2218,11 +2218,79 @@ def test_no_baseline_and_no_reason_renders_nothing(tmp_path, monkeypatch):
     assert "No baseline" not in html
 
 
-@pytest.mark.parametrize("delta_extra,expected", [
+# Every baseline caveat the markdown report can emit, with a delta that triggers
+# it and a phrase the HTML must contain. The test below asserts this list is
+# COMPLETE against report.py — without that, the name of the test was a claim
+# nothing checked: it read "every baseline caveat" while covering three of seven,
+# and the one it did not cover was the one the HTML was missing.
+CAVEAT_PARITY = [
     ({"baseline_error_share": 0.41}, "lost 41% of its"),
     ({"baseline_pre_judge": True}, "predates judge tracking"),
     ({"sample_changed": ["ev1 9→6"]}, "different number of outputs"),
-])
+    ({"baseline_pre_config": True}, "which config produced it"),
+    ({"baseline_config_differs": True, "baseline_config": "reference-evals.yaml"},
+     "reference-evals.yaml"),
+    ({"baseline_judge_change": "model: haiku → sonnet"}, "haiku → sonnet"),
+    ({"baseline_judge_runs": 3}, "3×"),
+]
+
+
+def test_the_caveat_parity_list_covers_every_caveat_the_markdown_emits():
+    """
+    The parity test below is only as good as its list, and its list was hand
+    written and three-sevenths complete while its name said "every". A test
+    whose name asserts completeness must derive that completeness from the
+    source, or it is a claim nobody checks.
+    """
+    import re
+    from pathlib import Path
+
+    import fieldtest
+
+    report_src = (Path(fieldtest.__file__).resolve().parent
+                  / "results" / "report.py").read_text()
+    emitted = {
+        k for k in re.findall(r'delta\.get\(\s*"([a-z_]+)"', report_src)
+        if (k.startswith("baseline_") or k == "sample_changed")
+        and k != "baseline_run_id"
+    }
+    listed = {k for extra, _ in CAVEAT_PARITY for k in extra}
+    missing = emitted - listed
+    assert not missing, (
+        f"report.py emits caveats the parity list does not cover, so nothing "
+        f"checks whether the HTML shows them: {sorted(missing)}")
+
+
+def test_a_baseline_predating_judge_runs_is_not_called_a_repetition_change(
+    tmp_path, monkeypatch
+):
+    """
+    The naive spelling is delta.get("baseline_judge_runs", 1), which reads a
+    delta written before the key existed as "the baseline judged once" and warns
+    at every run using judge_runs > 1. That is the shape of the round-9 blocker:
+    a baseline that predates a field is not evidence of anything.
+    """
+    html = _html_and_json(tmp_path, monkeypatch, judge_runs=3, delta={
+        "baseline_run_id": "2025-12-31T00-00-00-prev",
+        "increased": [], "decreased": [], "unchanged": ["ev1"],
+        # deliberately no baseline_judge_runs, as an older fieldtest wrote it
+    })
+    assert "collapsing resolves ties" not in html, (
+        "a delta predating baseline_judge_runs was reported as a repetition "
+        "change")
+
+
+def test_a_real_repetition_change_does_reach_the_html(tmp_path, monkeypatch):
+    """The sibling of the test above: the guard must not silence a real one."""
+    html = _html_and_json(tmp_path, monkeypatch, judge_runs=3, delta={
+        "baseline_run_id": "2025-12-31T00-00-00-prev",
+        "increased": [], "decreased": [], "unchanged": ["ev1"],
+        "baseline_judge_runs": 1,
+    })
+    assert "collapsing resolves ties" in html
+
+
+@pytest.mark.parametrize("delta_extra,expected", CAVEAT_PARITY)
 def test_every_baseline_caveat_in_the_markdown_reaches_the_html(
     tmp_path, monkeypatch, delta_extra, expected
 ):
