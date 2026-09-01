@@ -570,7 +570,8 @@ def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
                baseline_run_id: str | None = None,
                judge: dict | None = None,
                summary: dict | None = None,
-               fixture_count: int | None = None) -> None:
+               fixture_count: int | None = None,
+               no_baseline_reason: str | None = None) -> None:
     """Plant a fake -data.json that the diff command will read."""
     data: dict = {
         "run_id": run_id,
@@ -583,6 +584,8 @@ def _plant_run(evals_dir: Path, run_id: str, dataset_version: str | None,
             "unchanged": [],
         },
     }
+    if no_baseline_reason is not None:
+        data["delta"]["no_baseline_reason"] = no_baseline_reason
     if dataset_version is not None:
         data["dataset_version"] = dataset_version
     if judge is not None:
@@ -3231,3 +3234,94 @@ def test_a_deterministic_only_project_never_trips_the_judge_gate(tmp_path, monke
     result = _run_score(evals)
     assert result.exit_code == 0, result.output
     assert "judge call(s) failed" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# diff command — why there is no baseline
+#
+# The reason a baseline was rejected is computed at score time and stored on
+# the run's delta as no_baseline_reason; report.py and html.py both print it.
+# `diff` asserted "no earlier run to compare against" and "<id> is the only run
+# in <dir>" instead — both false whenever the baseline was rejected rather than
+# absent (a different set, a bumped dataset version, a changed judge).
+# ---------------------------------------------------------------------------
+
+REASON_V1_V2 = "the last run used dataset version v1, this one uses v2"
+
+
+def test_diff_header_gives_the_stored_reason_there_is_no_baseline(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", dataset_version="v1")
+    _plant_run(evals_dir, "run-new", dataset_version="v2",
+               no_baseline_reason=REASON_V1_V2)
+
+    result = CliRunner().invoke(
+        main, ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert f"Baseline:  none — {REASON_V1_V2}" in result.output
+    assert "no earlier run to compare against" not in result.output
+
+
+def test_diff_does_not_call_a_run_the_only_one_when_a_baseline_was_rejected(tmp_path):
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", dataset_version="v1")
+    _plant_run(evals_dir, "run-new", dataset_version="v2",
+               no_baseline_reason=REASON_V1_V2)
+
+    result = CliRunner().invoke(
+        main, ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "is the only run in" not in result.output
+    assert f"Nothing to compare — no usable baseline: {REASON_V1_V2}." in result.output
+
+
+def test_diff_does_not_call_a_run_the_only_one_when_no_reason_was_stored(tmp_path):
+    """No stored reason is not evidence that the directory holds one run."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-old", dataset_version=None)
+    _plant_run(evals_dir, "run-new", dataset_version=None)
+
+    result = CliRunner().invoke(
+        main, ["diff", "run-new", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "is the only run in" not in result.output
+    assert "no earlier run to compare against" not in result.output
+    assert "1 other run(s) are present" in result.output
+
+
+def test_diff_still_says_only_run_for_a_genuine_first_run(tmp_path):
+    """The honest case must keep its sentence — this is not a blanket removal."""
+    evals_dir = _setup_project(tmp_path)
+    _plant_run(evals_dir, "run-first", dataset_version=None)
+
+    result = CliRunner().invoke(
+        main, ["diff", "run-first", "--config", str(evals_dir / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Baseline:  none — no earlier run to compare against" in result.output
+    assert "run-first is the only run in" in result.output
+
+
+def test_init_rejects_an_unknown_template_before_scaffolding_anything(tmp_path):
+    """
+    Pins the invariant that made cli_project's template-existence check dead
+    code: click.Choice rejects an unknown name with exit 2 and the command body
+    never runs, so nothing is written. NOTE: this test passes with and without
+    that check removed — the removal deletes unreachable code and changes no
+    behaviour. It guards the removal rather than proving it.
+    """
+    target = tmp_path / "evals"
+    result = CliRunner().invoke(
+        main, ["init", "--dir", str(target), "--template", "nosuch"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 2, result.output
+    assert "is not one of" in result.output
+    assert not target.exists(), "a rejected template left the destination scaffolded"
