@@ -488,12 +488,12 @@ def test_judge_fingerprint_changes_when_generation_config_changes():
 def test_find_baseline_skips_different_judge_fingerprint(tmp_path):
     """Rescoring with a different judge must not read as a system regression."""
     _write_data_json(tmp_path, "old-1", "smoke", judge={"fingerprint": "aaaaaaaa"})
-    assert find_baseline(tmp_path, "current", "smoke", judge_fingerprint="bbbbbbbb") is None
+    assert find_baseline(tmp_path, "current", "smoke", judge={"fingerprint": "bbbbbbbb"}) is None
 
 
 def test_find_baseline_accepts_matching_judge_fingerprint(tmp_path):
     _write_data_json(tmp_path, "old-1", "smoke", judge={"fingerprint": "aaaaaaaa"})
-    result = find_baseline(tmp_path, "current", "smoke", judge_fingerprint="aaaaaaaa")
+    result = find_baseline(tmp_path, "current", "smoke", judge={"fingerprint": "aaaaaaaa"})
     assert result is not None and result.stem == "old-1-data"
 
 
@@ -503,7 +503,7 @@ def test_find_baseline_accepts_pre_judge_baseline_with_note(tmp_path):
     Rejecting every historical baseline would blank out the delta on upgrade.
     """
     baseline = _write_data_json(tmp_path, "old-1", "smoke")  # no judge key
-    result = find_baseline(tmp_path, "current", "smoke", judge_fingerprint="bbbbbbbb")
+    result = find_baseline(tmp_path, "current", "smoke", judge={"fingerprint": "bbbbbbbb"})
     assert result is not None and result.stem == "old-1-data"
 
     delta = build_delta({}, baseline)
@@ -2863,15 +2863,18 @@ def test_a_judge_changed_only_if_both_runs_consulted_one(tmp_path):
     # 1. Both consulted a judge, and it differs — still rejected.
     candidate("both", judged_a)
     path, reason = find_baseline_with_reason(
-        tmp_path, "cur", "full", judge_fingerprint=judged_b["fingerprint"])
-    assert path is None and reason and "judge changed" in reason
+        tmp_path, "cur", "full", judge=judged_b)
+    # The reason names what actually differs, rather than asserting a change
+    # it never inspected.
+    assert path is None and reason
+    assert "haiku" in reason and "sonnet" in reason, reason
 
     # 2. The baseline consulted none; this run does. Walkthrough step 9.
     for f in tmp_path.glob("*-data.json"):
         f.unlink()
     candidate("rules_only", unjudged)
     path, reason = find_baseline_with_reason(
-        tmp_path, "cur", "full", judge_fingerprint=judged_b["fingerprint"])
+        tmp_path, "cur", "full", judge=judged_b)
     assert path is not None, (
         f"adding the first llm eval lost the rule evals' history: {reason}")
 
@@ -2880,7 +2883,7 @@ def test_a_judge_changed_only_if_both_runs_consulted_one(tmp_path):
         f.unlink()
     candidate("was_judged", judged_a)
     path, reason = find_baseline_with_reason(
-        tmp_path, "cur", "full", judge_fingerprint=None)
+        tmp_path, "cur", "full", judge=None)
     assert path is not None, (
         f"removing the llm evals lost the rule evals' history: {reason}")
 
@@ -3056,3 +3059,120 @@ def test_a_pre_0_3_baseline_is_not_called_an_instrument_change(tmp_path):
         assert not e.get("instrument_changed"), (
             f"a baseline that predates judge_calls was read as an instrument "
             f"change: {e}")
+
+
+def test_every_field_the_fingerprint_hashes_can_be_named():
+    """
+    The fingerprint gates baseline acceptance; describe_judge_change explains
+    the rejection. A field in the hash with no branch in the describer rejects
+    a baseline and then cannot say why — blinded_evals did exactly that, and
+    the user got the bare fallback "judge configuration changed".
+
+    Derived from the payload rather than listed, so the next field added to the
+    hash fails here until it can also be explained.
+    """
+    import inspect
+    import re
+
+    from fieldtest.results import provenance
+
+    src = inspect.getsource(provenance.judge_fingerprint)
+    hashed = set(re.findall(r'"([a-z_]+)":\s*judge\.get', src))
+    hashed |= set(re.findall(r'judge\.get\("([a-z_]+)"\)', src))
+    hashed.discard("fingerprint")
+    assert {"provider", "model", "overrides", "blinded_evals"} <= hashed, (
+        f"the payload no longer looks as expected: {sorted(hashed)}")
+
+    described = set(re.findall(r'"([a-z_]+)"',
+                               inspect.getsource(provenance.describe_judge_change)))
+    unnameable = sorted(hashed - described)
+    assert not unnameable, (
+        f"these fields change the fingerprint, so they reject a baseline, but "
+        f"describe_judge_change cannot name them: {unnameable}")
+
+
+def test_flipping_judge_sees_inputs_says_what_changed(tmp_path):
+    """The specific case: it named nothing, in both directions."""
+    from fieldtest.results.provenance import describe_judge_change, judge_fingerprint
+
+    base = {"provider": "anthropic", "model": "haiku", "temperature": 0.0,
+            "seed": None, "overrides": {}, "blinded_evals": []}
+    seeing = {**base}
+    seeing["fingerprint"] = judge_fingerprint(seeing)
+    blind = {**base, "blinded_evals": ["uc/quality"]}
+    blind["fingerprint"] = judge_fingerprint(blind)
+
+    assert seeing["fingerprint"] != blind["fingerprint"], (
+        "fixture is wrong: blinding must move the fingerprint")
+
+    gained = describe_judge_change(blind, seeing)
+    assert "uc/quality" in gained and "judge configuration changed" != gained
+    lost = describe_judge_change(seeing, blind)
+    assert "uc/quality" in lost and "judge configuration changed" != lost
+
+
+def test_the_rejection_names_what_differs_and_never_guesses_the_model(tmp_path):
+    """
+    Fable's tripwire for this bug, and the one that would have caught it.
+
+    The note asserted "the judge changed since the last run (was {provider}
+    {model})" from a hash inequality it never inspected. When only the recorded
+    shape moved — 0.3.0 re-keyed the judge block's overrides from bare eval id
+    to use_case/eval_id — provider and model were identical on both sides, so
+    the parenthetical printed the CURRENT judge as the old one.
+
+    Pinned here: identical provider/model/temperature/seed, overrides keyed the
+    two ways. The reason must name overrides and must NOT name the model.
+    """
+    import os
+
+    from fieldtest.results.aggregator import find_baseline_with_reason
+    from fieldtest.results.provenance import judge_fingerprint
+
+    shared = {"provider": "anthropic", "model": "claude-haiku-4-5",
+              "temperature": 0.0, "seed": None, "blinded_evals": []}
+    old_style = {**shared, "overrides": {"quality": {"model": "sonnet"}}}
+    new_style = {**shared, "overrides": {"uc/quality": {"model": "sonnet"}}}
+    old_style["fingerprint"] = judge_fingerprint(old_style)
+    new_style["fingerprint"] = judge_fingerprint(new_style)
+    assert old_style["fingerprint"] != new_style["fingerprint"], (
+        "fixture is wrong: re-keying must move the fingerprint")
+
+    p = tmp_path / "old-data.json"
+    p.write_text(json.dumps({"run_id": "old", "set": "full", "summary": {},
+                             "judge": old_style}))
+    os.utime(p, (1000, 1000))
+
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge=new_style)
+
+    assert path is None, "the fingerprint still gates acceptance"
+    assert reason and "overrides" in reason, (
+        f"the reason does not name what differs: {reason}")
+    assert "claude-haiku-4-5" not in reason, (
+        f"the reason names the model as though it changed, when both sides use "
+        f"it: {reason}")
+    assert "a different judge" not in reason, (
+        f"the reason asserts a different judge when only the recorded shape "
+        f"moved: {reason}")
+
+
+def test_an_unnameable_judge_difference_names_the_fingerprints():
+    """
+    The fallback said "judge configuration changed", which tells a reader
+    nothing they can act on — and a first attempt at fixing that put the
+    hash-naming in the aggregator, where it was dead code: this function never
+    returns None on the path that calls it, so the branch could not fire. It
+    belongs here, where both blocks are in hand and all three surfaces read it.
+    """
+    from fieldtest.results.provenance import describe_judge_change
+
+    a = {"provider": "p", "model": "m", "temperature": 0.0, "seed": None,
+         "overrides": {}, "blinded_evals": [], "future_field": 1,
+         "fingerprint": "aaaa1111"}
+    b = {**a, "future_field": 2, "fingerprint": "bbbb2222"}
+
+    described = describe_judge_change(b, a)
+    assert described and "aaaa1111" in described and "bbbb2222" in described, (
+        f"an unnameable difference does not identify the two runs: {described}")
+    assert "judge configuration changed" not in described

@@ -858,7 +858,7 @@ def find_baseline(
     current_run_id: str,
     set_name: str,
     dataset_version: Optional[str] = None,
-    judge_fingerprint: Optional[str] = None,
+    judge: Optional[dict] = None,
     config_id: Optional[str] = None,
 ) -> Optional[Path]:
     """
@@ -883,7 +883,7 @@ def find_baseline(
     Candidates written before this carry no `config` and are accepted as
     unknown, with the caveat surfaced through delta.baseline_pre_config.
 
-    Filtering by judge_fingerprint prevents the same artifact again when the
+    Filtering by the judge's fingerprint prevents the same artifact again when the
     instrument changes: rescoring an unchanged outputs/ directory with a
     different judge model otherwise reads as a system regression. Baselines
     written before judge tracking carry no fingerprint and are accepted as
@@ -893,7 +893,7 @@ def find_baseline(
     Returns None if no matching baseline found.
     """
     path, _ = find_baseline_with_reason(
-        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint,
+        results_dir, current_run_id, set_name, dataset_version, judge,
         config_id,
     )
     return path
@@ -904,7 +904,7 @@ def find_baseline_with_reason(
     current_run_id: str,
     set_name: str,
     dataset_version: Optional[str] = None,
-    judge_fingerprint: Optional[str] = None,
+    judge: Optional[dict] = None,
     config_id: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[str]]:
     """
@@ -966,20 +966,30 @@ def find_baseline_with_reason(
         # first llm eval, which the walkthrough instructs, lost the history of
         # every rule eval beside it and said "the judge changed since the last
         # run" about a run that never had one.
-        if judge_fingerprint is not None:
+        if judge is not None:
             candidate_judge = data.get("judge") or {}
             if (candidate_judge
                     and candidate_judge.get("judged") is not False
-                    and candidate_judge.get("fingerprint") != judge_fingerprint):
-                was = " ".join(
-                    str(candidate_judge.get(k)) for k in ("provider", "model")
-                    if candidate_judge.get(k)
-                )
+                    and candidate_judge.get("fingerprint") != judge.get("fingerprint")):
+                # Derived, not asserted. This said "the judge changed since the
+                # last run (was {provider} {model})" from a hash inequality it
+                # never looked into — so when only the recorded shape moved and
+                # the judge did not, it printed the CURRENT judge as the old
+                # one. describe_judge_change already names what differs, and
+                # score and diff both route through it, so deriving here means
+                # the three surfaces cannot disagree about what changed.
+                from fieldtest.results.provenance import describe_judge_change
+
+                what = describe_judge_change(judge, candidate_judge)
+                # The tail says "configuration", not "a different judge": for a
+                # difference that is only in how the block is recorded, the
+                # judge itself may be identical, and asserting otherwise is the
+                # falsehood this whole change exists to remove.
                 note(
-                    "the judge changed since the last run"
-                    + (f" (was {was})" if was else "")
-                    + " — rescoring the same outputs with a different judge is "
-                    "not a measurement of the system"
+                    f"the judge configuration differs from the last run: {what}"
+                    f". Deltas are not computed across it, because a rate "
+                    f"measured under two judge configurations is not a "
+                    f"measurement of the system"
                 )
                 continue
         return p, None
