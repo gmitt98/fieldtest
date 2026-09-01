@@ -288,17 +288,11 @@ def format_report(
             f"like-for-like comparison"
         )
 
-    swapped = sorted(
-        f"{e['use_case']}/{e['eval_id']}"
-        for k in ("increased", "decreased", "unchanged")
-        for e in (delta.get(k) or [])
-        if isinstance(e, dict) and e.get("instrument_changed")
-    )
-    if swapped:
+    if delta.get("baseline_judge_change"):
         lines.append(
-            "⚠ instrument changed for " + ", ".join(swapped) + " — a model "
-            "decided these in one run and Python in the other, so the movement "
-            "shown is not the system changing."
+            f"⚠ judge mismatch — {delta['baseline_judge_change']}. This "
+            f"baseline was named explicitly; deltas may reflect the instrument "
+            f"changing, not model behaviour."
         )
 
     if delta.get("baseline_run_id") and delta.get("baseline_config_differs"):

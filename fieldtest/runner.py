@@ -239,6 +239,21 @@ def score(
         )
 
     delta = build_delta(summary, baseline_path, config_id=config_identity(config))
+
+    # find_baseline never selects a baseline judged differently, so this can
+    # only be reached through an explicit --baseline — which skips that filter
+    # entirely and said nothing, while `diff` on the identical pair warns. Same
+    # asymmetry the config filter had, and the decision comes from the same
+    # function diff uses, so the two surfaces cannot drift apart on what counts
+    # as a change.
+    if baseline_path is not None:
+        from fieldtest.results.provenance import describe_judge_change
+
+        change = describe_judge_change(
+            build_judge_block(config), delta.get("baseline_judge"))
+        if change:
+            delta["baseline_judge_change"] = change
+
     if baseline_path is None and no_baseline_reason:
         # Every `vs prior` reads `—` whether this is a first run or the judge
         # changed. Only one of those is something the user did.

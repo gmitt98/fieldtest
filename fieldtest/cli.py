@@ -16,7 +16,7 @@ import sys
 
 import click
 
-from fieldtest.results.writer import REPORT_MD
+from fieldtest.results.writer import DATA_JSON, REPORT_MD
 
 from fieldtest.config import resolve_set
 from fieldtest.errors import ConfigError
@@ -427,7 +427,28 @@ def score(
     except Exception as e:
         _handle_error(e)
 
-    baseline = Path(baseline_path) if baseline_path else None
+    # A run id, not only a path. `history` prints run ids, the README tells the
+    # reader to take ids from it, and `diff --baseline` accepts one — but here
+    # an id fell through as a nonexistent path, build_delta returned an empty
+    # delta, and the run reported no comparison at all. Passing the documented
+    # flag produced strictly less than passing nothing, silently, exiting 0.
+    baseline = None
+    if baseline_path:
+        baseline = Path(baseline_path)
+        if not baseline.exists():
+            from fieldtest.results.aggregator import find_result_by_run_id
+
+            resolved = find_result_by_run_id(
+                path.resolve().parent / "results", baseline_path)
+            if resolved is None:
+                click.echo(
+                    f"Baseline not found: {baseline_path}\n"
+                    f"  Pass a run id as 'fieldtest history' prints it, or a "
+                    f"path to a {DATA_JSON} file.",
+                    err=True,
+                )
+                sys.exit(1)
+            baseline = resolved
 
     # verbose = per-judge output; only useful when sequential (concurrency 1)
     verbose = concurrency == 1

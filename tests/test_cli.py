@@ -3610,7 +3610,14 @@ def test_result_filenames_are_spelled_in_exactly_one_place():
     # while three glob sites in cli_project.py spelled suffixes by hand. The
     # commit that stated "a tripwire that matches a spelling rather than a
     # concept protects nothing" committed that same error in the same breath.
-    LITERAL = re.compile(r'-(?:data|report)\.(?:json|csv|md|html)')
+    # Third version of this regex. Version one banned .stem.removesuffix("-data")
+    # and missed f"{run_id}-data.json". Version two banned "-data.json" anchored
+    # to the literal's start and missed the glob "*-data.json". Version two also
+    # stopped catching version one's case, because "-data" alone has no
+    # extension — so the replacement passed on the exact spelling the original
+    # was written to ban. The extension is optional here, which covers the stem
+    # marker, the full filename, and any glob or fragment containing either.
+    LITERAL = re.compile(r'-(?:data|report)(?:\.(?:json|csv|md|html))?')
 
     offenders = []
     for path in sorted(root.rglob("*.py")):
@@ -3914,3 +3921,57 @@ def test_diff_warns_when_the_baseline_came_from_another_config(tmp_path, monkeyp
                "--baseline", "2026-01-01T00-00-00-mine"], catch_exceptions=False)
     assert "Config mismatch" not in same.output, (
         f"warned about a baseline from the same config:\n{same.output}")
+
+
+def test_score_baseline_accepts_the_run_id_history_prints(tmp_path, monkeypatch):
+    """
+    `--baseline` was click.Path() with no existence check, and build_delta
+    returns an empty delta for a path that is not there. So passing the run id
+    `history` prints — which the README tells the reader to do — produced no
+    comparison at all, and a *worse* result than passing nothing, silently,
+    exiting 0.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    _write_outputs(evals, "fix1", runs=2)
+    _write_outputs(evals, "fix2", runs=2)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "demo-offline-data.json").write_text(json.dumps({
+        "run_id": "2026-01-01T00-00-00-aaaa", "set": "full", "config": "config.yaml",
+        "summary": {"uc1": {"right": {"ev_regex": {"failure_rate": 1.0,
+                                                   "total_runs": 4}}}},
+        "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    ok = _run_score(evals, extra_args=["--baseline", "2026-01-01T00-00-00-aaaa"])
+    assert ok.exit_code == 0, ok.output
+    data = json.loads(sorted(
+        results.glob("*-data.json"), key=lambda p: p.stat().st_mtime)[-1].read_text())
+    assert data["delta"]["baseline_run_id"] == "2026-01-01T00-00-00-aaaa", (
+        f"the run id history prints produced no comparison: {data['delta']}")
+
+    # And an id that resolves to nothing fails loudly rather than silently.
+    bad = _run_score(evals, extra_args=["--baseline", "no-such-run"])
+    assert bad.exit_code == 1
+    assert "Baseline not found" in bad.output
+
+
+def test_history_names_calibration_and_legacy_files_when_there_are_no_runs(tmp_path, monkeypatch):
+    """
+    history's own rule is that anything present but unlisted gets counted and
+    named. Both notices sat after the empty-results early return, so a directory
+    holding only calibration or legacy files was reported as empty.
+    """
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-00-aaa-calibration.json").write_text("{}")
+    (results / "old-run-1.json").write_text('{"summary": {}}')
+
+    monkeypatch.chdir(tmp_path)
+    out = CliRunner().invoke(main, ["history"], catch_exceptions=False).output
+    assert "calibration run(s) are here but not listed" in out, out
+    assert "older result file(s) are here but not listed" in out, out
