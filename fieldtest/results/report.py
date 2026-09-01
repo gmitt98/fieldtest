@@ -140,21 +140,6 @@ def _format_fixture_matrix(
                 cells.append(f"{d['passed']}/{d['total']}")
         lines.append("| " + fid + " | " + " | ".join(cells) + " |")
 
-    # `validate` accepts a config that declares an id twice, so the report is
-    # where the user finds out. Split columns make the numbers right; they do
-    # not make two evals with one name readable.
-    declared_twice = sorted(
-        {eid for eid, _ in evals if sum(1 for e, _ in evals if e == eid) > 1}
-    )
-    for eid in declared_twice:
-        n = sum(1 for e, _ in evals if e == eid)
-        lines.append("")
-        lines.append(
-            f"  ⚠ `{use_case_id}` declares eval id `{eid}` {n}×. Eval ids must be "
-            f"unique within a use case — give each of them its own id, or the "
-            f"rows they produce cannot be told apart."
-        )
-
     return lines
 
 
