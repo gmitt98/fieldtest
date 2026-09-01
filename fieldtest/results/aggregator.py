@@ -916,9 +916,19 @@ def find_baseline_with_reason(
                 f"{data.get('dataset_version') or 'none'}, this one uses {dataset_version}"
             )
             continue
+        # The rule, whole: a judge changed only if both runs consulted one.
+        # A run that consulted none has no judged eval for the other run's
+        # judged evals to be compared against — the delta reports those as new
+        # — while the deterministic evals on both sides measured exactly the
+        # same thing. Rejecting the whole baseline threw that away: adding the
+        # first llm eval, which the walkthrough instructs, lost the history of
+        # every rule eval beside it and said "the judge changed since the last
+        # run" about a run that never had one.
         if judge_fingerprint is not None:
             candidate_judge = data.get("judge") or {}
-            if candidate_judge and candidate_judge.get("fingerprint") != judge_fingerprint:
+            if (candidate_judge
+                    and candidate_judge.get("judged") is not False
+                    and candidate_judge.get("fingerprint") != judge_fingerprint):
                 was = " ".join(
                     str(candidate_judge.get(k)) for k in ("provider", "model")
                     if candidate_judge.get(k)

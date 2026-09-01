@@ -2831,3 +2831,73 @@ def test_a_baseline_written_before_config_identity_is_still_usable(tmp_path):
         tmp_path, "current", "smoke", config_id="config.yaml")
     assert path is not None, (
         f"an upgrade blanked out a usable historical baseline: {reason}")
+
+
+def test_a_judge_changed_only_if_both_runs_consulted_one(tmp_path):
+    """
+    Recording no judge for a rules-only project gave that project a distinct
+    fingerprint, so adding the first llm eval — which the walkthrough
+    instructs — rejected the baseline and lost the history of every rule eval
+    beside it, saying "the judge changed since the last run" about a run that
+    never had one.
+
+    The rule, whole: a judge changed only if both runs consulted one. All three
+    cases asserted here, because the branch that is not asserted is the one
+    that goes wrong.
+    """
+    import os
+
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    def candidate(run_id, judge):
+        p = tmp_path / f"{run_id}-data.json"
+        p.write_text(json.dumps({"run_id": run_id, "set": "full",
+                                 "summary": {}, "delta": {}, "judge": judge}))
+        os.utime(p, (1000, 1000))
+        return p
+
+    judged_a = {"model": "haiku",  "fingerprint": "aaaa1111"}
+    judged_b = {"model": "sonnet", "fingerprint": "bbbb2222"}
+    unjudged = {"judged": False,   "fingerprint": "cccc3333"}
+
+    # 1. Both consulted a judge, and it differs — still rejected.
+    candidate("both", judged_a)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge_fingerprint=judged_b["fingerprint"])
+    assert path is None and reason and "judge changed" in reason
+
+    # 2. The baseline consulted none; this run does. Walkthrough step 9.
+    for f in tmp_path.glob("*-data.json"):
+        f.unlink()
+    candidate("rules_only", unjudged)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge_fingerprint=judged_b["fingerprint"])
+    assert path is not None, (
+        f"adding the first llm eval lost the rule evals' history: {reason}")
+
+    # 3. The mirror: this run consults none, the baseline did.
+    for f in tmp_path.glob("*-data.json"):
+        f.unlink()
+    candidate("was_judged", judged_a)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "cur", "full", judge_fingerprint=None)
+    assert path is not None, (
+        f"removing the llm evals lost the rule evals' history: {reason}")
+
+
+def test_the_config_identity_is_taken_from_the_resolved_path(tmp_path):
+    """
+    base_dir is resolved (runner.py and five other sites); the identity was
+    not. A symlinked config therefore wrote into the same results/ under a
+    second identity — history severed, and the rejection message claimed two
+    byte-identical files measure different evals.
+    """
+    from fieldtest.config import config_identity, parse_and_validate
+
+    root = Path(__file__).resolve().parent.parent
+    real = root / "fieldtest" / "datasets" / "expense-report" / "config.yaml"
+    link = tmp_path / "alias.yaml"
+    link.symlink_to(real)
+
+    assert config_identity(parse_and_validate(link)) == config_identity(
+        parse_and_validate(real)), "a symlink to a config became a second config"

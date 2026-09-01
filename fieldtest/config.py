@@ -503,7 +503,12 @@ def parse_and_validate(config_path: Path) -> Config:
 
     try:
         cfg = Config.model_validate(raw)
-        cfg._source_name = config_path.name
+        # Resolved, because base_dir is resolved (runner.py, and five more
+        # sites) and the two must agree about which file this is. Unresolved,
+        # a symlinked config wrote into the same results/ under a second
+        # identity: history severed, and the rejection message said two
+        # identical files measure different evals.
+        cfg._source_name = config_path.resolve().name
         return cfg
     except ValidationError as exc:
         # Extract the first error location + message and wrap in ConfigError.
