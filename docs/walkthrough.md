@@ -319,9 +319,14 @@ fieldtest score --config evals/reference-evals.yaml --set full
 This writes into the same `evals/results/` as your own runs, and `fieldtest
 history` lists them together. Your own `vs prior` column is unaffected:
 fieldtest will not use a run from a different config as a baseline, because a
-different config measures different evals. Editing or adding evals in your own
-`config.yaml` keeps its history — that is the ordinary case, and the added eval
-simply reports as new.
+different config measures different evals.
+
+Editing your own `config.yaml` keeps its history — including filling in the
+TODOs above, which adds your first LLM eval. The new eval reports as new and
+everything beside it still compares. The one edit that does break the chain is
+changing the judge itself, in `defaults.provider` or `defaults.model`: rescoring
+the same outputs with a different judge is not a measurement of your system, so
+fieldtest says so and shows `—` rather than a delta it cannot stand behind.
 
 A `calibration.panel` is commented out at the bottom of that file. Uncomment it
 and you can run two judges over the same outputs and see where they disagree:

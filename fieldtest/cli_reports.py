@@ -409,6 +409,29 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         )
         click.echo("")
 
+    # Same shape again, for which config's evals each run measured. `score`
+    # refuses to auto-select a baseline from another config; `diff --baseline`
+    # performs that exact comparison on request and said nothing, so the one
+    # path where the user is explicitly pointing at the wrong run was the one
+    # without a warning. Either side unrecorded is backwards-compat silence,
+    # as above.
+    cur_cfg  = current_data.get("config")
+    base_cfg = baseline_data.get("config")
+    if cur_cfg is not None and base_cfg is not None and cur_cfg != base_cfg:
+        click.echo(
+            f"⚠ Config mismatch — current: {cur_cfg}, baseline: {base_cfg}. "
+            f"A different config measures different evals, so these deltas "
+            f"compare two different questions."
+        )
+        click.echo("")
+    elif (cur_cfg is not None and base_run_id and base_cfg is None
+          and not baseline_data.get("__unreadable__")):
+        click.echo(
+            "⚠ Baseline does not record which config produced it — it may "
+            "have measured a different set of evals."
+        )
+        click.echo("")
+
     # Same shape, for the instrument rather than the fixtures. A changed judge
     # produces the identical artifact and is the more frequent event, because
     # judge model versions deprecate on the provider's schedule, not the team's.

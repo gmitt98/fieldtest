@@ -1342,6 +1342,7 @@ The fields most commonly used for CI gating:
   "run_id": "2026-03-22T14-30-00-a3f9",
   "set": "regression",
   "dataset_version": "v2",
+  "config": "config.yaml",
   "partial": false,
   "partial_details": [],
   "judge": {
@@ -1398,6 +1399,7 @@ The fields most commonly used for CI gating:
   reports whatever the survivors did. Absent in runs from before v0.3, so test `!= true`
   rather than `== false` if your gate may still meet an older file.
 - `dataset_version` is optional; absent in older runs.
+- `config` names the config file the run was scored from. A run is only auto-compared against another from the same config, since a different one measures different evals. Absent in runs written before 0.3.0.
 - `judge` records the instrument that produced the scores, with `fingerprint` a short stable hash over provider, model, temperature, seed, and per-eval overrides. Runs whose fingerprints differ are not compared automatically. Absent in runs from before v0.3. An `endpoints` key (provider name → base URL) appears inside `judge` only when the judge reached a provider configured by endpoint; with the built-in providers it is absent.
 - `schema_version` is `2`. Runs written before v0.3 have no such key; treat a missing key as `1`.
 

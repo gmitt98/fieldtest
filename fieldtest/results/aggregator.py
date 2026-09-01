@@ -614,6 +614,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         "unchanged":           [],
         "unchanged_keys":      [],
         "baseline_pre_judge":  False,
+        "baseline_pre_config": False,
         "baseline_judge_runs": None,
         "baseline_error_share": 0.0,
         "baseline_fixture_count": None,
@@ -625,6 +626,12 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
 
     try:
         baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+        # Parsing is not the only way a file can be wrong: `[]` parses and then
+        # AttributeErrors on the first .get, outside this try. history and diff
+        # were given this guard a round ago; these two readers are the siblings
+        # that were not.
+        if not isinstance(baseline_data, dict):
+            raise ValueError("not a fieldtest result object")
     except Exception:
         return empty
 
@@ -633,6 +640,13 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     # Accepted as a baseline, but the comparison carries a caveat: we cannot
     # tell whether the instrument was the same one.
     baseline_pre_judge = baseline_data.get("judge") is None
+    # find_baseline accepts a candidate with no `config` key, because blanking
+    # every historical delta on upgrade is worse than a caveated comparison —
+    # the same call already made for the judge. The judge version of that call
+    # ships a caveat on three surfaces; this one shipped none, so a v0.3.0 run
+    # from an entirely different config was adopted and its deltas printed
+    # without a word.
+    baseline_pre_config = baseline_data.get("config") is None
     # Collapsed failure_rate values are roughly comparable across repetition
     # counts — but not exactly, and not monotonically. collapse_verdicts
     # resolves ties to fail (spec 06 §2.7), so the collapsed rate depends on the
@@ -748,6 +762,7 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
         # carries the use case the report needs to attribute a row correctly.
         "unchanged_keys":    unchanged_keys,
         "baseline_pre_judge": baseline_pre_judge,
+        "baseline_pre_config": baseline_pre_config,
         "baseline_judge_runs": baseline_judge_runs,
         "baseline_error_share": round(baseline_error_share, 4),
         "baseline_fixture_count": baseline_fixture_count,
@@ -832,6 +847,7 @@ def find_baseline(
     Find the most recent results JSON in results_dir that:
       - is not the current run
       - was scored on the same set (smoke/full/regression/etc.)
+      - was produced by the same config, if both runs record one
       - matches dataset_version if one is provided
 
     Filtering by set prevents misleading deltas when fixture populations differ
@@ -842,6 +858,12 @@ def find_baseline(
     fixtures themselves change between dataset snapshots. Unversioned current
     runs match any baseline (backwards compatible). Versioned current runs
     only match baselines tagged with the same version.
+
+    Filtering by config_id keeps a run that measured a different set of evals
+    out of the chain: a results directory is shared by every config beside it,
+    and the walkthrough has the reader score an answer key into their own.
+    Candidates written before this carry no `config` and are accepted as
+    unknown, with the caveat surfaced through delta.baseline_pre_config.
 
     Filtering by judge_fingerprint prevents the same artifact again when the
     instrument changes: rescoring an unchanged outputs/ directory with a
@@ -890,6 +912,8 @@ def find_baseline_with_reason(
             continue
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not a fieldtest result object")
         except Exception:
             continue
 

@@ -129,6 +129,22 @@ def describe_judge_change(current: Optional[dict], baseline: Optional[dict]) -> 
     if current.get("fingerprint") == baseline.get("fingerprint"):
         return None
 
+    # A run that consulted no judge has no provider, model or temperature, and
+    # the field-by-field walk below rendered that as "temperature: 0.0 → None"
+    # — three null transitions describing one plain fact. Say the fact.
+    cur_unjudged  = current.get("judged") is False
+    base_unjudged = baseline.get("judged") is False
+    if cur_unjudged and base_unjudged:
+        return None
+    if cur_unjudged:
+        return "this run consulted no judge; the baseline used " + (
+            " ".join(str(baseline.get(k)) for k in ("provider", "model")
+                     if baseline.get(k)) or "one")
+    if base_unjudged:
+        return "the baseline consulted no judge; this run uses " + (
+            " ".join(str(current.get(k)) for k in ("provider", "model")
+                     if current.get(k)) or "one")
+
     changes = []
     for field in ("provider", "model", "temperature", "seed"):
         cur, base = current.get(field), baseline.get(field)

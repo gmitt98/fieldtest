@@ -288,6 +288,12 @@ def format_report(
             f"like-for-like comparison"
         )
 
+    if delta.get("baseline_run_id") and delta.get("baseline_pre_config"):
+        lines.append(
+            "⚠ baseline does not record which config produced it — it may have "
+            "measured a different set of evals."
+        )
+
     if delta.get("baseline_run_id") and delta.get("baseline_pre_judge"):
         lines.append(
             "⚠ baseline predates judge tracking — the judge that produced it is "

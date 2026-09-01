@@ -2901,3 +2901,57 @@ def test_the_config_identity_is_taken_from_the_resolved_path(tmp_path):
 
     assert config_identity(parse_and_validate(link)) == config_identity(
         parse_and_validate(real)), "a symlink to a config became a second config"
+
+
+def test_a_baseline_with_no_config_key_is_caveated_not_silent(tmp_path):
+    """
+    find_baseline accepts a candidate with no `config`, for the same upgrade
+    reason the judge fingerprint is accepted unknown. But the judge version of
+    that call ships a caveat on three surfaces and this one shipped none, so a
+    v0.3.0 run from an entirely different config was adopted and its deltas
+    printed without a word.
+    """
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "old-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "old", "set": "full",
+        "summary": {"uc1": {"right": {"e1": {"failure_rate": 1.0,
+                                             "total_runs": 4}}}},
+    }))
+    delta = build_delta(
+        {"uc1": {"right": {"e1": {"failure_rate": 0.0, "total_runs": 4}}}},
+        baseline)
+
+    assert delta["baseline_pre_config"] is True, (
+        "a baseline that does not say which config produced it was adopted "
+        "silently")
+
+    # And the caveat is off when the baseline does record one.
+    baseline.write_text(json.dumps({
+        "run_id": "old", "set": "full", "config": "config.yaml",
+        "summary": {"uc1": {"right": {"e1": {"failure_rate": 1.0,
+                                             "total_runs": 4}}}},
+    }))
+    delta2 = build_delta(
+        {"uc1": {"right": {"e1": {"failure_rate": 0.0, "total_runs": 4}}}},
+        baseline)
+    assert delta2["baseline_pre_config"] is False
+
+
+def test_find_baseline_survives_a_result_file_that_is_not_an_object(tmp_path):
+    """
+    history and diff were given this guard a round ago; build_delta and
+    find_baseline_with_reason are the siblings that were not. `[]` parses, gets
+    past the except, and AttributeErrors on the first .get.
+    """
+    from fieldtest.results.aggregator import build_delta, find_baseline_with_reason
+
+    bad = tmp_path / "2026-01-01T00-00-00-bad-data.json"
+    bad.write_text("[]")
+
+    # Must skip it rather than raise.
+    path, _ = find_baseline_with_reason(tmp_path, "cur", "full")
+    assert path is None
+
+    assert build_delta({}, bad)["baseline_run_id"] is None

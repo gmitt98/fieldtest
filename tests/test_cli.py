@@ -3868,3 +3868,43 @@ def test_clean_deletes_every_artifact_write_results_writes():
     # And clean consumes that declaration rather than keeping its own copy.
     assert "for suffix in RESULT_SUFFIXES" in inspect.getsource(cli_project), (
         "clean enumerates artifact suffixes independently of the writer")
+
+
+def test_diff_warns_when_the_baseline_came_from_another_config(tmp_path, monkeypatch):
+    """
+    `score` refuses to auto-select a baseline from another config. `diff
+    --baseline` performs that exact comparison on request and said nothing —
+    so the one path where the user explicitly points at the wrong run was the
+    one without a warning, while judge and dataset-version mismatches both warn
+    right beside it.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+
+    def run(rid, cfg):
+        (results / f"{rid}-data.json").write_text(json.dumps({
+            "run_id": rid, "set": "full", "config": cfg,
+            "fixture_count": 1, "runs": 1, "summary": {}, "delta": {},
+        }))
+
+    run("2026-01-02T00-00-00-cur", "config.yaml")
+    run("2026-01-01T00-00-00-ref", "reference-evals.yaml")
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["diff", "2026-01-02T00-00-00-cur",
+               "--baseline", "2026-01-01T00-00-00-ref"], catch_exceptions=False)
+    assert "Config mismatch" in result.output, (
+        f"an explicit cross-config diff said nothing:\n{result.output}")
+    assert "reference-evals.yaml" in result.output
+
+    # The sibling direction: same config, no warning.
+    run("2026-01-01T00-00-00-mine", "config.yaml")
+    same = CliRunner().invoke(
+        main, ["diff", "2026-01-02T00-00-00-cur",
+               "--baseline", "2026-01-01T00-00-00-mine"], catch_exceptions=False)
+    assert "Config mismatch" not in same.output, (
+        f"warned about a baseline from the same config:\n{same.output}")
