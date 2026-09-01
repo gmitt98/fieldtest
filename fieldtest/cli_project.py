@@ -23,6 +23,7 @@ import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
 from fieldtest.results.aggregator import (
+    run_id_from_path,
     find_result_by_run_id,
     result_files_newest_first,
 )
@@ -92,7 +93,7 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         runs = result_files_newest_first(results_dir)[keep:]
         out = []
         for p in runs:
-            run_id = p.stem.removesuffix("-data")
+            run_id = run_id_from_path(p)
             for suffix in ("-data.json", "-data.csv",
                            "-report.md", "-report.csv", "-report.html"):
                 f = results_dir / f"{run_id}{suffix}"

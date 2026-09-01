@@ -19,6 +19,7 @@ import click
 
 from fieldtest.cli_common import _default_config_path
 from fieldtest.results.aggregator import (
+    run_id_from_path,
     find_result_by_run_id,
     result_files_newest_first,
 )
@@ -100,7 +101,7 @@ def history(config_path: Optional[str]):
             unreadable.append(p.name)
             continue
 
-        run_id        = data.get("run_id", p.stem)
+        run_id        = data.get("run_id") or run_id_from_path(p)
         set_name      = data.get("set", "—")
         fixture_count = data.get("fixture_count", 0)
         summary       = data.get("summary", {})
@@ -302,7 +303,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
                     baseline_data = {"__unreadable__": True}
 
     # .stem leaves the -data suffix, and `fieldtest view <that>` then fails.
-    click.echo(f"Comparing: {current_path.stem.removesuffix('-data')}")
+    click.echo(f"Comparing: {run_id_from_path(current_path)}")
     # The key is always present and is None when there is no baseline, so a
     # `.get(..., '—')` default is unreachable and the line read "Baseline:
     # None" — the literal string, as though a run were named that.
@@ -494,7 +495,7 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             # claim this is the only run when the directory says so, since the
             # usual cause is a baseline that was rejected, not one that is
             # missing.
-            current_id = current_path.stem.removesuffix("-data")
+            current_id = run_id_from_path(current_path)
             if no_baseline_reason:
                 click.echo(
                     f"Nothing to compare — no usable baseline: {no_baseline_reason}."

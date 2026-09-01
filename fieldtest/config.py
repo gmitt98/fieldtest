@@ -77,6 +77,22 @@ class Eval(BaseModel):
             return v
         return validate_provider_name(v, "use_cases[].evals[].provider in config.yaml")
 
+    @property
+    def is_judged(self) -> bool:
+        """Whether a model decides this eval's verdict.
+
+        `type == "llm"` written thirteen times across ten files was the shape
+        behind two blockers: the exit gate that a passing regex disarmed, and
+        the judge-call count that included evals making no provider call. It is
+        a domain question — is a judge consulted — not a type comparison.
+        """
+        return self.type == "llm"
+
+    @property
+    def is_scored(self) -> bool:
+        """Whether this eval produces a number rather than a verdict."""
+        return self.is_judged and not self.binary
+
     @model_validator(mode="after")
     def regex_type_required_fields(self) -> "Eval":
         # A model validator, not a field validator on `pattern`/`match`: pydantic
@@ -404,6 +420,11 @@ class ResultRow(BaseModel):
 # ---------------------------------------------------------------------------
 # Judge output contracts
 # ---------------------------------------------------------------------------
+    @property
+    def is_judged(self) -> bool:
+        """Whether a model produced this row. See Eval.is_judged."""
+        return self.type == "llm"
+
 
 class BinaryJudgeOutput(BaseModel):
     answer:    Literal["Pass", "Fail"]

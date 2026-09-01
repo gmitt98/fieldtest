@@ -50,7 +50,7 @@ def build_judge_block(config: Config) -> dict:
         ev.id
         for uc in config.use_cases
         for ev in uc.evals
-        if ev.type == "llm" and not ev.judge_sees_inputs
+        if ev.is_judged and not ev.judge_sees_inputs
     )
 
     judge = {

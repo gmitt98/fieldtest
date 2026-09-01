@@ -250,7 +250,7 @@ def format_report(
 
     # Only when an LLM judge is actually configured — a rules-only project has
     # no judge, and naming one would describe an instrument that never ran.
-    if any(ev.type == "llm" for uc in config.use_cases for ev in uc.evals):
+    if any(ev.is_judged for uc in config.use_cases for ev in uc.evals):
         lines.append(
             f"judge: {config.defaults.provider} {config.defaults.model} | "
             f"temperature: {config.defaults.judge_temperature}"

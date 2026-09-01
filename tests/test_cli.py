@@ -3514,3 +3514,53 @@ def test_no_command_discards_an_error_and_carries_on_silently():
     assert not offenders, (
         "these discard an error and continue without telling anyone — the shape "
         "of every Phase-4 defect:\n  " + "\n  ".join(offenders))
+
+
+def test_history_prints_a_run_id_view_accepts_even_without_the_key(tmp_path, monkeypatch):
+    """
+    Six sites derived a run id from a filename and one differed: history fell
+    back to `p.stem`, which keeps the `-data` suffix. A result file with no
+    run_id key made history print an id `view` then rejected — the same defect
+    already fixed once in `diff`, surviving in a sibling.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    stem = "2026-01-01T00-00-00-aaaa"
+    (results / f"{stem}-data.json").write_text(json.dumps({
+        "set": "full", "fixture_count": 1, "runs": 1, "summary": {},
+        # no run_id key, as an older or hand-edited file may lack
+    }))
+    (results / f"{stem}-report.html").write_text("<p>r</p>")
+
+    monkeypatch.chdir(tmp_path)
+    listed = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    printed = [l.split()[0] for l in listed.output.splitlines() if stem in l]
+    assert printed, listed.output
+    assert printed[0] == stem, f"history printed {printed[0]!r}, not the run id"
+
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+    result = CliRunner().invoke(main, ["view", printed[0]], catch_exceptions=False)
+    assert result.exit_code == 0, (
+        f"view rejected the id history printed:\n{result.output}")
+
+
+def test_run_ids_are_derived_in_exactly_one_place():
+    """Five of six sites agreed; the sixth is how the defect above happened."""
+    import re
+
+    import fieldtest
+
+    root = Path(fieldtest.__file__).resolve().parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in str(path) or path.name == "aggregator.py":
+            continue
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            if re.search(r'\.stem\.removesuffix\(\s*["\']-data["\']', line):
+                offenders.append(f"{path.relative_to(root)}:{i}")
+    assert not offenders, (
+        "use run_id_from_path() rather than deriving it inline:\n  "
+        + "\n  ".join(offenders))

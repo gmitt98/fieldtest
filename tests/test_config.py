@@ -1099,3 +1099,60 @@ def test_readme_generator_uses_the_run_count_score_expects():
     readme = _readme()
     assert 'config["defaults"]["runs"]' not in readme
     assert 'fixtures.get("runs")' in readme
+
+
+# ---------------------------------------------------------------------------
+# One concept, one home (spec 15, Phase 5)
+# ---------------------------------------------------------------------------
+
+def test_is_judged_and_is_scored_answer_the_domain_question():
+    from fieldtest.config import Eval, ResultRow
+
+    scored = Eval(id="s", tag="good", type="llm", description="d", binary=False,
+                  scale=[1, 5], anchors={1: "a", 5: "b"})
+    binary = Eval(id="b", tag="right", type="llm", description="d",
+                  pass_criteria="a", fail_criteria="b")
+    regex  = Eval(id="r", tag="right", type="regex", description="d",
+                  pattern="x", match=True)
+    rule   = Eval(id="u", tag="safe", type="rule", description="d")
+    ref    = Eval(id="f", tag="safe", type="reference", description="d")
+
+    assert (scored.is_judged, scored.is_scored) == (True, True)
+    assert (binary.is_judged, binary.is_scored) == (True, False)
+    for ev in (regex, rule, ref):
+        assert not ev.is_judged, f"{ev.type} makes no provider call"
+        assert not ev.is_scored
+
+    assert ResultRow(use_case="u", eval_id="e", tag="good", type="llm",
+                     fixture_id="f", run=1).is_judged
+    assert not ResultRow(use_case="u", eval_id="e", tag="good", type="regex",
+                         fixture_id="f", run=1).is_judged
+
+
+def test_nothing_asks_whether_an_eval_is_llm_by_comparing_its_type():
+    """
+    `type == "llm"` written thirteen times across ten files was the shape behind
+    two blockers: the exit gate a passing regex disarmed, and the judge-call
+    count that included evals making no provider call. Both were this predicate,
+    got wrong in one place.
+
+    Only config.py may compare the literal — it defines what the answer means.
+    """
+    import re
+
+    import fieldtest
+
+    root = Path(fieldtest.__file__).resolve().parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in str(path) or path.name == "config.py":
+            continue
+        if "/demo/" in str(path) or "/datasets/" in str(path):
+            continue
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            if re.search(r'\.type\s*==\s*["\']llm["\']', line):
+                offenders.append(f"{path.relative_to(root)}:{i}  {line.strip()[:56]}")
+
+    assert not offenders, (
+        "use .is_judged — the domain predicate — rather than comparing the "
+        "type literal:\n  " + "\n  ".join(offenders))

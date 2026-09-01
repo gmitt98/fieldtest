@@ -71,7 +71,7 @@ def project_calls(config: Config, base_dir: Path, set_name: str) -> dict:
     panel = require_panel(config)
     per_judge = 0
     for uc in config.use_cases:
-        llm_evals = sum(1 for ev in uc.evals if ev.type == "llm")
+        llm_evals = sum(1 for ev in uc.evals if ev.is_judged)
         if not llm_evals:
             continue
         try:
@@ -168,8 +168,8 @@ def run_calibration(
             # Judge calls only. A regex or rule row never reached a provider,
             # and counting it here would contradict the projection printed
             # moments earlier by project_calls().
-            "calls":       sum(1 for r in rows if r.type == "llm"),
-            "errors":      sum(1 for r in rows if r.type == "llm" and r.error is not None),
+            "calls":       sum(1 for r in rows if r.is_judged),
+            "errors":      sum(1 for r in rows if r.is_judged and r.error is not None),
         })
 
     labels   = collect_human_labels(config, base_dir, set_name)

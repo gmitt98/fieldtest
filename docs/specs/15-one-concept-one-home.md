@@ -104,6 +104,22 @@ Re-examined per site rather than by grep count, which overstated two of them.
    the idiom, and a tripwire now makes that impossible. Collapsing further would
    add indirection for no reduction in ways to be wrong.
 
+**Outcome.** 1 and 2 done: `Eval.is_judged`, `Eval.is_scored` and
+`ResultRow.is_judged`, replacing 12 literal type comparisons, with a test that
+fails on any new one outside config.py. 4 done: `run_id_from_path()`, replacing
+six inline derivations — one of which differed, and that difference was a live
+defect (`history` printed an id `view` rejected, the same bug already fixed once
+in `diff`).
+
+3 **not done, deliberately.** All 11 `base / "results"` sites are the identical
+trivial join. Unlike `is_judged`, where the *logic* could differ between homes,
+this expression has no way to diverge in behaviour — a helper would add
+indirection without removing a way to be wrong. Same reasoning as 5.
+
+The pattern worth keeping: collapse where the homes could disagree about
+*meaning*. Repetition of an expression that cannot mean two things is not the
+defect this document is about.
+
 Sequenced one at a time with the suite green between each. Not parallelised:
 two agents refactoring adjacent concepts is how two implementations of the same
 fixture lookup arrived in one merge.

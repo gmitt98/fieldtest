@@ -247,7 +247,7 @@ def validate(config_path: Optional[str]):
     projected: dict[str, int] = {}
     judge_runs_used = 1
     for uc in config.use_cases:
-        llm_evals = sum(1 for ev in uc.evals if ev.type == "llm")
+        llm_evals = sum(1 for ev in uc.evals if ev.is_judged)
         if not llm_evals:
             continue
         judge_runs = resolve_judge_runs(config, uc)
@@ -459,7 +459,7 @@ def score(
     # passing regex disarmed it while every call to the judge failed — and the
     # README promises the opposite. A deterministic-only project has no judge
     # calls to fail and is never caught by this.
-    judged  = [r for r in rows if r.type == "llm"]
+    judged  = [r for r in rows if r.is_judged]
     scored  = [r for r in judged if r.passed is not None or r.score is not None]
     errored = [r for r in judged if r.error]
     if errored and not scored:
