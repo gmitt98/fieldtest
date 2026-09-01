@@ -83,16 +83,14 @@ def _format_fixture_matrix(
     uc_rows = [r for r in rows if r.use_case == use_case_id]
     fixture_ids = sorted({r.fixture_id for r in uc_rows if not r.skipped})
 
-    # Two evals sharing an id *and* a tag cannot be told apart by any field a
-    # row carries, so they stay one column. The warning below names them.
-    seen: set = set()
-    active: list[tuple[str, str]] = []
-    for eid, tag in evals:
-        if (eid, tag) in seen:
-            continue
-        if any(r.eval_id == eid and r.tag == tag for r in uc_rows):
-            seen.add((eid, tag))
-            active.append((eid, tag))
+    # No dedupe: eval ids are unique within a use case (config.py enforces it),
+    # so `evals` cannot repeat a pair. The `seen` set this replaced guarded
+    # against duplicates, and its comment pointed at a warning that no longer
+    # exists — both left over from the design that let duplicates through.
+    active: list[tuple[str, str]] = [
+        (eid, tag) for eid, tag in evals
+        if any(r.eval_id == eid and r.tag == tag for r in uc_rows)
+    ]
 
     if not fixture_ids or not active:
         return []
