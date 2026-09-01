@@ -766,6 +766,20 @@ def run_id_from_path(path: Path) -> str:
     """
     return path.stem.removesuffix("-data")
 
+def result_data_path(results_dir: Path, run_id: str) -> Path:
+    """
+    Where a run's -data.json would be if its filename matched its run id.
+
+    The inverse of run_id_from_path, and only a fallback: filename and run id
+    are not always the same string, so resolution goes through
+    find_result_by_run_id. This exists so the "not found" message can name a
+    path without four callers spelling the suffix out themselves.
+    """
+    from fieldtest.results.writer import RESULT_SUFFIXES
+
+    return results_dir / f"{run_id}{RESULT_SUFFIXES[0]}"
+
+
 def result_files_newest_first(results_dir: Path) -> list[Path]:
     """
     Every -data.json in results_dir, newest first.

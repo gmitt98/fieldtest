@@ -18,9 +18,11 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path
+from fieldtest.results.writer import RESULT_SUFFIXES
 from fieldtest.results.aggregator import (
     run_id_from_path,
     find_result_by_run_id,
+    result_data_path,
     result_files_newest_first,
 )
 
@@ -74,7 +76,7 @@ def history(config_path: Optional[str]):
     saw_errors = False
     legacy = [
         f for f in results_dir.glob("*.json")
-        if not f.name.endswith("-data.json")
+        if not f.name.endswith(RESULT_SUFFIXES[0])
         and not f.name.endswith("-calibration.json")
     ]
     if not result_files:
@@ -258,14 +260,14 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # still built a path by hand, so `fieldtest diff <id>` rejected the id
     # `fieldtest history` had just printed, in the documented first workflow.
     if run_id:
-        current_path = find_result_by_run_id(results_dir, run_id) or (
-            results_dir / f"{run_id}-data.json")
+        current_path = (find_result_by_run_id(results_dir, run_id)
+                        or result_data_path(results_dir, run_id))
     else:
         current_path = result_files[0]
 
     if baseline_id:
-        baseline_path = find_result_by_run_id(results_dir, baseline_id) or (
-            results_dir / f"{baseline_id}-data.json")
+        baseline_path = (find_result_by_run_id(results_dir, baseline_id)
+                         or result_data_path(results_dir, baseline_id))
     else:
         # most recent that isn't current
         others = [f for f in result_files if f != current_path]
