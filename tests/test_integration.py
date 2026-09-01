@@ -3988,3 +3988,25 @@ def test_the_changelog_does_not_claim_upgrades_find_no_baseline():
         d, "cur", "full", judge={"fingerprint": "bfd63a32"})
     assert path is not None and reason is None, (
         "a 0.2.2 baseline, which records no judge, must still be accepted")
+
+
+def test_the_readme_documents_that_clean_prunes_calibration_runs():
+    """
+    README's clean section promised "only the five artifacts of each pruned
+    run" and listed exactly five files. Shipping calibration pruning without
+    amending it turns a kept promise into a broken one — the defect class this
+    release spent its audits removing.
+    """
+    from pathlib import Path
+
+    import fieldtest
+
+    text = (Path(fieldtest.__file__).resolve().parent.parent / "README.md").read_text()
+    i = text.index("`--keep` defaults to 20.")
+    section = text[i: i + 1200]
+    assert "-calibration.json" in section, (
+        "the clean section does not mention calibration artifacts")
+    assert "my-calibration.json" in section, (
+        "the clean section does not state that a file you named yourself is safe")
+    assert "own `--keep` pool" in section or "their own" in section, (
+        "the clean section does not say calibrations have a separate keep pool")

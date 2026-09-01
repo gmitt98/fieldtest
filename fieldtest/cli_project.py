@@ -23,12 +23,15 @@ import click
 
 from fieldtest.cli_common import _default_config_path, _handle_error
 from fieldtest.results.writer import (
+    CALIBRATION_JSON,
+    CALIBRATION_MD,
     DATA_JSON,
     REPORT_HTML,
     REPORT_MD,
     RESULT_SUFFIXES,
 )
 from fieldtest.results.aggregator import (
+    calibration_files_newest_first,
     run_id_from_path,
     find_result_by_run_id,
     result_files_newest_first,
@@ -106,6 +109,26 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
                     out.append(f)
         return out
 
+    def calibration_victims() -> list:
+        """
+        The two artifacts of each pruned calibration run, named exactly.
+
+        Its own keep pool, never merged into result_victims(): calibration runs
+        are cheap to repeat and score runs are the baselines `diff` depends on,
+        so a shared pool would let a handful of re-calibrations evict the
+        history. The .json is the anchor and the .md only rides along, so an
+        orphan .md is never a candidate.
+        """
+        if not results_dir.is_dir():
+            return []
+        out = []
+        for p in calibration_files_newest_first(results_dir)[keep:]:
+            out.append(p)
+            md = results_dir / (p.name[: -len(CALIBRATION_JSON)] + CALIBRATION_MD)
+            if md.is_file():
+                out.append(md)
+        return out
+
     def describe(files: list, root: Path) -> list:
         shown = [f"    {f.relative_to(root.parent)}" for f in files[:8]]
         if len(files) > 8:
@@ -115,7 +138,8 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
     if not outputs and not results:
         out_files = output_victims()
         res_files = result_victims()
-        if not out_files and not res_files:
+        cal_files = calibration_victims()
+        if not out_files and not res_files and not cal_files:
             click.echo("Nothing to clean.")
             return
 
@@ -127,6 +151,14 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
             click.echo(f"  outputs/ — {len(out_files)} file(s), and the directory's contents:")
             for line in describe(out_files, outputs_dir):
                 click.echo(line)
+        if cal_files:
+            click.echo(
+                f"  results/ — {len(cal_files)} file(s) from old calibration "
+                f"runs (keeping {keep}):"
+            )
+            for line in describe(cal_files, results_dir):
+                click.echo(line)
+
         if res_files:
             click.echo(f"  results/ — {len(res_files)} file(s) from old runs (keeping {keep}):")
             for line in describe(res_files, results_dir):
@@ -136,7 +168,7 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
             click.echo("Cancelled.")
             return
         outputs = bool(out_files)
-        results = bool(res_files)
+        results = bool(res_files) or bool(cal_files)
 
     if outputs and outputs_dir.exists():
         if outputs_dir.is_symlink():
@@ -157,10 +189,18 @@ def clean(outputs: bool, results: bool, keep: int, config_path: Optional[str]):
         # was deleted and never appeared in the count.
         victims = result_victims()
         runs = len({f.name.rsplit("-", 1)[0] for f in victims})
-        for f in victims:
+        cal_victims = calibration_victims()
+        cal_runs = sum(1 for f in cal_victims if f.name.endswith(CALIBRATION_JSON))
+        for f in victims + cal_victims:
             f.unlink()
         kept = len(result_files_newest_first(results_dir))
-        click.echo(f"✓ results/ pruned — kept {kept}, removed {runs} run(s)")
+        cal_kept = len(calibration_files_newest_first(results_dir))
+        msg = f"✓ results/ pruned — kept {kept}, removed {runs} run(s)"
+        if cal_runs or cal_kept:
+            # Counted apart from score runs because they are pruned apart; one
+            # number for both would report a keep that neither pool honours.
+            msg += (f"; kept {cal_kept}, removed {cal_runs} calibration run(s)")
+        click.echo(msg)
 
 
 def _echo_gitignore(evals_dir: Path, added: list) -> None:

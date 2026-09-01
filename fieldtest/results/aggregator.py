@@ -6,6 +6,7 @@ build_summary() and build_delta().
 from __future__ import annotations
 
 import json
+import re
 import math
 from statistics import NormalDist
 from pathlib import Path
@@ -811,6 +812,34 @@ def result_data_path(results_dir: Path, run_id: str) -> Path:
     from fieldtest.results.writer import RESULT_SUFFIXES
 
     return results_dir / f"{run_id}{RESULT_SUFFIXES[0]}"
+
+
+# The shape make_run_id() produces, and the only stem a calibration file
+# fieldtest wrote can have. `clean` uses it as the prune anchor because the
+# alternative — globbing *-calibration.json — makes a file the user named
+# themselves into a deletion candidate, which README's clean section promises
+# will not happen. Leading underscore: this is not a public constant.
+_RUN_ID_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-f]{4}")
+
+
+def calibration_files_newest_first(results_dir: Path) -> list[Path]:
+    """
+    Every calibration run's -calibration.json, newest first.
+
+    A calibration run writes no -data.json, so it never appears in
+    result_files_newest_first and `clean` never saw it. Sorted by mtime with the
+    name as tie-break, the same way result_files_newest_first is — a
+    lexicographic sort is what let the bundled demo outrank real runs, and
+    `clean` is the command that lesson was learned in.
+    """
+    from fieldtest.results.writer import CALIBRATION_JSON
+
+    files = [
+        p for p in results_dir.glob(f"*{CALIBRATION_JSON}")
+        if p.is_file()
+        and _RUN_ID_RE.fullmatch(p.name[: -len(CALIBRATION_JSON)])
+    ]
+    return sorted(files, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
 
 
 def result_files_newest_first(results_dir: Path) -> list[Path]:

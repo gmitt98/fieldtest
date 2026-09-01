@@ -193,6 +193,8 @@ def run_calibration(
 
 def write_calibration(data: dict, output_dir: Path, run_id: str) -> None:
     """Write {run_id}-calibration.json and {run_id}-calibration.md."""
+    from fieldtest.results.writer import CALIBRATION_JSON, CALIBRATION_MD
+
     import json
 
     # Both built before either is written, matching write_results(): a panel
@@ -202,5 +204,5 @@ def write_calibration(data: dict, output_dir: Path, run_id: str) -> None:
     md_content   = format_calibration(data)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / f"{run_id}-calibration.json").write_text(json_content)
-    (output_dir / f"{run_id}-calibration.md").write_text(md_content)
+    (output_dir / f"{run_id}{CALIBRATION_JSON}").write_text(json_content)
+    (output_dir / f"{run_id}{CALIBRATION_MD}").write_text(md_content)

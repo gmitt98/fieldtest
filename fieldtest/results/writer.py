@@ -35,6 +35,14 @@ REPORT_HTML = "-report.html"
 
 RESULT_SUFFIXES = (DATA_JSON, DATA_CSV, REPORT_MD, REPORT_CSV, REPORT_HTML)
 
+# A calibration run measures the judge, not the system, so it writes neither a
+# -data.json nor anything in RESULT_SUFFIXES — which is why `clean` never saw
+# these and left them behind at every --keep value. They live here because this
+# module is the one home for artifact suffixes, and calibrate.py imports them
+# for the paths it writes.
+CALIBRATION_JSON = "-calibration.json"
+CALIBRATION_MD   = "-calibration.md"
+
 
 def write_results(
     rows: list[ResultRow],

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.1 (unreleased)
+
+**`fieldtest clean` prunes calibration runs.** A calibration run writes no
+`-data.json`, so `clean` never counted it and its two files stayed on disk at
+every `--keep` value — "kept 0, removed 1 run(s)" while leaving them behind.
+They now prune in their own `--keep` pool, counted separately: calibrations are
+cheap to repeat, and sharing a pool would let a few re-runs evict the score
+history `fieldtest diff` compares against. Only names fieldtest generated are
+candidates, so a file of your own called `my-calibration.json` is left alone.
+
+**A rejected baseline says what actually differs.** `fieldtest score` reported
+"the judge changed since the last run (was anthropic claude-haiku-4-5)" from a
+fingerprint mismatch it never looked into — so when the judge was identical and
+only the recorded shape had moved, it printed the current judge as the old one.
+It now names the difference: which per-eval overrides changed, which evals
+stopped seeing their inputs, or the two fingerprints when it cannot tell.
+Flipping `judge_sees_inputs` used to report only "judge configuration changed".
+
 ## 0.3.0
 
 This release is about the judge. fieldtest now pins it, records which one ran, reports how
@@ -486,7 +504,7 @@ tracking" about a run whose judge it had recorded minutes earlier and that
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 858, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 864, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 - Known, deferred to 0.3.1: `fieldtest clean` does not prune `-calibration.json`

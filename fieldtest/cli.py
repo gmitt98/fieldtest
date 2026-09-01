@@ -16,7 +16,7 @@ import sys
 
 import click
 
-from fieldtest.results.writer import DATA_JSON, REPORT_MD
+from fieldtest.results.writer import CALIBRATION_MD, DATA_JSON, REPORT_MD
 
 from fieldtest.config import resolve_set
 from fieldtest.errors import ConfigError
@@ -368,7 +368,7 @@ def calibrate(set_name: str, set_name_opt: Optional[str], config_path: Optional[
             score_ = data["evals"][eval_id]["disagreement"]
             click.echo(f"  {eval_id} — {round(score_ * 100, 1)}% disagreement")
     click.echo("")
-    click.echo(f"Calibration written to: {results_dir / f'{run_id}-calibration.md'}")
+    click.echo(f"Calibration written to: {results_dir / f'{run_id}{CALIBRATION_MD}'}")
 
     # A panel where every call errored measured nothing. The report says so in
     # its errors column, but the exit code said success, so a CI job running

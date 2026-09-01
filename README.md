@@ -1152,6 +1152,14 @@ Only what's listed in the prompt gets removed. If only results need pruning, out
 
 `--keep` defaults to 20. Each result set is 5 files (`-data.json`, `-data.csv`, `-report.md`, `-report.csv`, `-report.html`); all five are removed together when pruning.
 
+Calibration runs are pruned too, in their own `--keep` pool — `--keep 1` keeps the newest score
+run *and* the newest calibration run. They are counted separately because they measure the judge
+rather than the system, and because a calibration is cheap to repeat: sharing one pool would let a
+few re-runs evict the score history `fieldtest diff` compares against. A calibration run is two
+files (`-calibration.json`, `-calibration.md`), and only those whose name is a run id fieldtest
+generated are candidates — a file of your own called `my-calibration.json` is left alone, like any
+other file you name yourself.
+
 ---
 
 ### `fieldtest init`
