@@ -21,6 +21,7 @@ from fieldtest.config import (
     resolve_judge_runs,
     resolve_runs,
     resolve_set,
+    validate_run_counts,
 )
 from fieldtest.errors import ConfigError, OutputError
 from fieldtest.fixtures import find_fixture_path
@@ -65,22 +66,10 @@ def score(
 
     # runs: 0 would write a green result set that measured nothing, and
     # judge_runs: 0 would silently drop every LLM eval from the run — both
-    # passed validation and exited 0 before this check existed.
-    for uc in config.use_cases:
-        runs_v = resolve_runs(config, uc)
-        if runs_v < 1:
-            raise ConfigError(
-                f"Config error at use_cases.{uc.id}.fixtures.runs: must be at "
-                f"least 1, got {runs_v}. A run that scores zero outputs would "
-                f"report a green, empty result set."
-            )
-        judge_runs_v = resolve_judge_runs(config, uc)
-        if judge_runs_v < 1:
-            raise ConfigError(
-                f"Config error at use_cases.{uc.id}.fixtures.judge_runs: must be "
-                f"at least 1, got {judge_runs_v}. judge_runs below 1 would "
-                f"silently drop every LLM eval from the run."
-            )
+    # passed validation and exited 0 before this check existed. The check
+    # itself lives in resolve.validate_run_counts so `fieldtest validate`
+    # applies the identical rule.
+    validate_run_counts(config)
 
     base_dir     = config_path.resolve().parent
     outputs_dir  = base_dir / "outputs"

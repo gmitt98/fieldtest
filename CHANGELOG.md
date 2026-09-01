@@ -179,8 +179,8 @@ Rescoring an existing `outputs/` directory is cheap, so this costs one extra pas
 eval you get pairwise agreement, Cohen's kappa and Fleiss' kappa; scored evals get mean absolute
 deviation and Spearman correlation.
 
-Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the
-time on an eval whose true failure rate is 5%.
+Kappa rather than raw agreement, because two judges that both always answer pass agree 100% of
+the time — and their kappa is exactly zero, because none of that agreement is beyond chance.
 
 The report ranks your evals by how much the panel disagreed. Those are the `pass_criteria` to
 rewrite. Where fixtures carry labels, each judge is also ranked by agreement with you.
@@ -270,7 +270,7 @@ fieldtest score --set full          # no API key needed
 
 `expense-report` ships the artifacts and leaves the evals to you: a prompt, a
 travel policy, receipt files, and nine outputs as though a generator had just
-written them. Six carry a deliberate fault. Two of those are catchable with no
+written them. Six carry a deliberate fault. Three of those are catchable with no
 API call, because the shipped scaffold's filled-in evals are `rule`, `regex`
 and `reference` — so the first run produces real failures before you have a key
 or have written anything. Three more evals are `TODO`.
@@ -390,10 +390,11 @@ LLM eval or writing a green empty result set.
 **Packaging and typing.** The wheel ships `py.typed`, so mypy checks your code
 against fieldtest's real types — and a stray comment that made mypy abort on
 `fieldtest/config.py` (taking your own project's typechecking down with it) is
-gone. Dependency floors are now installable on every supported Python (3.10 to
-3.14): lowest-resolution installs (`uv --resolution lowest`, constraints
-files) previously failed on 3.12+ because `pyyaml 6.0` and `pydantic 2.0`
-cannot build there. The publish workflow refuses a tag that does not match the
+gone. fieldtest's own dependency floors now build on every supported Python
+(3.10 to 3.14): `uv --resolution lowest-direct` previously failed on 3.12+
+because `pyyaml 6.0` and `pydantic 2.0` cannot build there. A fully transitive
+`uv --resolution lowest` still fails on 3.13 and 3.14 — `anthropic 0.40.0`
+resolves `jiter` to 0.4.0, which does not build past 3.12. The publish workflow refuses a tag that does not match the
 package version and runs the full suite before building.
 
 Also: the HTML report escapes everything user-controlled; `--concurrency 0`, a

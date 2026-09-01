@@ -1110,7 +1110,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="of-icon">🔌</div>
         <div class="of-body">
           <div class="of-name">Runs before you have a key</div>
-          <div class="of-desc">The filled-in evals are <code>rule</code>, <code>regex</code> and <code>reference</code> — all deterministic. Two planted faults are catchable by arithmetic alone. Reach for an LLM judge when the question needs judgment, not when it needs addition.</div>
+          <div class="of-desc">The filled-in evals are <code>rule</code>, <code>regex</code> and <code>reference</code> — all deterministic. Three planted faults are catchable with no API call. Reach for an LLM judge when the question needs judgment, not when it needs arithmetic.</div>
         </div>
       </div>
       <div class="of-card">
@@ -1515,7 +1515,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="of-icon">⚖️</div>
         <div class="of-body">
           <div class="of-name">fieldtest calibrate</div>
-          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 95% of the time on a 5% failure rate. Evals rank by disagreement, most contested first, and <code>calibration.kappa_threshold</code> sets the point below which a judge pair is flagged as agreeing no better than chance.</div>
+          <div class="of-desc">Run a panel of judges over the same outputs. Pairwise agreement, Cohen's kappa, Fleiss' kappa. Kappa rather than raw agreement, because two judges that both always answer pass agree 100% of the time — and score a kappa of zero, since none of that agreement is beyond chance. Evals rank by disagreement, most contested first, and <code>calibration.kappa_threshold</code> sets the point below which a judge pair is flagged as agreeing no better than chance.</div>
         </div>
       </div>
       <div class="of-card">

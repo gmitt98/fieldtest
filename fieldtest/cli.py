@@ -109,6 +109,15 @@ def validate(config_path: Optional[str]):
     path = Path(config_path) if config_path else _default_config_path()
     config = _load_config(path)
 
+    # The same floor score() enforces. Without it, validate blessed a
+    # `runs: 0` / `judge_runs: 0` config that score immediately refused —
+    # after the user had already paid for generation.
+    from fieldtest.config import validate_run_counts
+    try:
+        validate_run_counts(config)
+    except ConfigError as e:
+        _handle_error(e)
+
     base_dir    = path.resolve().parent
 
     # Coverage summary

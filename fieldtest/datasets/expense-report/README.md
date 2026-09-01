@@ -36,7 +36,7 @@ Nine outputs across three trips. Three are clean. The rest each carry one fault:
 | `june-trip/run-2` | alcohol reimbursed, against policy 4.3 | `rule` |
 | `june-trip/run-3` | correct numbers, no explanation of the exclusion | `llm` |
 
-Two of those are catchable with no API call at all. Reach for an LLM judge when
+Three of those are catchable with no API call at all. Reach for an LLM judge when
 the question needs judgment, not when it needs arithmetic.
 
 ## Your turn

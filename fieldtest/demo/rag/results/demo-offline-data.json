@@ -1413,7 +1413,7 @@
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
-          "judge_calls": 9,
+          "judge_calls": 0,
           "outputs_attempted": 9
         }
       },
@@ -1428,7 +1428,7 @@
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,
-          "judge_calls": 12,
+          "judge_calls": 0,
           "outputs_attempted": 12
         },
         "cites-source": {
@@ -1441,7 +1441,7 @@
           "floor_hits": 0,
           "total_runs": 12,
           "error_count": 0,
-          "judge_calls": 12,
+          "judge_calls": 0,
           "outputs_attempted": 12
         }
       },

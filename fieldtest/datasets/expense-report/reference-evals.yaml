@@ -2,7 +2,7 @@
 # compare — not because these are the correct answers, but because seeing a
 # second person's decisions is the fastest way to notice the ones you skipped.
 #
-#     fieldtest score --config reference-evals.yaml --set full
+#     fieldtest score --config evals/reference-evals.yaml --set full
 #
 # All five judge types appear here. The three deterministic ones run without an
 # API key; the llm ones need a judge.
@@ -114,8 +114,8 @@ use_cases:
 #
 # Uncomment and run:
 #
-#     fieldtest calibrate --config reference-evals.yaml --set smoke --dry-run
-#     fieldtest calibrate --config reference-evals.yaml --set smoke
+#     fieldtest calibrate --config evals/reference-evals.yaml --set smoke --dry-run
+#     fieldtest calibrate --config evals/reference-evals.yaml --set smoke
 #
 # --dry-run first, always: the bill is judges × runs × judge_runs × llm evals ×
 # fixtures, and it is easy to ask for more than you meant. The smoke set is one

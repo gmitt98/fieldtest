@@ -3555,3 +3555,252 @@ def test_the_html_delta_agrees_with_the_markdown_on_direction():
     assert md_change, md
     assert html_change.lstrip("+") == md_change.group(1).lstrip("+"), (
         f"HTML says {html_change}, markdown says {md_change.group(1)}")
+
+
+# ---------------------------------------------------------------------------
+# Round 6 — the docs area. Seven claims the code contradicted; each test pins
+# the doc to the behaviour it describes, derived by running the behaviour.
+# ---------------------------------------------------------------------------
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _cli_text(result) -> str:
+    """stdout plus stderr, across click versions that do or don't merge them."""
+    try:
+        err = result.stderr
+    except (ValueError, AttributeError):
+        err = ""
+    return result.output + err
+
+
+def test_validate_refuses_the_run_counts_score_refuses(tmp_path):
+    """
+    `judge_runs: 0` and `runs: 0` are errors per the CHANGELOG, but the check
+    lived only in score() — validate printed "✓ config valid" on a config score
+    immediately refused, after the user had already paid for generation.
+    """
+    import shutil
+
+    import yaml
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    for field in ("runs", "judge_runs"):
+        dest = tmp_path / field / "evals"
+        shutil.copytree(_dataset_dir("expense-report"), dest,
+                        ignore=shutil.ignore_patterns("results", "__pycache__"))
+        config_path = dest / "config.yaml"
+        config = yaml.safe_load(config_path.read_text())
+        config["use_cases"][0]["fixtures"][field] = 0
+        config_path.write_text(yaml.dump(config))
+
+        result = CliRunner().invoke(
+            main, ["validate", "--config", str(config_path)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 1, (
+            f"validate blessed {field}: 0, which score refuses")
+        text = _cli_text(result)
+        assert f"fixtures.{field}: must be at least 1, got 0" in text, text
+        assert "✓ config valid" not in text
+
+
+def test_the_reference_evals_comments_use_paths_that_resolve_from_the_project_root(
+        tmp_path, monkeypatch):
+    """
+    The comment block in the shipped reference-evals.yaml said
+    `--config reference-evals.yaml`, which fails with "Config not found" from
+    the project root — the directory every command in the walkthrough runs
+    from. Asserted by scaffolding the dataset and resolving each path.
+    """
+    import re
+
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    for name in DATASETS:
+        root = tmp_path / name
+        root.mkdir()
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(main, ["dataset", "use", name],
+                                    catch_exceptions=False)
+        assert result.exit_code == 0, _cli_text(result)
+
+        text = (root / "evals" / "reference-evals.yaml").read_text()
+        paths = re.findall(r"--config\s+(\S+)", text)
+        assert paths, f"{name}: no --config commands in the comment block"
+        for p in paths:
+            assert (root / p).is_file(), (
+                f"{name}: the file's own instructions say --config {p}, "
+                f"which does not resolve from the project root")
+
+
+def test_the_changelog_scopes_the_lowest_resolution_claim_to_what_installs():
+    """
+    "Dependency floors are now installable on every supported Python (3.10 to
+    3.14)" was false: `uv --resolution lowest` on 3.13/3.14 resolves anthropic
+    0.40.0 → jiter 0.4.0, whose sdist cannot build there (pyo3 0.21 caps at
+    3.12). Only fieldtest's own direct floors install everywhere.
+    """
+    changelog = (_repo_root() / "CHANGELOG.md").read_text()
+    assert "Dependency floors are now installable on every supported" not in changelog, (
+        "the CHANGELOG repeats the blanket claim that fully-transitive lowest "
+        "resolution disproves on 3.13/3.14")
+    para = changelog.split("**Packaging and typing.**")[1].split("\n\n")[0]
+    assert "jiter" in para and "3.13" in para, (
+        "the floors paragraph no longer says which resolution still fails, "
+        "so the next edit can quietly restore the blanket claim")
+
+
+def test_the_bundled_demo_reports_show_judge_vs_labels_where_fixtures_carry_labels():
+    """
+    The email demo ships fixtures with human labels, but the 2026-08-27 regen
+    called build_summary without labels= — so the first report a keyless user
+    opens was missing the Judge vs your labels table the release notes
+    headline.
+    """
+    import fieldtest
+    from fieldtest.config import extract_labels, load_fixture
+
+    demos_with_labels = 0
+    for demo_dir in sorted((Path(fieldtest.__file__).parent / "demo").iterdir()):
+        if not (demo_dir / "config.yaml").is_file():
+            continue
+        labels = {}
+        for f in sorted((demo_dir / "fixtures").rglob("*.yaml")):
+            labels.update(extract_labels(load_fixture(f, demo_dir)))
+        if not labels:
+            continue
+        demos_with_labels += 1
+
+        results = demo_dir / "results"
+        md   = (results / "demo-offline-report.md").read_text()
+        html = (results / "demo-offline-report.html").read_text()
+        data = json.loads((results / "demo-offline-data.json").read_text())
+        assert "Judge vs Human Labels" in md, (
+            f"{demo_dir.name}: fixtures carry labels; the shipped markdown "
+            f"report has no Judge vs Human Labels section")
+        assert "Judge vs your labels" in html, demo_dir.name
+        labeled = [
+            stats for tags in data["summary"].values()
+            for evals in tags.values() if isinstance(evals, dict)
+            for stats in evals.values()
+            if isinstance(stats, dict) and "labeled_runs" in stats
+        ]
+        assert labeled, (
+            f"{demo_dir.name}: shipped summary carries no labeled_runs")
+
+    assert demos_with_labels >= 1, (
+        "no bundled demo carries labels — the table can no longer be "
+        "demonstrated offline")
+
+
+def test_the_docs_count_of_no_key_catchable_faults_matches_the_scaffold(monkeypatch):
+    """
+    "Two of those are catchable with no API call" sat two paragraphs under a
+    fault table listing three deterministic catches — and the scaffold's own
+    keyless first run flags three faulty outputs. Count derived by running it.
+    """
+    from fieldtest.config import parse_and_validate
+    from fieldtest.runner import score
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    config_path = _dataset_dir("expense-report") / "config.yaml"
+    config = parse_and_validate(config_path)
+    _, rows = score(config=config, config_path=config_path, set_name="full",
+                    write_artifacts=False)
+    caught = {(r.fixture_id, r.run) for r in rows if r.passed is False}
+
+    spelled = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
+    right = spelled[len(caught)]
+
+    dataset_readme = (_dataset_dir("expense-report") / "README.md").read_text()
+    changelog      = (_repo_root() / "CHANGELOG.md").read_text()
+    readme         = (_repo_root() / "README.md").read_text()
+    flat_readme    = " ".join(readme.split())
+
+    assert f"{right} of those are catchable with no API call" in dataset_readme
+    assert f"{right} of those are catchable with no" in changelog
+    assert f"{right} are catchable with no API call" in flat_readme
+    for n, word in spelled.items():
+        if n == len(caught):
+            continue
+        for doc, where in ((dataset_readme, "dataset README"),
+                           (changelog, "CHANGELOG"),
+                           (flat_readme, "README")):
+            assert f"{word} of those are catchable" not in doc, (
+                f"{where} says {word.lower()}; the keyless run catches "
+                f"{len(caught)} faulty outputs")
+            assert f"{word} are catchable" not in doc, (
+                f"{where} says {word.lower()}; the keyless run catches "
+                f"{len(caught)} faulty outputs")
+
+
+def test_the_kappa_illustration_matches_the_shipped_arithmetic():
+    """
+    README and CHANGELOG said two always-pass judges "agree 95% of the time"
+    on a 5% failure rate. The shipped functions say 100% raw agreement and a
+    kappa of exactly zero — 95% is each judge's agreement with ground truth, a
+    different quantity.
+    """
+    from fieldtest.results.calibration import cohens_kappa, raw_agreement
+
+    always_pass = {i: True for i in range(100)}
+    assert raw_agreement(always_pass, always_pass) == 1.0
+    assert cohens_kappa(always_pass, always_pass) == 0.0
+
+    for name in ("README.md", "CHANGELOG.md", "docs/index.html"):
+        text = (_repo_root() / name).read_text()
+        idx = text.find("always answer pass")
+        assert idx != -1, f"{name}: the kappa illustration is gone entirely"
+        while idx != -1:
+            window = text[idx:idx + 300]
+            assert "95%" not in window, (
+                f"{name}: claims always-pass judges agree 95% of the time; "
+                f"raw_agreement says 1.0")
+            assert "100%" in window, (
+                f"{name}: the illustration no longer states the real number")
+            idx = text.find("always answer pass", idx + 1)
+
+
+def test_the_readme_admits_templates_ship_blank_tags(tmp_path):
+    """
+    "realistic evals already written. Swap in your system prompt and fixtures"
+    implied a scaffolded template validates as-is; every template ships
+    `tag: ""` on purpose and validate refuses it until the user decides.
+    """
+    import yaml
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    a_tag_is_blank = False
+    for template in ("email", "rag", "chatbot"):
+        CliRunner().invoke(
+            main,
+            ["init", "--dir", str(tmp_path / template), "--template", template],
+            catch_exceptions=False,
+        )
+        config = yaml.safe_load((tmp_path / template / "config.yaml").read_text())
+        for uc in config["use_cases"]:
+            for ev in uc["evals"]:
+                if not ev.get("tag"):
+                    a_tag_is_blank = True
+
+    readme = (_repo_root() / "README.md").read_text()
+    idx = readme.find("Templates include all required sections")
+    assert idx != -1, "the README template paragraph moved; re-anchor this test"
+    paragraph = readme[idx:readme.find("\n\n", idx)]
+    if a_tag_is_blank:
+        assert "blank" in paragraph, (
+            "every template ships blank tags on purpose, and the README "
+            "paragraph selling templates never says so")
+    else:
+        assert "blank" not in paragraph, (
+            "templates no longer ship blank tags; the README caveat is stale")
