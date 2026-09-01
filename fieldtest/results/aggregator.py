@@ -812,6 +812,7 @@ def find_baseline(
     set_name: str,
     dataset_version: Optional[str] = None,
     judge_fingerprint: Optional[str] = None,
+    config_id: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Find the most recent results JSON in results_dir that:
@@ -838,7 +839,8 @@ def find_baseline(
     Returns None if no matching baseline found.
     """
     path, _ = find_baseline_with_reason(
-        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint
+        results_dir, current_run_id, set_name, dataset_version, judge_fingerprint,
+        config_id,
     )
     return path
 
@@ -849,6 +851,7 @@ def find_baseline_with_reason(
     set_name: str,
     dataset_version: Optional[str] = None,
     judge_fingerprint: Optional[str] = None,
+    config_id: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[str]]:
     """
     find_baseline(), plus why the newest rejected candidate was rejected.
@@ -878,6 +881,20 @@ def find_baseline_with_reason(
 
         if data.get("set") != set_name:
             note(f"the last run scored the '{data.get('set')}' set, not '{set_name}'")
+            continue
+        # A results directory is shared by every config beside it. Scoring an
+        # answer key, or a second config, put a run measuring different evals
+        # into the chain and it was adopted silently. Absent on the candidate
+        # means a file written before this existed: comparable, as for the
+        # judge block.
+        if (config_id is not None
+                and data.get("config") is not None
+                and data.get("config") != config_id):
+            note(
+                f"the last run scored {data.get('config')}, not {config_id} — "
+                f"a different config measures different evals, so its rates "
+                f"are not a prior for these"
+            )
             continue
         if dataset_version is not None and data.get("dataset_version") != dataset_version:
             note(

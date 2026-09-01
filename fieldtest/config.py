@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, Optional, Union
 
 import yaml
-from pydantic import ConfigDict, BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import ConfigDict, BaseModel, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 from fieldtest.errors import ConfigError
 from fieldtest.providers.base import RetryPolicy
@@ -327,6 +327,13 @@ class CalibrationConfig(BaseModel):
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # The file this config was loaded from, set by parse_and_validate. A
+    # private attribute rather than a field: it is provenance, not something a
+    # user writes in YAML, and `extra="forbid"` would otherwise be the only
+    # thing stopping them. Read it through config_identity(), never directly —
+    # a Config built in a test has never been loaded from anywhere.
+    _source_name: Optional[str] = PrivateAttr(default=None)
+
     schema_version: Literal[1, 2]
     system:         SystemConfig
     use_cases:      list[UseCase]
@@ -495,7 +502,9 @@ def parse_and_validate(config_path: Path) -> Config:
     load_providers(config_path.parent / "providers.py")
 
     try:
-        return Config.model_validate(raw)
+        cfg = Config.model_validate(raw)
+        cfg._source_name = config_path.name
+        return cfg
     except ValidationError as exc:
         # Extract the first error location + message and wrap in ConfigError.
         # Raw Pydantic errors must never propagate to callers.
@@ -549,6 +558,7 @@ from fieldtest.fixtures import (  # noqa: E402
     validate_fixture_labels,
 )
 from fieldtest.resolve import (  # noqa: E402
+    config_identity,
     resolve_dataset_version,
     resolve_judge_runs,
     resolve_runs,
@@ -564,6 +574,6 @@ __all__ = [
     "UseCase", "BUILTIN_PROVIDERS", "VALID_PROVIDERS",
     "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
     "validate_fixture_labels",
-    "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
+    "config_identity", "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
     "use_cases_with_fixtures", "validate_run_counts",
 ]

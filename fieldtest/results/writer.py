@@ -95,7 +95,7 @@ def _build_json(
         from fieldtest.config import resolve_runs
         runs = resolve_runs(config, config.use_cases[0])
 
-    from fieldtest.config import resolve_dataset_version, resolve_judge_runs
+    from fieldtest.config import config_identity, resolve_dataset_version, resolve_judge_runs
     dataset_version = resolve_dataset_version(config)
 
     judge_runs = 1
@@ -109,6 +109,7 @@ def _build_json(
         "run_id":          run_id,
         "set":             set_name,
         "dataset_version": dataset_version,
+        "config":          config_identity(config),
         "judge":           build_judge_block(config),
         "fixture_count":   len(fixture_ids),
         "runs":            runs,

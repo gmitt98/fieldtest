@@ -316,13 +316,12 @@ Then compare against the answer key:
 fieldtest score --config evals/reference-evals.yaml --set full
 ```
 
-Both configs write into the same `evals/results/`, and fieldtest picks the most
-recent comparable run as the automatic baseline. So the next plain `fieldtest
-score` compares against the answer key's run rather than against your own last
-one, and its `vs prior` column reads against a different set of evals. Pass
-`--baseline` with the run you actually mean, or read `fieldtest history` to see
-which runs are which — the answer-key runs are the ones whose eval names match
-`reference-evals.yaml`.
+This writes into the same `evals/results/` as your own runs, and `fieldtest
+history` lists them together. Your own `vs prior` column is unaffected:
+fieldtest will not use a run from a different config as a baseline, because a
+different config measures different evals. Editing or adding evals in your own
+`config.yaml` keeps its history — that is the ordinary case, and the added eval
+simply reports as new.
 
 A `calibration.panel` is commented out at the bottom of that file. Uncomment it
 and you can run two judges over the same outputs and see where they disagree:

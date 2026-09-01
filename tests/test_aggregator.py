@@ -2741,3 +2741,93 @@ def test_html_delta_colours_a_binary_regression_red_despite_a_scored_namesake():
          "decreased": [], "unchanged": [], "baseline_run_id": "b"},
         scored_eval_ids=set())
     assert "delta-up" in scored_html and "+0.5" in scored_html
+
+
+def test_find_baseline_forwards_every_filter_to_the_reasoned_form():
+    """
+    find_baseline is a thin wrapper over find_baseline_with_reason, and a filter
+    added to one and not the other is a baseline rule that applies through one
+    entry point and not the other — this project's signature failure. An
+    inventory test over the signatures, so the next filter cannot drift.
+    """
+    import inspect
+
+    from fieldtest.results.aggregator import find_baseline, find_baseline_with_reason
+
+    wrapper = list(inspect.signature(find_baseline).parameters)
+    full    = list(inspect.signature(find_baseline_with_reason).parameters)
+    assert wrapper == full, (
+        f"find_baseline does not accept every filter find_baseline_with_reason "
+        f"does: missing {set(full) - set(wrapper)}, extra {set(wrapper) - set(full)}")
+
+
+def _run_file(results_dir, run_id, *, config=None, set_name="smoke", mtime=None):
+    """A minimal result file, optionally carrying a `config` identity."""
+    import json
+    import os
+
+    data = {"run_id": run_id, "set": set_name, "summary": {}, "delta": {}}
+    if config is not None:
+        data["config"] = config
+    p = results_dir / f"{run_id}-data.json"
+    p.write_text(json.dumps(data))
+    if mtime is not None:
+        os.utime(p, (mtime, mtime))
+    return p
+
+
+def test_a_run_from_a_different_config_is_not_used_as_a_baseline(tmp_path):
+    """
+    A results directory is shared by every config beside it, and the walkthrough
+    has the reader score reference-evals.yaml into the same one. That run then
+    became the automatic baseline for the next config.yaml run — different
+    evals, asking different questions, adopted silently. `set`,
+    `dataset_version` and the judge fingerprint each already reject a candidate
+    that measured something else; this is the fourth thing that can differ.
+    """
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    _run_file(tmp_path, "older",  config="config.yaml",           mtime=1000)
+    _run_file(tmp_path, "newer",  config="reference-evals.yaml",  mtime=2000)
+
+    path, reason = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="config.yaml")
+
+    assert path is not None and path.name.startswith("older"), (
+        f"adopted a run from another config as the baseline: {path}")
+    assert reason is None or "reference-evals.yaml" in reason
+
+    # The sibling direction: the answer key's own run must not adopt yours.
+    path2, reason2 = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="reference-evals.yaml")
+    assert path2 is None or path2.name.startswith("newer")
+
+
+def test_editing_your_own_config_keeps_its_baseline(tmp_path):
+    """
+    The ordinary case fieldtest exists for. The identity is the file, not a hash
+    of the evals, precisely so that adding or editing an eval — which the
+    walkthrough has the reader do — keeps the history it is meant to compare
+    against.
+    """
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    _run_file(tmp_path, "mine", config="config.yaml", mtime=1000)
+    path, reason = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="config.yaml")
+    assert path is not None, f"lost the baseline for the same config: {reason}"
+
+
+def test_a_baseline_written_before_config_identity_is_still_usable(tmp_path):
+    """
+    Blanking every historical delta on upgrade is a worse failure than a
+    caveated comparison — the same call already made for the judge fingerprint.
+    A candidate with no `config` key is accepted as unknown.
+    """
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    _run_file(tmp_path, "legacy", mtime=1000)          # no `config` key at all
+    path, reason = find_baseline_with_reason(
+        tmp_path, "current", "smoke", config_id="config.yaml")
+    assert path is not None, (
+        f"an upgrade blanked out a usable historical baseline: {reason}")

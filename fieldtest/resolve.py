@@ -62,6 +62,25 @@ def validate_run_counts(config: Config) -> None:
             )
 
 
+def config_identity(config: Config) -> Optional[str]:
+    """
+    Which config's evals a run measured, or None if that is unknown.
+
+    A results directory is shared by every config beside it, and the walkthrough
+    has the reader score `reference-evals.yaml` into the same one. That run then
+    became the automatic baseline for the next `config.yaml` run — a different
+    set of evals, asking different questions, silently compared. `set`,
+    `dataset_version` and the judge fingerprint each already reject a baseline
+    that measured something else; this is the fourth thing that can differ.
+
+    The file name, not a hash of the evals: editing an eval, or adding one, is
+    the ordinary use fieldtest exists for and must keep its history. Scoring a
+    different config is a different instrument. None for a Config that was
+    built rather than loaded, which keeps every candidate comparable.
+    """
+    return config._source_name
+
+
 def resolve_dataset_version(config: Config) -> Optional[str]:
     """
     Return the dataset version from the first use_case's fixtures.version, or None.

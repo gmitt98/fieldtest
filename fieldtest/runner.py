@@ -17,6 +17,7 @@ from fieldtest.config import (
     ResultRow,
     extract_labels,
     load_fixture,
+    config_identity,
     resolve_dataset_version,
     resolve_judge_runs,
     resolve_runs,
@@ -228,6 +229,7 @@ def score(
             results_dir, run_id, set_name,
             dataset_version=resolve_dataset_version(config),
             judge_fingerprint=build_judge_block(config)["fingerprint"],
+            config_id=config_identity(config),
         )
 
     delta = build_delta(summary, baseline_path)

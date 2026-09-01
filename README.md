@@ -1054,6 +1054,12 @@ RUN ID                      TIMESTAMP           SET           FIXTURES    JUDGE 
 2026-03-23T18-52-00-79fb    2026-03-23 18:52    smoke         6           claude-haiku-4-5              0%        12%       0%
 ```
 
+A rate may carry a marker. `!` means evals whose every call errored were left out
+of it, so it covers fewer evals than the run declares; `err` means every eval in
+that tag errored and there is no rate at all. Both print a legend, and the run's
+report says which evals and why. Without a marker the rate covers every eval in
+the tag.
+
 The rates shown are **pass** rates per tag, pooled over every output in the run — one figure per tag for the whole run, across all use cases. The `-report.md` breaks the same outputs down the other way, one Tag Health table per use case, so with more than one use case those tables are the parts and this is the whole: two use cases passing 2 of 4 and 0 of 2 read as `RIGHT 50%` and `RIGHT 0%` there and `RIGHT 33%` here. They used to be average failure rates, under the same RIGHT / GOOD / SAFE headings the report uses for pass rates, so `history` said 12% where the report for that run said 95%. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
 
 ---
