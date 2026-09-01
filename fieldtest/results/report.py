@@ -288,6 +288,13 @@ def format_report(
             f"like-for-like comparison"
         )
 
+    if delta.get("baseline_run_id") and delta.get("baseline_config_differs"):
+        lines.append(
+            f"⚠ baseline was scored from {delta.get('baseline_config')}, not "
+            f"this config — a different config measures different evals, so "
+            f"these deltas compare two different questions."
+        )
+
     if delta.get("baseline_run_id") and delta.get("baseline_pre_config"):
         lines.append(
             "⚠ baseline does not record which config produced it — it may have "

@@ -132,18 +132,13 @@ def describe_judge_change(current: Optional[dict], baseline: Optional[dict]) -> 
     # A run that consulted no judge has no provider, model or temperature, and
     # the field-by-field walk below rendered that as "temperature: 0.0 → None"
     # — three null transitions describing one plain fact. Say the fact.
-    cur_unjudged  = current.get("judged") is False
-    base_unjudged = baseline.get("judged") is False
-    if cur_unjudged and base_unjudged:
+    # Per the rule find_baseline applies — a judge changed only if both runs
+    # consulted one — a one-sided judge is not a judge change, so this returns
+    # None and the caller says the accurate thing instead. Rendering it as a
+    # "Judge mismatch" had `diff` call two runs incomparable that `score` had
+    # just accepted: the walkthrough step that adds your first llm eval.
+    if current.get("judged") is False or baseline.get("judged") is False:
         return None
-    if cur_unjudged:
-        return "this run consulted no judge; the baseline used " + (
-            " ".join(str(baseline.get(k)) for k in ("provider", "model")
-                     if baseline.get(k)) or "one")
-    if base_unjudged:
-        return "the baseline consulted no judge; this run uses " + (
-            " ".join(str(current.get(k)) for k in ("provider", "model")
-                     if current.get(k)) or "one")
 
     changes = []
     for field in ("provider", "model", "temperature", "seed"):

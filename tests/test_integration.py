@@ -3860,3 +3860,26 @@ def test_docs_do_not_teach_a_schema_version_the_tool_never_writes():
     assert not stale, (
         f"docs teach a schema_version the tool never writes "
         f"(it writes {sorted(generated)}): {stale}")
+
+
+def test_the_bundled_demo_results_record_their_config():
+    """
+    The new baseline_pre_config caveat fires on any baseline with no `config`
+    key. The bundled demo results were written before that key existed, so
+    `fieldtest demo --offline` followed by `fieldtest score` — the documented
+    first workflow — printed a warning about a file fieldtest itself ships.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest" / "demo"
+    files = sorted(root.glob("*/results/*-data.json"))
+    assert files, "no bundled demo results found"
+    missing = [
+        str(f.relative_to(root)) for f in files
+        if json.loads(f.read_text()).get("config") is None
+    ]
+    assert not missing, (
+        f"bundled demo results carry no `config`, so fieldtest's own first "
+        f"workflow warns about fieldtest's own file: {missing}. "
+        f"Re-run scripts/regen_demo_results.py.")

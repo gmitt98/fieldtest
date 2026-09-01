@@ -328,7 +328,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
                 err=True,
             )
             sys.exit(1)
-        delta = build_delta(current_data.get("summary", {}), baseline_path)
+        delta = build_delta(current_data.get("summary", {}), baseline_path,
+                            config_id=current_data.get("config"))
     else:
         delta = current_data.get("delta", {})
         base_id = delta.get("baseline_run_id")
@@ -439,6 +440,21 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
 
     cur_judge  = current_data.get("judge")
     base_judge = baseline_data.get("judge")
+
+    # One side consulted no judge. Not a mismatch — the rule find_baseline
+    # applies is that a judge changed only if both runs consulted one — but
+    # worth saying, because the judged evals have no counterpart to compare to.
+    cur_unjudged  = bool(cur_judge) and cur_judge.get("judged") is False
+    base_unjudged = bool(base_judge) and base_judge.get("judged") is False
+    if cur_judge and base_judge and (cur_unjudged != base_unjudged):
+        added = base_unjudged
+        click.echo(
+            f"⚠ {'This run consults a judge and the baseline did not' if added else 'The baseline consulted a judge and this run does not'} "
+            f"— those evals have no counterpart, so they are reported as "
+            f"added or removed rather than compared. The deltas below are for "
+            f"the evals both runs measured."
+        )
+        click.echo("")
 
     if cur_judge and base_judge:
         change = describe_judge_change(cur_judge, base_judge)

@@ -2955,3 +2955,65 @@ def test_find_baseline_survives_a_result_file_that_is_not_an_object(tmp_path):
     assert path is None
 
     assert build_delta({}, bad)["baseline_run_id"] is None
+
+
+def test_an_explicit_cross_config_baseline_is_flagged_in_the_delta(tmp_path):
+    """
+    The Config-mismatch warning went into `diff` only, and computed there from
+    the two files. `score --baseline` is the other explicit-baseline entry
+    point, skips find_baseline entirely, and said nothing on any surface about
+    the pairing `diff` warned about. The fact is now computed once, in
+    build_delta, so both entry points and both report formats carry it.
+    """
+    from fieldtest.results.aggregator import build_delta
+
+    summary = {"uc1": {"right": {"e1": {"failure_rate": 0.0, "total_runs": 4}}}}
+    baseline = tmp_path / "old-data.json"
+
+    def write(cfg):
+        body = {"run_id": "old", "set": "full",
+                "summary": {"uc1": {"right": {"e1": {"failure_rate": 1.0,
+                                                     "total_runs": 4}}}}}
+        if cfg is not None:
+            body["config"] = cfg
+        baseline.write_text(json.dumps(body))
+
+    write("reference-evals.yaml")
+    d = build_delta(summary, baseline, config_id="config.yaml")
+    assert d["baseline_config_differs"] is True
+    assert d["baseline_config"] == "reference-evals.yaml"
+
+    # Same config: no flag.
+    write("config.yaml")
+    assert build_delta(summary, baseline,
+                       config_id="config.yaml")["baseline_config_differs"] is False
+
+    # Unrecorded config: the pre_config caveat, not a mismatch claim.
+    write(None)
+    d3 = build_delta(summary, baseline, config_id="config.yaml")
+    assert d3["baseline_config_differs"] is False
+    assert d3["baseline_pre_config"] is True
+
+
+def test_diff_and_score_agree_about_a_one_sided_judge(tmp_path):
+    """
+    `score` accepts a baseline that consulted no judge — the walkthrough step
+    that adds your first llm eval — while `diff` called the identical pair a
+    "Judge mismatch" whose deltas "may reflect the instrument changing". Two
+    surfaces, opposite answers, about the same two runs. describe_judge_change
+    now returns None for a one-sided judge, matching the rule find_baseline
+    applies, and diff says the accurate thing instead.
+    """
+    from fieldtest.results.provenance import describe_judge_change
+
+    judged   = {"provider": "anthropic", "model": "haiku", "fingerprint": "aaaa1111"}
+    unjudged = {"judged": False, "fingerprint": "cccc3333"}
+
+    assert describe_judge_change(judged, unjudged) is None, (
+        "adding the first llm eval was reported as a judge mismatch")
+    assert describe_judge_change(unjudged, judged) is None
+
+    # A real judge change is still described.
+    other = {"provider": "anthropic", "model": "sonnet", "fingerprint": "bbbb2222"}
+    change = describe_judge_change(other, judged)
+    assert change and "haiku" in change and "sonnet" in change

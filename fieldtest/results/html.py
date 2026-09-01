@@ -788,6 +788,11 @@ def _build_delta_html(delta: dict, scored_eval_ids: set | None = None) -> str:
             f"judge calls to errors, so its rates are over whatever survived. "
             f"These are not a like-for-like comparison."
         )
+    if delta.get("baseline_config_differs"):
+        caveats.append(
+            f"The baseline was scored from {delta.get('baseline_config')}, not "
+            f"this config, so these deltas compare two different questions."
+        )
     if delta.get("baseline_pre_config"):
         caveats.append(
             "The baseline does not record which config produced it, so it may "

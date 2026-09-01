@@ -3604,7 +3604,13 @@ def test_result_filenames_are_spelled_in_exactly_one_place():
     # writer.py declares the suffixes; aggregator.py owns both directions of the
     # filename<->run id conversion. Nothing else may spell an artifact suffix.
     ALLOWED = {"writer.py", "aggregator.py"}
-    LITERAL = re.compile(r'["\']-(?:data|report)\.(?:json|csv|md|html)["\']')
+    # Anywhere in the literal, not anchored to its start. Anchored, this caught
+    # "-report.html" and missed "*-report.html" — so the replacement tripwire
+    # matched two spellings where the original matched one, and reported green
+    # while three glob sites in cli_project.py spelled suffixes by hand. The
+    # commit that stated "a tripwire that matches a spelling rather than a
+    # concept protects nothing" committed that same error in the same breath.
+    LITERAL = re.compile(r'-(?:data|report)\.(?:json|csv|md|html)')
 
     offenders = []
     for path in sorted(root.rglob("*.py")):
