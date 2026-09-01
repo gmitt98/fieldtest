@@ -3777,3 +3777,27 @@ def test_history_leaves_a_clean_run_unmarked(tmp_path, monkeypatch):
     assert "100%!" not in result.output
     assert "excluded from that rate" not in result.output, (
         "a clean run printed the error legend")
+
+
+def test_history_and_diff_survive_valid_json_that_is_not_a_result(tmp_path, monkeypatch):
+    """
+    The Phase 4 handlers caught the parse failure and then called .get on
+    whatever parsed. `[]` is valid JSON, gets past the guard, and
+    AttributeErrors — so a truncated file was handled and a well-formed wrong
+    one crashed with a traceback.
+    """
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-08-01T10-00-00-aaaa-data.json").write_text("[]")
+
+    monkeypatch.chdir(tmp_path)
+    hist = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert hist.exit_code == 0, hist.output
+    assert "could not be read" in hist.output, (
+        f"a non-object result file vanished silently:\n{hist.output}")
+
+    diff = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert diff.exit_code == 1
+    assert "Cannot read" in diff.output
+    assert "Traceback" not in diff.output

@@ -102,6 +102,14 @@ def history(config_path: Optional[str]):
             unreadable.append(p.name)
             continue
 
+        # Valid JSON is not necessarily a result file. `[]` parses fine and
+        # then AttributeErrors on the first .get — the guard above catches the
+        # parse and not the shape, so a truncated file was handled and a
+        # well-formed wrong one crashed.
+        if not isinstance(data, dict):
+            unreadable.append(p.name)
+            continue
+
         run_id        = data.get("run_id") or run_id_from_path(p)
         set_name      = data.get("set", "—")
         fixture_count = data.get("fixture_count", 0)
@@ -271,6 +279,11 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # truncated by an interrupted score is an ordinary condition, not a bug.
     try:
         current_data = json.loads(current_path.read_text(encoding="utf-8"))
+        # Parsing is not the only way a file can be wrong: `[]` parses and then
+        # AttributeErrors on the first .get. Raised into the same handler, so
+        # the shape failure reads like the parse failure it resembles.
+        if not isinstance(current_data, dict):
+            raise ValueError("not a fieldtest result object")
     except Exception as e:
         click.echo(
             f"Cannot read {current_path.name}: {str(e).splitlines()[0]}\n"
@@ -304,6 +317,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
 
         try:
             baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+            if not isinstance(baseline_data, dict):
+                raise ValueError("not a fieldtest result object")
         except Exception as e:
             click.echo(
                 f"Cannot read baseline {baseline_path.name}: "
@@ -320,6 +335,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             if auto_path is not None:
                 try:
                     baseline_data = json.loads(auto_path.read_text(encoding="utf-8"))
+                    if not isinstance(baseline_data, dict):
+                        raise ValueError("not a fieldtest result object")
                 except Exception as e:
                     # An empty dict here drove every downstream branch to a
                     # false statement: diff asserted the baseline "predates

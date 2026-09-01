@@ -3813,3 +3813,35 @@ def test_the_readme_admits_templates_ship_blank_tags(tmp_path):
     else:
         assert "blank" not in paragraph, (
             "templates no longer ship blank tags; the README caveat is stale")
+
+
+def test_docs_do_not_teach_a_schema_version_the_tool_never_writes():
+    """
+    The README Quickstart's "complete example" opened with schema_version: 1
+    while `fieldtest init`, every template and both bundled datasets write 2.
+    Both validate, so nothing broke — a new user just copied a config older
+    than anything the tool generates. An inventory test, because the next
+    version bump will reintroduce this the same way.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    generated = {
+        int(m.group(1))
+        for p in list((root / "fieldtest" / "templates").glob("*.yaml"))
+             + list((root / "fieldtest" / "datasets").glob("*/config.yaml"))
+        for m in [re.search(r"^schema_version:\s*(\d+)", p.read_text(), re.M)]
+        if m
+    }
+    assert generated, "found no generated config to compare against"
+
+    docs = [root / "README.md"] + sorted((root / "docs").glob("*.md"))
+    stale = []
+    for doc in docs:
+        for m in re.finditer(r"^schema_version:\s*(\d+)", doc.read_text(), re.M):
+            if int(m.group(1)) not in generated:
+                stale.append(f"{doc.name}: schema_version: {m.group(1)}")
+    assert not stale, (
+        f"docs teach a schema_version the tool never writes "
+        f"(it writes {sorted(generated)}): {stale}")
