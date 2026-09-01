@@ -550,6 +550,17 @@ def summarize_judge_errors(summary: dict) -> Optional[dict]:
                     # Summaries written before judge repetitions existed carry
                     # neither field; there scored + errors is the call count.
                     calls = scored + errors
+                elif calls == 0:
+                    # A rule or regex eval makes no provider call, so it puts
+                    # nothing in this denominator — but a raising rule function
+                    # still produces error rows, and those were reaching the
+                    # numerator. That printed "judge errors: 2 of 0 calls
+                    # failed" on a deterministic project, and a plausible,
+                    # entirely false judge failure rate on a mixed one, sending
+                    # the user to their provider over a bug in their own
+                    # rules.py. These errors are real and the per-eval `errors`
+                    # column reports them; they are not judge errors.
+                    continue
                 attempted = stats.get("outputs_attempted") or (scored + errors)
                 failed   += errors
                 total    += calls

@@ -571,7 +571,7 @@ def test_opt_out_changes_the_judge_fingerprint():
     seeing = build_judge_block(cfg(True))
     blind  = build_judge_block(cfg(False))
 
-    assert blind["blinded_evals"] == ["ev1"]
+    assert blind["blinded_evals"] == ["uc1/ev1"]   # qualified: ids are per use case
     assert seeing["blinded_evals"] == []
     assert seeing["fingerprint"] != blind["fingerprint"]
 

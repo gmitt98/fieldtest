@@ -3356,10 +3356,19 @@ def test_the_readme_data_json_judge_sample_has_no_phantom_keys(tmp_path, monkeyp
     when an endpoint-bearing provider is in play, never as an empty dict."""
     import re
 
-    runner, main = _keyless_scored_project(tmp_path, monkeypatch)
-    assert runner.invoke(main, ["score"], catch_exceptions=False).exit_code == 0
-    data_file = next((tmp_path / "evals" / "results").glob("*-data.json"))
-    real_judge = json.loads(data_file.read_text())["judge"]
+    from pathlib import Path
+
+    from fieldtest.config import parse_and_validate
+    from fieldtest.results.provenance import build_judge_block
+
+    # The sample documents a run with an LLM judge, so it must be compared
+    # against a judged project. _keyless_scored_project is regex-only, and a
+    # rules-only run deliberately records no provider/model at all — comparing
+    # against it would call every judge key phantom. writer.py embeds
+    # build_judge_block(config) verbatim, so this is what such a run writes.
+    real_judge = build_judge_block(parse_and_validate(
+        Path(__file__).resolve().parent.parent
+        / "fieldtest" / "datasets" / "expense-report" / "reference-evals.yaml"))
 
     doc = _readme()
     m = re.search(r"### `data\.json` summary schema.*?```json\n(\{.*?\})\n```", doc, re.S)
@@ -3804,3 +3813,35 @@ def test_the_readme_admits_templates_ship_blank_tags(tmp_path):
     else:
         assert "blank" not in paragraph, (
             "templates no longer ship blank tags; the README caveat is stale")
+
+
+def test_docs_do_not_teach_a_schema_version_the_tool_never_writes():
+    """
+    The README Quickstart's "complete example" opened with schema_version: 1
+    while `fieldtest init`, every template and both bundled datasets write 2.
+    Both validate, so nothing broke — a new user just copied a config older
+    than anything the tool generates. An inventory test, because the next
+    version bump will reintroduce this the same way.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    generated = {
+        int(m.group(1))
+        for p in list((root / "fieldtest" / "templates").glob("*.yaml"))
+             + list((root / "fieldtest" / "datasets").glob("*/config.yaml"))
+        for m in [re.search(r"^schema_version:\s*(\d+)", p.read_text(), re.M)]
+        if m
+    }
+    assert generated, "found no generated config to compare against"
+
+    docs = [root / "README.md"] + sorted((root / "docs").glob("*.md"))
+    stale = []
+    for doc in docs:
+        for m in re.finditer(r"^schema_version:\s*(\d+)", doc.read_text(), re.M):
+            if int(m.group(1)) not in generated:
+                stale.append(f"{doc.name}: schema_version: {m.group(1)}")
+    assert not stale, (
+        f"docs teach a schema_version the tool never writes "
+        f"(it writes {sorted(generated)}): {stale}")

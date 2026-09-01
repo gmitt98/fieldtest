@@ -27,13 +27,30 @@ def build_judge_block(config: Config) -> dict:
     and serializes as {} rather than being omitted, so consumers can index it
     unconditionally.
     """
+    # report.py already declines to name a judge for a rules-only project,
+    # for the reason stated there: it would describe an instrument that never
+    # ran. This block is that concept's other home, and recording defaults
+    # here anyway made `defaults.model` — inert for such a project — invalidate
+    # the baseline, so editing a field no eval reads destroyed the regression
+    # comparison and blamed a judge the same report declines to name.
+    if not any(ev.is_judged for uc in config.use_cases for ev in uc.evals):
+        judge = {"judged": False, "overrides": {}, "blinded_evals": []}
+        judge["fingerprint"] = judge_fingerprint(judge)
+        return judge
+
     provider = config.defaults.provider
     model    = config.defaults.model
 
+    # Keyed by use case, because eval ids are unique only within one — the
+    # same fact aggregator, report and html's fixture matrix were each fixed
+    # for. Keyed by bare id, two use cases declaring `quality` collapsed to
+    # whichever came last: the run recorded the wrong instrument for the other,
+    # and the fingerprint went blind to a judge change in it. `is_judged`
+    # rather than `type != "llm"`, matching `blinded` below.
     overrides: dict[str, dict] = {}
     for uc in config.use_cases:
         for ev in uc.evals:
-            if ev.type != "llm":
+            if not ev.is_judged:
                 continue
             entry = {}
             if ev.provider is not None and ev.provider != provider:
@@ -41,13 +58,13 @@ def build_judge_block(config: Config) -> dict:
             if ev.model is not None and ev.model != model:
                 entry["model"] = ev.model
             if entry:
-                overrides[ev.id] = entry
+                overrides[f"{uc.id}/{ev.id}"] = entry
 
     # An eval whose judge cannot see the fixture inputs is being asked a
     # different question, so a run with opt-outs is not comparable to one
     # without. Sorted for a stable hash.
     blinded = sorted(
-        ev.id
+        f"{uc.id}/{ev.id}"
         for uc in config.use_cases
         for ev in uc.evals
         if ev.is_judged and not ev.judge_sees_inputs

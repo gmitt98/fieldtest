@@ -71,6 +71,7 @@ def history(config_path: Optional[str]):
     # naming" sent people looking for a migration that does not exist.
     calibrations = sorted(results_dir.glob("*-calibration.json"))
     unreadable: list = []
+    saw_errors = False
     legacy = [
         f for f in results_dir.glob("*.json")
         if not f.name.endswith("-data.json")
@@ -98,6 +99,14 @@ def history(config_path: Optional[str]):
             # counted and named — "listing the rest without a word reads as
             # 'that is all there is'". A truncated -data.json from an
             # interrupted score was the one case it stayed silent about.
+            unreadable.append(p.name)
+            continue
+
+        # Valid JSON is not necessarily a result file. `[]` parses fine and
+        # then AttributeErrors on the first .get — the guard above catches the
+        # parse and not the shape, so a truncated file was handled and a
+        # well-formed wrong one crashed.
+        if not isinstance(data, dict):
             unreadable.append(p.name)
             continue
 
@@ -140,10 +149,20 @@ def history(config_path: Optional[str]):
             """
             failures = total = 0.0
             bare = []            # summaries written before total_runs existed
+            dropped = 0          # evals excluded because every call errored
             for uc_stats in summary.values():
                 for stats in uc_stats.get(tag, {}).values():
                     fr = stats.get("failure_rate")
                     if fr is None:
+                        # The data file honestly records failure_rate: null
+                        # with error_count: N, and history read that and threw
+                        # it away — listing a run whose every judge call failed
+                        # as a clean 100%, indistinguishable from a healthy run
+                        # and reading as an improvement on its baseline. The
+                        # pooled rate over the survivors is still the right
+                        # number; it just must not be printed bare.
+                        if stats.get("error_count"):
+                            dropped += 1
                         continue
                     n = stats.get("total_runs") or 0
                     if n:
@@ -151,8 +170,12 @@ def history(config_path: Optional[str]):
                         total    += n
                     else:
                         bare.append(fr)
+            mark = "!" if dropped else ""
             if total:
-                return f"{round((1 - failures / total) * 100)}%"
+                return f"{round((1 - failures / total) * 100)}%{mark}"
+            if dropped:
+                # Every eval in the tag errored: there is no rate at all.
+                return "err"
             if bare:
                 # No denominators to weight by: fall back to the unweighted mean
                 # so an older result file still shows something sensible.
@@ -162,10 +185,20 @@ def history(config_path: Optional[str]):
         right = _tag_rate("right")
         good  = _tag_rate("good")
         safe  = _tag_rate("safe")
+        if any(v.endswith("!") or v == "err" for v in (right, good, safe)):
+            saw_errors = True
 
         click.echo(
             f"{run_id:<26}  {ts_display:<18}  {set_name:<12}  "
             f"{fixture_count:<10}  {judge_str:<28}  {right:<8}  {good:<8}  {safe:<8}"
+        )
+
+    if saw_errors:
+        click.echo(
+            "\n  ! = evals whose every call errored were excluded from that "
+            "rate, so it covers fewer evals than the run declares. "
+            "err = every eval in the tag errored; there is no rate. "
+            "Open the run's report for which, and why."
         )
 
     if unreadable:
@@ -217,14 +250,22 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         )
         return
 
-    # Resolve current and baseline
+    # Resolve current and baseline. find_result_by_run_id, not string
+    # concatenation: filename and run id are not always the same string, and
+    # the bundled demo is exactly that case — demo-offline-data.json whose
+    # run_id is a timestamp. `view` resolves it and the auto-baseline branch
+    # below resolves it; these two explicit-id branches were the siblings that
+    # still built a path by hand, so `fieldtest diff <id>` rejected the id
+    # `fieldtest history` had just printed, in the documented first workflow.
     if run_id:
-        current_path = results_dir / f"{run_id}-data.json"
+        current_path = find_result_by_run_id(results_dir, run_id) or (
+            results_dir / f"{run_id}-data.json")
     else:
         current_path = result_files[0]
 
     if baseline_id:
-        baseline_path = results_dir / f"{baseline_id}-data.json"
+        baseline_path = find_result_by_run_id(results_dir, baseline_id) or (
+            results_dir / f"{baseline_id}-data.json")
     else:
         # most recent that isn't current
         others = [f for f in result_files if f != current_path]
@@ -238,6 +279,11 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # truncated by an interrupted score is an ordinary condition, not a bug.
     try:
         current_data = json.loads(current_path.read_text(encoding="utf-8"))
+        # Parsing is not the only way a file can be wrong: `[]` parses and then
+        # AttributeErrors on the first .get. Raised into the same handler, so
+        # the shape failure reads like the parse failure it resembles.
+        if not isinstance(current_data, dict):
+            raise ValueError("not a fieldtest result object")
     except Exception as e:
         click.echo(
             f"Cannot read {current_path.name}: {str(e).splitlines()[0]}\n"
@@ -271,6 +317,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
 
         try:
             baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+            if not isinstance(baseline_data, dict):
+                raise ValueError("not a fieldtest result object")
         except Exception as e:
             click.echo(
                 f"Cannot read baseline {baseline_path.name}: "
@@ -287,6 +335,8 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             if auto_path is not None:
                 try:
                     baseline_data = json.loads(auto_path.read_text(encoding="utf-8"))
+                    if not isinstance(baseline_data, dict):
+                        raise ValueError("not a fieldtest result object")
                 except Exception as e:
                     # An empty dict here drove every downstream branch to a
                     # false statement: diff asserted the baseline "predates
@@ -301,9 +351,28 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
                         err=True,
                     )
                     baseline_data = {"__unreadable__": True}
+            else:
+                # The sibling branch, missed when the read-error one was fixed.
+                # `fieldtest clean --results` deletes old runs, so the baseline
+                # named in a stored delta is routinely gone — and an empty dict
+                # here produced the identical false claim the comment above
+                # describes: "predates judge tracking" about a run whose judge
+                # block fieldtest wrote itself, minutes earlier.
+                click.echo(
+                    f"⚠ baseline {base_id} is no longer in {results_dir} — "
+                    f"the deltas below are from the stored summary, and the "
+                    f"comparison cannot be re-checked.",
+                    err=True,
+                )
+                baseline_data = {"__unreadable__": True}
 
-    # .stem leaves the -data suffix, and `fieldtest view <that>` then fails.
-    click.echo(f"Comparing: {run_id_from_path(current_path)}")
+    # The run's recorded identity, as `history` prints it — not the file stem.
+    # run_id_from_path is the filename concept (`clean` builds sibling paths
+    # with it, and must keep doing so); for the bundled demo the two differ,
+    # and diff named the run `demo-offline` while history called it a
+    # timestamp. Same precedence as history: embedded run_id, then the stem.
+    current_id = current_data.get("run_id") or run_id_from_path(current_path)
+    click.echo(f"Comparing: {current_id}")
     # The key is always present and is None when there is no baseline, so a
     # `.get(..., '—')` default is unreachable and the line read "Baseline:
     # None" — the literal string, as though a run were named that.
@@ -390,7 +459,12 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # rename dropped a row out of the diff without a word. Say which ones were
     # left out rather than reporting a comparison over a changed eval set as if
     # it covered everything.
-    if baseline_data:
+    # The sentinel is truthy, so guarding only the judge line above let this
+    # sibling run against an empty base_keys and report every eval in the run
+    # as "only in this run" — a false sentence the Phase 4 fix introduced
+    # while closing a different one. When the baseline could not be loaded,
+    # added/removed evals are unknowable; the warning already said so.
+    if baseline_data and not baseline_data.get("__unreadable__"):
         cur_keys  = _summary_eval_keys(current_data.get("summary", {}))
         base_keys = _summary_eval_keys(baseline_data.get("summary", {}))
         only_current = sorted(cur_keys - base_keys)
@@ -495,7 +569,6 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
             # claim this is the only run when the directory says so, since the
             # usual cause is a baseline that was rejected, not one that is
             # missing.
-            current_id = run_id_from_path(current_path)
             if no_baseline_reason:
                 click.echo(
                     f"Nothing to compare — no usable baseline: {no_baseline_reason}."

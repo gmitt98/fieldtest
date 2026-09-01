@@ -72,8 +72,12 @@ def project_calls(config: Config, base_dir: Path, set_name: str) -> dict:
     per_judge = 0
     for uc in config.use_cases:
         llm_evals = sum(1 for ev in uc.evals if ev.is_judged)
-        if not llm_evals:
-            continue
+        # Resolve the set for EVERY use case, before the llm_evals shortcut.
+        # A rules-only use case still has to declare the set, and the real run
+        # rejects the whole run when it does not — so returning early here let
+        # --dry-run project a confident cost and exit 0 for a run that cannot
+        # start. That is the same false green-light the raise below closes,
+        # reached by the branch that returns before it.
         try:
             fixtures = len(resolve_set(set_name, uc, base_dir))
         except ConfigError:
@@ -82,6 +86,8 @@ def project_calls(config: Config, base_dir: Path, set_name: str) -> dict:
             # check made before paying for a panel; reporting a cheap zero for a
             # misspelled set is the one answer it must not give.
             raise
+        if not llm_evals:
+            continue
         per_judge += fixtures * resolve_runs(config, uc) * resolve_judge_runs(config, uc) * llm_evals
 
     return {

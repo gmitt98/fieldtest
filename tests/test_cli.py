@@ -2808,7 +2808,7 @@ def test_score_fails_when_every_judge_call_errored(tmp_path, monkeypatch):
         main, ["score", "--config", str(evals / "config.yaml"), "--set", "full"],
         catch_exceptions=False)
     assert result.exit_code == 1, f"a run that scored nothing exited 0:\n{result.output}"
-    assert "nothing was scored" in result.output
+    assert "no LLM eval was scored" in result.output
 
 
 def test_score_fails_when_the_llm_half_wholly_failed_beside_a_passing_regex(tmp_path, monkeypatch):
@@ -2838,7 +2838,11 @@ def test_score_fails_when_the_llm_half_wholly_failed_beside_a_passing_regex(tmp_
     assert result.exit_code == 1, (
         f"every judge call failed; a passing regex must not disarm the gate:\n"
         f"{result.output}")
-    assert "nothing was scored" in result.output
+    assert "no LLM eval was scored" in result.output
+    # ...and it must not claim nothing scored, because the regex did.
+    assert "nothing was scored" not in result.output
+    assert "deterministic eval row(s) scored normally" in result.output, (
+        f"the message hid the evals that did score:\n{result.output}")
 
 
 def test_score_succeeds_on_a_clean_offline_run(tmp_path, monkeypatch):
@@ -3418,6 +3422,36 @@ def test_diff_says_a_baseline_is_unreadable_rather_than_old(tmp_path, monkeypatc
         f"diff asserted the baseline is old when it is unreadable:\n{result.output}")
 
 
+def test_diff_says_a_baseline_is_gone_rather_than_old(tmp_path, monkeypatch):
+    """
+    The sibling of the test above, and the branch its fix missed. `fieldtest
+    clean --results` deletes old runs, so a stored delta routinely names a
+    baseline that is no longer on disk — and that path produced the identical
+    false claim: "predates judge tracking" about a run whose judge block
+    fieldtest wrote itself, minutes earlier.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    judge = {"provider": "anthropic", "model": "m", "fingerprint": "aaaa1111"}
+    # baseA is named by the delta and deliberately never written.
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full", "judge": judge,
+        "fixture_count": 1, "runs": 1, "summary": {},
+        "delta": {"baseline_run_id": "baseA", "increased": [], "decreased": [],
+                  "unchanged": []},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert "no longer in" in result.output, (
+        f"a deleted baseline vanished silently:\n{result.output}")
+    assert "predates judge tracking" not in result.output, (
+        f"diff asserted the baseline is old when it was deleted:\n{result.output}")
+
+
 def test_diff_refuses_an_unreadable_current_run(tmp_path, monkeypatch):
     """It raised JSONDecodeError as a traceback."""
     evals = _setup_project(tmp_path)
@@ -3564,3 +3598,206 @@ def test_run_ids_are_derived_in_exactly_one_place():
     assert not offenders, (
         "use run_id_from_path() rather than deriving it inline:\n  "
         + "\n  ".join(offenders))
+
+
+def test_diff_resolves_the_run_id_history_prints(tmp_path, monkeypatch):
+    """
+    find_result_by_run_id exists because filename and run id are not always the
+    same string — the bundled demo ships demo-offline-data.json whose run_id is
+    a timestamp. `view` and the auto-baseline branch called it; diff's two
+    explicit-id branches built the path by hand, so `fieldtest diff <id>`
+    rejected the id `fieldtest history` had just printed, in the documented
+    first workflow. diff also named the run by its file stem while history
+    named it by its recorded run_id.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    # Filename and embedded run id deliberately differ, as the demo's do.
+    (results / "demo-offline-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-aaaa", "set": "full",
+        "fixture_count": 1, "runs": 1, "summary": {}, "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["diff", "2026-01-02T00-00-00-aaaa"], catch_exceptions=False)
+    assert result.exit_code == 0, (
+        f"diff rejected the run id history prints:\n{result.output}")
+    assert "2026-01-02T00-00-00-aaaa" in result.output, (
+        f"diff named the run by its file stem, not its run_id:\n{result.output}")
+    assert "Comparing: demo-offline" not in result.output
+
+    # An id that really is absent must still fail cleanly, not silently pass.
+    missing = CliRunner().invoke(main, ["diff", "no-such-run"], catch_exceptions=False)
+    assert missing.exit_code == 1 and "not found" in missing.output.lower()
+
+
+def test_diff_does_not_call_every_eval_new_when_the_baseline_is_unreadable(tmp_path, monkeypatch):
+    """
+    The Phase 4 sentinel is truthy, and only the judge-warning branch was
+    guarded on it. Its sibling — the added/removed-eval report — then ran
+    against an empty base_keys and announced every eval in the run as "only in
+    this run". Pre-Phase-4 the empty dict was falsy and the block was skipped,
+    so the fix introduced the false sentence while closing another.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "baseA-data.json").write_text('{"run_id": "baseA", "sum')
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full",
+        "judge": {"provider": "a", "model": "m", "fingerprint": "aaaa1111"},
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {"evals": {"e1": {"pass_rate": 1.0},
+                                      "e2": {"pass_rate": 1.0}}}},
+        "delta": {"baseline_run_id": "baseA", "increased": [], "decreased": [],
+                  "unchanged": []},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert "could not be read" in result.output
+    assert "only in this run" not in result.output, (
+        f"diff called every eval new against a baseline it could not read:\n"
+        f"{result.output}")
+
+
+def test_a_rules_only_run_where_every_eval_errored_exits_nonzero(tmp_path):
+    """
+    The judge gate is scoped to llm rows so a passing regex cannot disarm it
+    during a total judge outage. Its comment then reasons that a deterministic
+    project "has no judge calls to fail" — true, and one step short: a rules.py
+    that raises on every row measures exactly as little as a judge that never
+    answered, and the run exited 0 telling CI it had measured.
+
+    Both directions: total failure exits 1, a run that still scores exits 0.
+    """
+    config = MINIMAL_CONFIG.replace(
+        """      - id: ev_regex
+        tag: right
+        type: regex
+        description: checks for Go
+        pattern: "Go"
+        match: true
+""",
+        """      - id: ev_boom
+        tag: right
+        type: rule
+        description: raises on every row
+""",
+    )
+    assert "ev_boom" in config and "ev_regex" not in config
+
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "rules.py").write_text(
+        "from fieldtest import rule\n"
+        "\n"
+        "@rule('ev_boom')\n"
+        "def ev_boom(output, inputs):\n"
+        "    raise RuntimeError('boom')\n"
+    )
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+
+    result = _run_score(evals_dir)
+    assert result.exit_code == 1, (
+        f"a run in which every eval errored exited 0:\n{result.output}")
+    assert "nothing was scored" in result.output
+    assert "rules.py" in result.output, (
+        "the message sent the user to a provider for a bug in their own Python")
+
+    # The sibling direction: a healthy deterministic run must still exit 0.
+    ok_dir = _setup_project(tmp_path / "ok")
+    _write_outputs(ok_dir, "fix1", runs=2)
+    _write_outputs(ok_dir, "fix2", runs=2)
+    assert _run_score(ok_dir).exit_code == 0
+
+
+def test_history_marks_a_run_whose_evals_errored(tmp_path, monkeypatch):
+    """
+    _tag_rate skipped `failure_rate: null` silently, pooling over the survivors,
+    so a run in which every judge call failed listed as a clean 100% —
+    indistinguishable from a healthy run and reading as an improvement on its
+    baseline. The data file records error_count honestly; history read it and
+    threw it away. diff warns about exactly this; history was the silent
+    surface.
+    """
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full",
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {
+            # right: one eval survives, one errored -> marked rate
+            "right": {"ok":  {"failure_rate": 0.0, "total_runs": 4},
+                      "dead": {"failure_rate": None, "error_count": 4}},
+            # good: every eval errored -> no rate at all
+            "good":  {"dead2": {"failure_rate": None, "error_count": 4}},
+        }},
+        "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert "100%!" in result.output, (
+        f"a rate that excluded an errored eval printed bare:\n{result.output}")
+    assert "err" in result.output, (
+        f"a tag whose every eval errored printed a rate:\n{result.output}")
+    assert "excluded from that rate" in result.output, (
+        "the markers appear with no legend explaining them")
+
+
+def test_history_leaves_a_clean_run_unmarked(tmp_path, monkeypatch):
+    """The sibling direction: no markers and no legend on a healthy run."""
+    import json
+
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-02T00-00-00-cur-data.json").write_text(json.dumps({
+        "run_id": "2026-01-02T00-00-00-cur", "set": "full",
+        "fixture_count": 1, "runs": 1,
+        "summary": {"uc1": {"right": {"ok": {"failure_rate": 0.0,
+                                             "total_runs": 4}}}},
+        "delta": {},
+    }))
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert "100%" in result.output
+    assert "100%!" not in result.output
+    assert "excluded from that rate" not in result.output, (
+        "a clean run printed the error legend")
+
+
+def test_history_and_diff_survive_valid_json_that_is_not_a_result(tmp_path, monkeypatch):
+    """
+    The Phase 4 handlers caught the parse failure and then called .get on
+    whatever parsed. `[]` is valid JSON, gets past the guard, and
+    AttributeErrors — so a truncated file was handled and a well-formed wrong
+    one crashed with a traceback.
+    """
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-08-01T10-00-00-aaaa-data.json").write_text("[]")
+
+    monkeypatch.chdir(tmp_path)
+    hist = CliRunner().invoke(main, ["history"], catch_exceptions=False)
+    assert hist.exit_code == 0, hist.output
+    assert "could not be read" in hist.output, (
+        f"a non-object result file vanished silently:\n{hist.output}")
+
+    diff = CliRunner().invoke(main, ["diff"], catch_exceptions=False)
+    assert diff.exit_code == 1
+    assert "Cannot read" in diff.output
+    assert "Traceback" not in diff.output

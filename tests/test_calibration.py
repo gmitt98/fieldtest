@@ -645,3 +645,48 @@ def test_kappa_at_or_above_threshold_is_not_flagged():
     assert pair["agreement"] == 1.0
     assert pair["kappa"] == 1.0
     assert pair["below_threshold"] is False
+
+
+def test_dry_run_rejects_a_set_a_rules_only_use_case_does_not_declare(tmp_path):
+    """
+    The `if not llm_evals: continue` shortcut returned before the resolve_set
+    call whose ConfigError makes --dry-run refuse an unknown set. A rules-only
+    use case still has to declare the set — the real run rejects the whole run
+    when it does not — so the dry run projected a confident cost and exited 0
+    for a run that cannot start: the same false green-light, via the sibling
+    branch that returns first.
+    """
+    from fieldtest.calibrate import project_calls
+
+    judged = UseCase(
+        id="uc1", description="d",
+        evals=[Eval(id="ev1", tag="safe", type="llm", description="d",
+                    pass_criteria="p", fail_criteria="f")],
+        fixtures=FixturesConfig(directory="fixtures/", sets={"full": ["f1"]}),
+    )
+    rules_only = UseCase(
+        id="uc2", description="d",
+        evals=[Eval(id="ev2", tag="right", type="regex", description="d",
+                    pattern="x", match=True)],
+        # declares 'smoke', not 'full' — distinct fixture ids, since ids are
+        # globally unique
+        fixtures=FixturesConfig(directory="fixtures/", sets={"smoke": ["f2"]}),
+    )
+    config = Config(
+        schema_version=2,
+        system=SystemConfig(name="t", domain="t"),
+        use_cases=[judged, rules_only],
+        defaults=Defaults(),
+        calibration=CalibrationConfig(panel=PANEL),
+    )
+
+    with pytest.raises(ConfigError):
+        project_calls(config, tmp_path, "full")
+
+    # The sibling direction: a set every use case declares still projects.
+    ok = project_calls(
+        Config(schema_version=2, system=SystemConfig(name="t", domain="t"),
+               use_cases=[judged], defaults=Defaults(),
+               calibration=CalibrationConfig(panel=PANEL)),
+        tmp_path, "full")
+    assert ok["total"] > 0

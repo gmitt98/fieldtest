@@ -458,12 +458,19 @@ def demo_cmd(example: str, offline: bool, target_dir: str):
             # The copy succeeded and the scoring did not, so dest stays — but
             # the obvious retry then hits the dest-exists guard. Say what to do
             # from here rather than leaving the user to discover that.
+            # The invocation this install actually has. The subprocess above
+            # uses `sys.executable -m` precisely because the console script is
+            # not always on PATH; suggesting bare `fieldtest` to the user it
+            # was written for hands them two commands that do not run.
+            import shutil
+            ft = ("fieldtest" if shutil.which("fieldtest")
+                  else f"{sys.executable} -m fieldtest.cli")
             click.echo(
                 f"fieldtest score failed — see the output above.\n"
                 f"  {dest}/ is already set up, so retry in place with:\n"
-                f"    cd {dest} && fieldtest score\n"
+                f"    cd {dest} && {ft} score\n"
                 f"  or, for the pre-scored results with no key:\n"
-                f"    rm -rf {dest} && fieldtest demo --example {example} "
+                f"    rm -rf {dest} && {ft} demo --example {example} "
                 f"--offline --dir {dest}",
                 err=True,
             )

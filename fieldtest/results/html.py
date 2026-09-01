@@ -129,7 +129,7 @@ def _build_html(run_data: dict, config) -> str:
     )
 
     judge_meta = ""
-    if judge:
+    if judge and judge.get("judged") is not False:
         temp = judge.get("temperature")
         bits = [f"{judge.get('provider', '?')}/{judge.get('model', '?')}"]
         if temp is not None:
@@ -822,7 +822,15 @@ def _build_delta_html(delta: dict, scored_eval_ids: set | None = None) -> str:
     # rate: multiplying 4.75 → 3.50 by 100 rendered a 1.25-point drop as "-125%".
     def _delta_row(item: dict) -> str:
         eval_id = item["eval_id"]
-        scored  = eval_id in scored_eval_ids
+        # The entry's own `metric`, which build_delta sets per (use case, tag,
+        # eval id). scored_eval_ids is a FLAT set of bare eval ids, and eval
+        # ids are unique only within a use case — the same fact aggregator,
+        # report and this file's own fixture matrix were each fixed for. With a
+        # scored `quality` in one use case and a binary `quality` in another, a
+        # pass rate falling to 50% rendered as a green +0.5. The set remains
+        # the fallback for deltas written before the key existed.
+        metric  = item.get("metric")
+        scored  = metric == "mean" if metric else eval_id in scored_eval_ids
         d       = item["delta"]
         prev    = item.get("previous", 0)
         cur     = item.get("current", 0)
