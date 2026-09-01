@@ -2367,15 +2367,19 @@ def test_changing_the_judge_produces_the_reason_through_the_real_run_path(tmp_pa
     data = json.loads((results / f"{run_id}-data.json").read_text())
     assert data["delta"]["baseline_run_id"] is None
     reason = data["delta"]["no_baseline_reason"]
-    assert "judge changed" in reason
+    # Derived from the two blocks, so it names the models rather than asserting
+    # a change from a hash inequality it never looked into.
+    assert "claude-haiku-4-5" in reason and "a-different-judge-model" in reason, reason
     assert "claude-haiku-4-5" in reason, "the reason should name the judge that was used"
 
     md = (results / f"{run_id}-report.md").read_text()
-    assert "no baseline: the judge changed" in md
+    assert "no baseline: the judge configuration differs" in md
+    assert "a-different-judge-model" in md, (
+        "the report should name the judge that differs, not merely assert one did")
 
     html = (results / f"{run_id}-report.html").read_text()
     assert "No baseline" in html
-    assert "The judge changed" in html
+    assert "The judge configuration differs" in html
 
 
 def test_the_readme_partial_gate_refuses_a_partial_run_and_allows_the_others(tmp_path):
@@ -3951,3 +3955,36 @@ def test_the_bundled_demo_results_record_their_config():
         f"bundled demo results carry no `config`, so fieldtest's own first "
         f"workflow warns about fieldtest's own file: {missing}. "
         f"Re-run scripts/regen_demo_results.py.")
+
+
+def test_the_changelog_does_not_claim_upgrades_find_no_baseline():
+    """
+    The 0.3.0 notes said `find_baseline()` will not compare across judge
+    fingerprints "so the first post-upgrade run simply finds no baseline". A
+    0.2.2 run records no judge at all, so it IS accepted, with the
+    baseline_pre_judge caveat — the note promised protection the tool does not
+    provide, which is worse than describing none.
+    """
+    import os
+    from pathlib import Path
+
+    import fieldtest
+    from fieldtest.results.aggregator import find_baseline_with_reason
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    text = (root / "CHANGELOG.md").read_text()
+    assert "simply finds no baseline" not in text, (
+        "the notes still claim an upgrade finds no baseline")
+
+    # And the behaviour the corrected note describes.
+    import tempfile
+    d = Path(tempfile.mkdtemp())
+    p = d / "old-data.json"
+    p.write_text(json.dumps({"run_id": "old", "set": "full",
+                             "summary": {"uc1": {"right": {"e1": {
+                                 "failure_rate": 0.5, "total_runs": 4}}}}}))
+    os.utime(p, (1000, 1000))
+    path, reason = find_baseline_with_reason(
+        d, "cur", "full", judge={"fingerprint": "bfd63a32"})
+    assert path is not None and reason is None, (
+        "a 0.2.2 baseline, which records no judge, must still be accepted")
