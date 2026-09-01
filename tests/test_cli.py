@@ -3661,3 +3661,54 @@ def test_diff_does_not_call_every_eval_new_when_the_baseline_is_unreadable(tmp_p
     assert "only in this run" not in result.output, (
         f"diff called every eval new against a baseline it could not read:\n"
         f"{result.output}")
+
+
+def test_a_rules_only_run_where_every_eval_errored_exits_nonzero(tmp_path):
+    """
+    The judge gate is scoped to llm rows so a passing regex cannot disarm it
+    during a total judge outage. Its comment then reasons that a deterministic
+    project "has no judge calls to fail" — true, and one step short: a rules.py
+    that raises on every row measures exactly as little as a judge that never
+    answered, and the run exited 0 telling CI it had measured.
+
+    Both directions: total failure exits 1, a run that still scores exits 0.
+    """
+    config = MINIMAL_CONFIG.replace(
+        """      - id: ev_regex
+        tag: right
+        type: regex
+        description: checks for Go
+        pattern: "Go"
+        match: true
+""",
+        """      - id: ev_boom
+        tag: right
+        type: rule
+        description: raises on every row
+""",
+    )
+    assert "ev_boom" in config and "ev_regex" not in config
+
+    evals_dir = _setup_project(tmp_path, config=config)
+    (evals_dir / "rules.py").write_text(
+        "from fieldtest import rule\n"
+        "\n"
+        "@rule('ev_boom')\n"
+        "def ev_boom(output, inputs):\n"
+        "    raise RuntimeError('boom')\n"
+    )
+    _write_outputs(evals_dir, "fix1", runs=2)
+    _write_outputs(evals_dir, "fix2", runs=2)
+
+    result = _run_score(evals_dir)
+    assert result.exit_code == 1, (
+        f"a run in which every eval errored exited 0:\n{result.output}")
+    assert "nothing was scored" in result.output
+    assert "rules.py" in result.output, (
+        "the message sent the user to a provider for a bug in their own Python")
+
+    # The sibling direction: a healthy deterministic run must still exit 0.
+    ok_dir = _setup_project(tmp_path / "ok")
+    _write_outputs(ok_dir, "fix1", runs=2)
+    _write_outputs(ok_dir, "fix2", runs=2)
+    assert _run_score(ok_dir).exit_code == 0

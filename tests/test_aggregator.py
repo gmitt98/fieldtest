@@ -413,8 +413,42 @@ def test_judge_block_includes_per_eval_overrides():
     ]
     judge = build_judge_block(_make_config(evals))
 
-    assert judge["overrides"] == {"ev2": {"provider": "openai", "model": "gpt-5"}}
-    assert "ev1" not in judge["overrides"]
+    # Keyed by use case: eval ids are unique only within one.
+    assert judge["overrides"] == {"uc1/ev2": {"provider": "openai", "model": "gpt-5"}}
+    assert "uc1/ev1" not in judge["overrides"]
+
+
+def test_per_eval_overrides_do_not_collide_across_use_cases():
+    """
+    Keyed by bare eval id, two use cases declaring the same eval id collapsed
+    to whichever came last — the run recorded the wrong instrument for the
+    other, and the fingerprint went blind to a judge change in it.
+    """
+    from fieldtest.results.provenance import build_judge_block
+
+    def cfg(alpha_model: str) -> Config:
+        def uc(uc_id: str, model: str) -> UseCase:
+            return UseCase(
+                id=uc_id, description="d",
+                evals=[Eval(id="quality", tag="good", type="llm", description="d",
+                            pass_criteria="p", fail_criteria="f", model=model)],
+                fixtures=FixturesConfig(
+                    directory="fixtures/", sets={"full": [f"{uc_id}-f1"]}),
+            )
+        return Config(
+            schema_version=2,
+            system=SystemConfig(name="t", domain="t"),
+            use_cases=[uc("uc_alpha", alpha_model), uc("uc_beta", "gpt-5")],
+            defaults=Defaults(),
+        )
+
+    block = build_judge_block(cfg("claude-opus-4-1"))
+    assert set(block["overrides"]) == {"uc_alpha/quality", "uc_beta/quality"}, (
+        f"one use case's judge overwrote the other: {block['overrides']}")
+
+    # Changing only uc_alpha's judge must move the fingerprint.
+    assert build_judge_block(cfg("claude-sonnet-4-5"))["fingerprint"] != block["fingerprint"], (
+        "the fingerprint is blind to a judge change in one of two use cases")
 
 
 def test_judge_fingerprint_stable_across_identical_configs():
@@ -2674,3 +2708,36 @@ def test_a_rules_only_project_records_no_judge(tmp_path):
         "a judged project stopped noticing that its judge changed")
     # And adding a judge where there was none is itself a change of instrument.
     assert j_block["fingerprint"] != block["fingerprint"]
+
+
+def test_html_delta_colours_a_binary_regression_red_despite_a_scored_namesake():
+    """
+    _delta_row decided scored-vs-binary from a FLAT set of bare eval ids, so a
+    scored `quality` in one use case made a binary `quality` in another render
+    as a mean: a pass rate falling 100% -> 50% painted green as `+0.5`. The
+    entry's own `metric` key is authoritative and per (use case, tag, eval id).
+    """
+    from fieldtest.results.html import _build_delta_html
+
+    delta = {"increased": [], "decreased": [], "unchanged": [],
+             "baseline_run_id": "b"}
+    # A binary eval whose failure rate ROSE 0.0 -> 0.5 — a regression.
+    delta["increased"] = [{
+        "eval_id": "quality", "metric": "failure_rate",
+        "previous": 0.0, "current": 0.5, "delta": 0.5,
+    }]
+    # ...while a scored eval elsewhere shares the id.
+    html = _build_delta_html(delta, scored_eval_ids={"quality"})
+
+    assert "delta-down" in html, (
+        f"a binary regression was painted as an improvement:\n{html}")
+    assert "delta-up" not in html
+    assert "-50.0%" in html, f"rendered as a mean, not a pass rate:\n{html}"
+
+    # The sibling direction: a genuinely scored entry still renders as a mean.
+    scored_html = _build_delta_html(
+        {"increased": [{"eval_id": "quality", "metric": "mean",
+                        "previous": 3.0, "current": 3.5, "delta": 0.5}],
+         "decreased": [], "unchanged": [], "baseline_run_id": "b"},
+        scored_eval_ids=set())
+    assert "delta-up" in scored_html and "+0.5" in scored_html

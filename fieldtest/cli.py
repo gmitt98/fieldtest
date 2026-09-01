@@ -471,6 +471,26 @@ def score(
         )
         sys.exit(1)
 
+    # The sibling the comment above stops one step short of. "No judge calls to
+    # fail" is true of a deterministic-only project and does not mean nothing
+    # can fail: a rules.py that raises on every row measures exactly as little
+    # as a judge that never answered, and exited 0 telling CI it had measured.
+    # Only when there are no judge rows at all, so this cannot disarm the gate
+    # above, and only on total failure — some errors still exit 0, as for
+    # judges.
+    if not judged:
+        det_scored  = [r for r in rows if r.passed is not None or r.score is not None]
+        det_errored = [r for r in rows if r.error]
+        if det_errored and not det_scored:
+            click.echo("")
+            click.echo(
+                f"All {len(det_errored)} eval call(s) failed — nothing was "
+                f"scored. These are deterministic evals, so the error is in "
+                f"your own Python in rules.py, not in a provider.",
+                err=True,
+            )
+            sys.exit(1)
+
 
 # ---------------------------------------------------------------------------
 # history
