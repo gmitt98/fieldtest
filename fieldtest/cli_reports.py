@@ -450,9 +450,11 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
         added = base_unjudged
         click.echo(
             f"⚠ {'This run consults a judge and the baseline did not' if added else 'The baseline consulted a judge and this run does not'} "
-            f"— those evals have no counterpart, so they are reported as "
-            f"added or removed rather than compared. The deltas below are for "
-            f"the evals both runs measured."
+            f"— an eval only one of them judges has no counterpart and is "
+            f"reported as added or removed. An eval that kept its id and "
+            f"changed between llm and rule is flagged in the report as an "
+            f"instrument change, because its movement is not the system "
+            f"changing."
         )
         click.echo("")
 

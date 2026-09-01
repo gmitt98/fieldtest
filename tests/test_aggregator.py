@@ -3017,3 +3017,51 @@ def test_diff_and_score_agree_about_a_one_sided_judge(tmp_path):
     other = {"provider": "anthropic", "model": "sonnet", "fingerprint": "bbbb2222"}
     change = describe_judge_change(other, judged)
     assert change and "haiku" in change and "sonnet" in change
+
+
+def test_an_eval_that_changed_instrument_is_flagged_not_reported_as_movement(tmp_path):
+    """
+    The judge fingerprint catches an instrument change for the whole run. An
+    eval that keeps its id and changes between `llm` and `rule` changes
+    instrument for that eval alone, which the run-level rule cannot see — so a
+    verdict moving from a model to a Python function was reported as a 0.6 ->
+    0.1 improvement in the system. judge_calls crossing zero is the signal, and
+    it is already recorded per eval.
+    """
+    from fieldtest.results.aggregator import build_delta
+
+    baseline = tmp_path / "b-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "b", "set": "full", "config": "config.yaml",
+        "summary": {"uc1": {"good": {
+            "swap":   {"failure_rate": 0.6, "total_runs": 10, "judge_calls": 10},
+            "stable": {"failure_rate": 0.5, "total_runs": 10, "judge_calls": 0},
+        }}},
+    }))
+    delta = build_delta({"uc1": {"good": {
+        "swap":   {"failure_rate": 0.1, "total_runs": 10, "judge_calls": 0},
+        "stable": {"failure_rate": 0.2, "total_runs": 10, "judge_calls": 0},
+    }}}, baseline, config_id="config.yaml")
+
+    flags = {
+        e["eval_id"]: e["instrument_changed"]
+        for k in ("increased", "decreased", "unchanged")
+        for e in (delta.get(k) or []) if isinstance(e, dict)
+    }
+    assert flags["swap"] is True, (
+        "a verdict that moved from a model to Python read as system movement")
+    assert flags["stable"] is False, (
+        "an eval judged the same way in both runs was flagged as changed")
+
+
+def test_the_report_names_an_eval_whose_instrument_changed():
+    """The flag is only useful if a surface prints it."""
+    import inspect
+
+    import fieldtest.results.html as html_mod
+    import fieldtest.results.report as report_mod
+
+    assert "instrument changed for" in inspect.getsource(report_mod), (
+        "the markdown report does not name an eval whose instrument changed")
+    assert "in one run and Python" in inspect.getsource(html_mod), (
+        "the HTML report does not name an eval whose instrument changed")

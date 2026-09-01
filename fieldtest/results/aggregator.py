@@ -749,6 +749,17 @@ def build_delta(current: dict, baseline_path: Optional[Path],
                     # in a failure rate were the same line. Consumers that
                     # predate this key fall back to reading the summary.
                     "metric":   "mean" if is_scored else "failure_rate",
+                    # Whether a model or Python decided this eval's verdicts,
+                    # per run. The judge fingerprint catches an instrument
+                    # change for the whole run; an eval that keeps its id and
+                    # changes type between `llm` and `rule`/`regex` changes
+                    # instrument for that eval alone, and the run-level rule
+                    # cannot see it — so a verdict moving from a model to a
+                    # Python function was reported as the system improving.
+                    "instrument_changed": (
+                        bool(prev_stats.get("judge_calls"))
+                        != bool(stats.get("judge_calls"))
+                    ),
                     "previous": round(prev_val, 6),
                     "current":  round(cur_val, 6),
                     "delta":    round(delta, 6),

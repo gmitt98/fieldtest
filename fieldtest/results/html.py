@@ -788,6 +788,17 @@ def _build_delta_html(delta: dict, scored_eval_ids: set | None = None) -> str:
             f"judge calls to errors, so its rates are over whatever survived. "
             f"These are not a like-for-like comparison."
         )
+    swapped = sorted(
+        f"{e['use_case']}/{e['eval_id']}"
+        for k in ("increased", "decreased", "unchanged")
+        for e in (delta.get(k) or [])
+        if isinstance(e, dict) and e.get("instrument_changed")
+    )
+    if swapped:
+        caveats.append(
+            "A model decided " + ", ".join(swapped) + " in one run and Python "
+            "in the other, so the movement shown is not the system changing."
+        )
     if delta.get("baseline_config_differs"):
         caveats.append(
             f"The baseline was scored from {delta.get('baseline_config')}, not "

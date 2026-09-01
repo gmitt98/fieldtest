@@ -474,6 +474,31 @@ _RENAMED_KEYS = {
 }
 
 
+def _on_disk_name(config_path: Path) -> str:
+    """
+    The config file's name as the filesystem spells it.
+
+    resolve() follows symlinks but does not canonicalise case, and macOS is
+    case-insensitive — so `--config evals/Config.yaml` opened the same file and
+    reported a different identity, severing the baseline chain and printing a
+    rejection sentence that was false. Looked up in the parent listing so a
+    genuinely case-sensitive filesystem, where two such files can both exist,
+    keeps the exact name it was given.
+    """
+    resolved = config_path.resolve()
+    try:
+        names = {p.name for p in resolved.parent.iterdir()}
+    except OSError:                     # unreadable parent: nothing better to say
+        return resolved.name
+    if resolved.name in names:
+        return resolved.name
+    lowered = resolved.name.lower()
+    for name in sorted(names):
+        if name.lower() == lowered:
+            return name
+    return resolved.name
+
+
 def parse_and_validate(config_path: Path) -> Config:
     """Load and validate config.yaml. Raises ConfigError (never raw ValidationError)."""
     try:
@@ -508,7 +533,7 @@ def parse_and_validate(config_path: Path) -> Config:
         # a symlinked config wrote into the same results/ under a second
         # identity: history severed, and the rejection message said two
         # identical files measure different evals.
-        cfg._source_name = config_path.resolve().name
+        cfg._source_name = _on_disk_name(config_path)
         return cfg
     except ValidationError as exc:
         # Extract the first error location + message and wrap in ConfigError.
