@@ -144,7 +144,7 @@ def _build_html(run_data: dict, config) -> str:
 
     scored_eval_ids = {
         ev.id for uc in config.use_cases for ev in uc.evals
-        if ev.type == "llm" and not ev.binary
+        if ev.is_scored
     }
     delta_html = _build_delta_html(delta, scored_eval_ids)
 

@@ -266,7 +266,7 @@ def validate_fixture_labels(config: Config, base_dir: Path) -> tuple[list[str], 
                     )
                     continue
 
-                is_scored = ev.type == "llm" and not ev.binary
+                is_scored = ev.is_scored
 
                 for run, value in per_run.items():
                     if not isinstance(run, int) or run < 1:

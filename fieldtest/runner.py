@@ -153,7 +153,7 @@ def score(
                     # regex or rule returns the same answer every time, so
                     # repeating it would inflate the bill and the row count for
                     # no information.
-                    reps = judge_runs if ev.type == "llm" else 1
+                    reps = judge_runs if ev.is_judged else 1
                     for judge_run in range(1, reps + 1):
                         judge_tasks.append(
                             (uc.id, ev, run_output, fixture, run_number, judge_run)

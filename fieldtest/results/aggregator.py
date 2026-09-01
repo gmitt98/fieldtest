@@ -297,7 +297,7 @@ def build_summary(
     for uc in config.use_cases:
         for ev in uc.evals:
             eval_meta[(uc.id, ev.tag, ev.id)] = {
-                "is_scored": ev.type == "llm" and not ev.binary,
+                "is_scored": ev.is_scored,
                 "scale_min": ev.scale[0] if ev.scale else None,
             }
 
@@ -372,7 +372,7 @@ def build_summary(
                 # calibrate fixed this same conflation (test_panel_calls_count_
                 # judge_calls_only); score was left with it.
                 judge_calls       = sum(
-                    1 for r in valid_rows + error_rows if r.type == "llm"
+                    1 for r in valid_rows + error_rows if r.is_judged
                 )
                 outputs_attempted = len(
                     {(r.fixture_id, r.run) for r in valid_rows + error_rows}
@@ -744,6 +744,17 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
     }
 
 
+def run_id_from_path(path: Path) -> str:
+    """
+    The run id a result file belongs to, from its filename.
+
+    Six sites derived this and one of them differed: `history` fell back to
+    `p.stem`, which keeps the `-data` suffix, where every other site stripped
+    it — so a result file without a run_id key made history print an id `view`
+    then rejected. That is the same defect already fixed once in `diff`.
+    """
+    return path.stem.removesuffix("-data")
+
 def result_files_newest_first(results_dir: Path) -> list[Path]:
     """
     Every -data.json in results_dir, newest first.
@@ -847,7 +858,7 @@ def find_baseline_with_reason(
             reason = text
 
     for p in result_files_newest_first(results_dir):
-        if p.stem.removesuffix("-data") == current_run_id:
+        if run_id_from_path(p) == current_run_id:
             continue
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
