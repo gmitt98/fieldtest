@@ -61,32 +61,55 @@ def _format_tag_summary(rows: list[ResultRow], use_case_id: str) -> list[str]:
 
 
 def _format_fixture_matrix(
-    rows: list[ResultRow], use_case_id: str, eval_ids: list[str]
+    rows: list[ResultRow], use_case_id: str, evals: list[tuple[str, str]]
 ) -> list[str]:
     """
     Fixture × eval matrix.
-    Rows = fixture IDs (sorted), columns = eval IDs (config order).
+    Rows = fixture IDs (sorted), columns = evals (config order).
+    `evals` is one (eval_id, tag) pair per declared eval.
     Cell values:
       "X/N"       — X passes out of N judged runs
       "err"       — all runs returned judge errors
       "X/N+err"   — some passes, some errors
       "—"         — no data (all skipped or eval not run on fixture)
+
+    Columns are keyed by (eval_id, tag), not by eval_id alone. Ids only have to
+    be unique within a use case and nothing validates it, so one use case can
+    declare `no_pii` twice. Keyed by id the two evals shared a cell: a fixture
+    where one passed and the other failed read `1/2` under both columns — a
+    denominator larger than either eval's own n, beside per-eval tables that
+    correctly showed 0% of 1 and 100% of 1.
     """
     uc_rows = [r for r in rows if r.use_case == use_case_id]
     fixture_ids = sorted({r.fixture_id for r in uc_rows if not r.skipped})
-    active_evals = [e for e in eval_ids if any(r.eval_id == e for r in uc_rows)]
 
-    if not fixture_ids or not active_evals:
+    # Two evals sharing an id *and* a tag cannot be told apart by any field a
+    # row carries, so they stay one column. The warning below names them.
+    seen: set = set()
+    active: list[tuple[str, str]] = []
+    for eid, tag in evals:
+        if (eid, tag) in seen:
+            continue
+        if any(r.eval_id == eid and r.tag == tag for r in uc_rows):
+            seen.add((eid, tag))
+            active.append((eid, tag))
+
+    if not fixture_ids or not active:
         return []
 
-    # Accumulate per (fixture_id, eval_id)
+    # Only where an id is duplicated; the ordinary case keeps the bare id.
+    dup_ids = {eid for eid, _ in active
+               if sum(1 for e, _ in active if e == eid) > 1}
+    headers = [f"{eid} ({tag})" if eid in dup_ids else eid for eid, tag in active]
+
+    # Accumulate per (fixture_id, eval_id, tag)
     cell: dict = defaultdict(
         lambda: {"passed": 0, "total": 0, "errors": 0, "scores": []}
     )
     for r in uc_rows:
         if r.skipped:
             continue
-        key = (r.fixture_id, r.eval_id)
+        key = (r.fixture_id, r.eval_id, r.tag)
         if r.error:
             cell[key]["errors"] += 1
         elif r.score is not None:
@@ -96,14 +119,14 @@ def _format_fixture_matrix(
             if r.passed:
                 cell[key]["passed"] += 1
 
-    header = "| fixture | " + " | ".join(active_evals) + " |"
-    sep = "| --- |" + " --- |" * len(active_evals)
+    header = "| fixture | " + " | ".join(headers) + " |"
+    sep = "| --- |" + " --- |" * len(active)
     lines = ["### Fixture × Eval Matrix", header, sep]
 
     for fid in fixture_ids:
         cells = []
-        for eid in active_evals:
-            d = cell[(fid, eid)]
+        for eid, tag in active:
+            d = cell[(fid, eid, tag)]
             if d["scores"]:
                 avg = round(sum(d["scores"]) / len(d["scores"]), 1)
                 cells.append(f"avg {avg}")
@@ -116,6 +139,21 @@ def _format_fixture_matrix(
             else:
                 cells.append(f"{d['passed']}/{d['total']}")
         lines.append("| " + fid + " | " + " | ".join(cells) + " |")
+
+    # `validate` accepts a config that declares an id twice, so the report is
+    # where the user finds out. Split columns make the numbers right; they do
+    # not make two evals with one name readable.
+    declared_twice = sorted(
+        {eid for eid, _ in evals if sum(1 for e, _ in evals if e == eid) > 1}
+    )
+    for eid in declared_twice:
+        n = sum(1 for e, _ in evals if e == eid)
+        lines.append("")
+        lines.append(
+            f"  ⚠ `{use_case_id}` declares eval id `{eid}` {n}×. Eval ids must be "
+            f"unique within a use case — give each of them its own id, or the "
+            f"rows they produce cannot be told apart."
+        )
 
     return lines
 
@@ -532,6 +570,11 @@ def format_report(
                 "  spread near zero means the judge is repeatable; a judge spread "
                 "comparable to the system spread means the eval's criteria are ambiguous."
             )
+            lines.append(
+                "  disagreement covers only outputs that kept more than one verdict — "
+                "an output whose repetitions were lost to judge errors had nothing to "
+                "disagree with and is not in the denominator."
+            )
             lines.append("")
 
         # Floor hits
@@ -605,8 +648,9 @@ def format_report(
             lines.append("")
 
         # --- Fixture × Eval Matrix ----------------------------------------
-        eval_ids = [ev.id for ev in uc.evals]
-        matrix_lines = _format_fixture_matrix(rows, uc.id, eval_ids)
+        matrix_lines = _format_fixture_matrix(
+            rows, uc.id, [(ev.id, ev.tag) for ev in uc.evals]
+        )
         if matrix_lines:
             lines.extend(matrix_lines)
             lines.append("")
@@ -685,9 +729,15 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
         w.writerow(["## Fixture x Eval Matrix", uc.id])
         w.writerow(["use_case", "fixture_id", "eval_id", "tag", "passes", "total", "errors", "cell"])
 
-        eval_ids = [ev.id for ev in uc.evals]
+        # (id, tag), not id — the markdown matrix's key, for the same reason.
+        # A use case declaring one id twice merged both evals' counts into one
+        # row here too, and tag_map, keyed by id alone, then stamped that row
+        # with whichever tag was declared last.
+        eval_keys: list[tuple[str, str]] = []
+        for ev in uc.evals:
+            if (ev.id, ev.tag or "") not in eval_keys:
+                eval_keys.append((ev.id, ev.tag or ""))
         fixture_ids = sorted({r.fixture_id for r in uc_rows if not r.skipped})
-        tag_map: dict[str, str] = {ev.id: (ev.tag or "") for ev in uc.evals}
 
         cell: dict = defaultdict(
             lambda: {"passed": 0, "total": 0, "errors": 0, "scores": []}
@@ -695,7 +745,7 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
         for r in uc_rows:
             if r.skipped:
                 continue
-            key = (r.fixture_id, r.eval_id)
+            key = (r.fixture_id, r.eval_id, r.tag or "")
             if r.error:
                 cell[key]["errors"] += 1
             elif r.score is not None:
@@ -706,8 +756,8 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
                     cell[key]["passed"] += 1
 
         for fid in fixture_ids:
-            for eid in eval_ids:
-                d = cell[(fid, eid)]
+            for eid, tag in eval_keys:
+                d = cell[(fid, eid, tag)]
                 if d["scores"]:
                     avg = round(sum(d["scores"]) / len(d["scores"]), 1)
                     cell_str = f"avg {avg}"
@@ -719,7 +769,7 @@ def format_report_csv(rows: list[ResultRow], config: Config) -> str:
                     cell_str = ""
                 else:
                     cell_str = f"{d['passed']}/{d['total']}"
-                w.writerow([uc.id, fid, eid, tag_map.get(eid, ""),
+                w.writerow([uc.id, fid, eid, tag,
                             d["passed"], d["total"], d["errors"], cell_str])
         w.writerow([])
 
