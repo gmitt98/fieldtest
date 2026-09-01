@@ -257,8 +257,20 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # `.get(..., '—')` default is unreachable and the line read "Baseline:
     # None" — the literal string, as though a run were named that.
     base_run_id = delta.get("baseline_run_id")
+    # Why there is no baseline was already worked out at score time and stored
+    # on the delta; report.py and html.py both print it. `diff` used to assert
+    # "no earlier run to compare against" instead, which is false whenever the
+    # baseline was rejected rather than absent — a different set, a bumped
+    # dataset version, a changed judge.
+    no_baseline_reason = delta.get("no_baseline_reason")
     if base_run_id:
         click.echo(f"Baseline:  {base_run_id}")
+    elif no_baseline_reason:
+        click.echo(f"Baseline:  none — {no_baseline_reason}")
+    elif len(result_files) > 1:
+        # No stored reason is not evidence of a first run either — older result
+        # files predate the field. Say what is known.
+        click.echo("Baseline:  none — no baseline recorded for this run")
     else:
         click.echo("Baseline:  none — no earlier run to compare against")
     click.echo("")
@@ -363,10 +375,26 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     if not increased and not decreased and not unchanged:
         if not base_run_id:
             # "No comparable evals found between runs" reads as two runs that
-            # shared nothing. There is only one run.
-            click.echo(
-                f"Nothing to compare — {current_path.stem.removesuffix('-data')} "
-                f"is the only run in {results_dir}."
-            )
+            # shared nothing. Say why there is no baseline instead — and only
+            # claim this is the only run when the directory says so, since the
+            # usual cause is a baseline that was rejected, not one that is
+            # missing.
+            current_id = current_path.stem.removesuffix("-data")
+            if no_baseline_reason:
+                click.echo(
+                    f"Nothing to compare — no usable baseline: {no_baseline_reason}."
+                )
+            elif len(result_files) > 1:
+                others = len(result_files) - 1
+                click.echo(
+                    f"Nothing to compare — no baseline was recorded for "
+                    f"{current_id}, though {others} other run(s) are present in "
+                    f"{results_dir}."
+                )
+            else:
+                click.echo(
+                    f"Nothing to compare — {current_id} "
+                    f"is the only run in {results_dir}."
+                )
         else:
             click.echo("No comparable evals found between runs.")
