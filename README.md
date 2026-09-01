@@ -55,9 +55,9 @@ one `rule`, one `regex`, one `reference`, one more `rule` — and all four are
 deterministic, so the first run works before you have a key. Three more are
 `TODO` with the question each has to answer.
 
-Six of the nine outputs carry a deliberate fault. Two are catchable by
-arithmetic alone; the rest need a judge. Working out which is which is the
-exercise.
+Six of the nine outputs carry a deliberate fault. Three are catchable with
+no API call at all; the other three need a judge. Working out which is which
+is the exercise.
 
 `support-agent` is the other one: nine JSON agent traces — tool calls, tool
 results, and the message the agent sent. An output is text, so a rule eval
@@ -318,9 +318,9 @@ generator already wrote them — and the report gives you, per eval, pairwise ag
 kappa, and Fleiss' kappa across the panel. Scored evals get mean absolute deviation and Spearman
 correlation instead.
 
-**Kappa rather than raw agreement.** On a `safe` eval whose true failure rate is 5%,
-two judges that both always answer pass show 95% raw agreement and a kappa near zero. Raw
-agreement alone would certify a useless judge.
+**Kappa rather than raw agreement.** Two judges that both always answer pass agree with
+each other on every output — 100% raw agreement — and their kappa is exactly zero, because
+none of that agreement is beyond chance. Raw agreement alone would certify a useless judge.
 
 The actionable output is the ranked list: evals ordered by how much the panel disagreed, most
 contested first. Those are the evals whose `pass_criteria` need rewriting. Where your fixtures
@@ -466,7 +466,7 @@ fieldtest init --template rag         # RAG / Q&A config
 fieldtest init --template chatbot     # conversational assistant config
 ```
 
-Templates include all required sections with realistic evals already written. Swap in your system prompt and fixtures.
+Templates include all required sections with realistic evals already written — except each eval's `tag`, which ships blank on purpose: decide whether it is `right`, `good`, or `safe` before the config validates. Then swap in your system prompt and fixtures.
 
 ### 2. Fill out config.yaml
 

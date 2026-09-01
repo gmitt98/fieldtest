@@ -32,6 +32,14 @@ Customer support emails get a helpful, accurate, policy-compliant reply
 | no-policy-invention | policy | 89% [56–98%] | 9 | — | 0 | 0 | — |
 | no-unauthorized-commitments | policy | 56% [27–81%] | 9 | — | 0 | 0 | — |
 
+### Judge vs Human Labels
+| eval | labeled runs | agreement | errors |
+|------|--------------|-----------|--------|
+| addresses-the-ask | 3 | 100.0% | 0 false pass, 0 false fail |
+| no-unauthorized-commitments | 3 | 100.0% | 0 false pass, 0 false fail |
+
+  a false pass is an output a human failed and the judge passed — on a safe eval that is the error that matters.
+
 ### Fixture × Eval Matrix
 | fixture | addresses-the-ask | golden-reply | has-greeting | appropriate-tone | no-policy-invention | no-unauthorized-commitments |
 | --- | --- | --- | --- | --- | --- | --- |

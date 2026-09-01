@@ -513,6 +513,7 @@ from fieldtest.resolve import (  # noqa: E402
     resolve_runs,
     resolve_set,
     use_cases_with_fixtures,
+    validate_run_counts,
 )
 
 __all__ = [
@@ -523,5 +524,5 @@ __all__ = [
     "extract_labels", "load_fixture", "parse_and_validate", "summarize_file_inputs",
     "validate_fixture_labels",
     "resolve_dataset_version", "resolve_judge_runs", "resolve_runs", "resolve_set",
-    "use_cases_with_fixtures",
+    "use_cases_with_fixtures", "validate_run_counts",
 ]

@@ -1059,7 +1059,11 @@
           "total_runs": 9,
           "error_count": 0,
           "judge_calls": 9,
-          "outputs_attempted": 9
+          "outputs_attempted": 9,
+          "labeled_runs": 3,
+          "judge_agreement": 1.0,
+          "judge_false_pass": 0,
+          "judge_false_fail": 0
         },
         "golden-reply": {
           "failure_rate": 0.0,
@@ -1071,7 +1075,7 @@
           "floor_hits": 0,
           "total_runs": 3,
           "error_count": 0,
-          "judge_calls": 3,
+          "judge_calls": 0,
           "outputs_attempted": 3
         }
       },
@@ -1086,7 +1090,7 @@
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
-          "judge_calls": 9,
+          "judge_calls": 0,
           "outputs_attempted": 9
         },
         "appropriate-tone": {
@@ -1114,7 +1118,7 @@
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
-          "judge_calls": 9,
+          "judge_calls": 0,
           "outputs_attempted": 9
         },
         "no-unauthorized-commitments": {
@@ -1128,7 +1132,11 @@
           "total_runs": 9,
           "error_count": 0,
           "judge_calls": 9,
-          "outputs_attempted": 9
+          "outputs_attempted": 9,
+          "labeled_runs": 3,
+          "judge_agreement": 1.0,
+          "judge_false_pass": 0,
+          "judge_false_fail": 0
         }
       }
     }
