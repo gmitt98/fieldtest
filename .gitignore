@@ -19,3 +19,4 @@ htmlcov/
 ROADMAP.md
 docs/case-study-*.md
 .claude/worktrees/
+.ruff_cache/

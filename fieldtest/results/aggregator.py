@@ -286,10 +286,17 @@ def build_summary(
     # one. Where the two differed in type, a binary eval inherited is_scored
     # from a scored namesake and reported failure_rate: null, so an eval failing
     # every run showed nothing at all.
+    #
+    # The tag is part of the key for the same reason. Ids are meant to be unique
+    # within a use case and nothing validates it, so one use case can declare
+    # `q` twice under different tags. Keyed by (use_case, eval_id) the later
+    # definition won there too: a binary `q` that failed every run inherited
+    # is_scored from a scored namesake in the next tag and reported
+    # failure_rate: null and mean: null — no number at all, in either column.
     eval_meta: dict[tuple, dict] = {}
     for uc in config.use_cases:
         for ev in uc.evals:
-            eval_meta[(uc.id, ev.id)] = {
+            eval_meta[(uc.id, ev.tag, ev.id)] = {
                 "is_scored": ev.type == "llm" and not ev.binary,
                 "scale_min": ev.scale[0] if ev.scale else None,
             }
@@ -309,15 +316,20 @@ def build_summary(
     # identical runs produced tables in different orders — in the markdown, the
     # HTML and the JSON alike. Config order rather than alphabetical, to match
     # the fixture matrix and the order the user reads in config.yaml.
+    # Keyed by tag as well, for the same reason as eval_meta: a use case that
+    # declares one id twice under two tags has two declaration positions, and a
+    # flat map keeps only the last.
     declared = {
-        uc.id: {ev.id: i for i, ev in enumerate(uc.evals)} for uc in config.use_cases
+        uc.id: {(ev.tag, ev.id): i for i, ev in enumerate(uc.evals)}
+        for uc in config.use_cases
     }
     for uc_id, tags in groups.items():
         order = declared.get(uc_id, {})
         for tag, evals in tags.items():
             tags[tag] = {
                 k: evals[k]
-                for k in sorted(evals, key=lambda e: (order.get(e, len(order)), e))
+                for k in sorted(evals,
+                                key=lambda e: (order.get((tag, e), len(order)), e))
             }
 
     summary: dict = {}
@@ -328,7 +340,7 @@ def build_summary(
         for tag, evals in tags.items():
             summary[uc_id][tag] = {}
             for eval_id, eval_rows in evals.items():
-                meta      = eval_meta.get((uc_id, eval_id),
+                meta      = eval_meta.get((uc_id, tag, eval_id),
                                          {"is_scored": False, "scale_min": None})
                 is_scored = meta["is_scored"]
 
@@ -446,28 +458,37 @@ def build_summary(
                         collapsed = {
                             key: collapse_verdicts(reps) for key, reps in by_output.items()
                         }
-                        # Only outputs the judge actually answered more than
-                        # once can disagree. Counting an output whose other
-                        # repetitions were lost to provider errors as "agreed"
-                        # made a flaky provider hide an unreliable judge: one
-                        # genuine disagreement out of one comparable output
-                        # reported 0.5 rather than 1.0.
-                        comparable = [
-                            reps for reps in by_output.values()
-                            if len([r for r in reps if r.passed is not None]) > 1
+                        # Only an output that survived more than one judge call
+                        # could have disagreed. valid_rows drops error rows, so
+                        # an output whose extra repetitions were lost to judge
+                        # errors arrives here with a single verdict — it cannot
+                        # reach the numerator, and counting it in the
+                        # denominator scored it as a judge that was consulted
+                        # twice and agreed. At judge_runs 3 with 6 of 12 calls
+                        # lost, one output judged three times and split 1-2 read
+                        # as 25% disagreement where the measurable rate is 100%.
+                        # Same defect the rule-eval fix above describes, one
+                        # level down: that one corrected where judge_runs comes
+                        # from, this one corrects what the rate divides by.
+                        # decompose_variance already excludes single-repetition
+                        # outputs for the scored branch, for this reason.
+                        repeated = [
+                            reps for reps in by_output.values() if len(reps) > 1
                         ]
                         disagreeing = sum(
-                            1 for reps in comparable
-                            if len({r.passed for r in reps if r.passed is not None}) > 1
+                            1 for reps in repeated
+                            if len({r.passed for r in reps}) > 1
                         )
                         total_runs   = len(collapsed)
                         failed_count = sum(1 for v in collapsed.values() if v is False)
                         judge_fields = {
                             **judge_fields,
                             "judge_disagreement_rate": (
-                                round(disagreeing / len(comparable), 6)
-                                if comparable else None
+                                round(disagreeing / len(repeated), 6) if repeated else None
                             ),
+                            # The denominator, so the rate can be read as the
+                            # sample it is. None renders as "—" in both reports.
+                            "judge_repeated_outputs": len(repeated),
                             "judge_runs": judge_runs,
                         }
                     else:
@@ -684,6 +705,13 @@ def build_delta(current: dict, baseline_path: Optional[Path]) -> dict:
                     # against the other's row.
                     "use_case": uc_id,
                     "eval_id":  eval_id,
+                    # Which number moved. A binary eval's delta is a change in
+                    # failure rate and a scored eval's is a change in mean
+                    # score; both were printed as a bare `0.500 → 0.000`, so a
+                    # two-point rise in a 1-5 quality score and a two-point rise
+                    # in a failure rate were the same line. Consumers that
+                    # predate this key fall back to reading the summary.
+                    "metric":   "mean" if is_scored else "failure_rate",
                     "previous": round(prev_val, 6),
                     "current":  round(cur_val, 6),
                     "delta":    round(delta, 6),
