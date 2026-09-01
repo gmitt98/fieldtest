@@ -225,13 +225,15 @@ def init_cmd(target_dir: str, force: bool, template: Optional[str]):
         gitignore_added = ["(created)"]
 
     if template:
-        # Checked before anything is written. It used to run after the
-        # directories and .gitignore had already been created, so a bad
-        # template name left the destination half-scaffolded.
+        # No existence check here: --template is a click.Choice over
+        # AVAILABLE_TEMPLATES, which is globbed from this same directory, so an
+        # unknown name is rejected with exit 2 before this command body runs and
+        # nothing is scaffolded at all. The check that used to sit here could
+        # never fire, and the comment above it claimed it ran before the
+        # directories and .gitignore were written, which it did not.
+        # test_every_template_choice_has_a_file_and_the_help_names_them_all
+        # pins the invariant that makes it unnecessary.
         template_path = Path(__file__).parent / "templates" / f"{template}.yaml"
-        if not template_path.exists():
-            click.echo(f"Error: template '{template}' not found", err=True)
-            sys.exit(1)
 
         config_path = evals_dir / "config.yaml"
         overwrote = config_path.exists() and force

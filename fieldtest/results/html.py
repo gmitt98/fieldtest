@@ -548,15 +548,22 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
 
     # Build matrix
     fixture_ids = sorted({r.get("fixture_id") for r in uc_rows if not r.get("skipped")})
-    eval_order  = [ev.id for ev in uc.evals]
+    # (id, tag), not id. Eval ids only have to be unique within a use case and
+    # nothing validates it, so one use case can declare `no_pii` twice; keyed by
+    # id the two evals shared every cell, every header and every footer stat,
+    # and the shared cell's denominator exceeded either eval's own n.
+    eval_order: list[tuple[str, str]] = []
+    for ev in uc.evals:
+        if (ev.id, ev.tag) not in eval_order:
+            eval_order.append((ev.id, ev.tag))
 
-    # Accumulate cell data: (fixture_id, eval_id) -> {passed, total, errors, scores}
+    # Accumulate cell data: (fixture_id, eval_id, tag) -> {passed, total, ...}
     from collections import defaultdict
     cell: dict = defaultdict(lambda: {"passed": 0, "total": 0, "errors": 0, "scores": []})
     for r in uc_rows:
         if r.get("skipped"):
             continue
-        key = (r["fixture_id"], r["eval_id"])
+        key = (r["fixture_id"], r["eval_id"], r.get("tag"))
         if r.get("error"):
             cell[key]["errors"] += 1
         elif r.get("score") is not None:
@@ -568,12 +575,11 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
 
     # Build column headers
     tag_class = {"right": "right-col", "good": "good-col", "safe": "safe-col"}
-    eval_meta = {ev.id: ev for ev in uc.evals}
-
+    eval_meta = {(ev.id, ev.tag): ev for ev in uc.evals}
     header_cells = '<th class="fixture-col">fixture</th>'
-    for eid in eval_order:
-        ev = eval_meta.get(eid)
-        tc = tag_class.get(ev.tag if ev else "", "")
+    for eid, tag in eval_order:
+        ev = eval_meta.get((eid, tag))
+        tc = tag_class.get(tag or "", "")
         labels_str = "|".join(ev.labels) if ev and ev.labels else ""
         header_cells += (
             f'<th class="{tc}" data-eval-id="{_esc_py(eid)}" '
@@ -584,12 +590,12 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
     body_rows_html = ""
     for fid in fixture_ids:
         row_cells = f'<td class="fixture-cell">{_esc_py(fid)}</td>'
-        for eid in eval_order:
-            d = cell[(fid, eid)]
+        for eid, tag in eval_order:
+            d = cell[(fid, eid, tag)]
             if d["scores"]:
                 avg = round(sum(d["scores"]) / len(d["scores"]), 1)
                 # Look up scale max from eval metadata for display
-                ev = eval_meta.get(eid)
+                ev = eval_meta.get((eid, tag))
                 scale_max = ev.scale[1] if ev and ev.scale else None
                 label = f"{avg}/{scale_max}" if scale_max else f"{avg}"
                 cls   = "cell-pass"  # scored cells are always clickable, neutral-positive
@@ -613,13 +619,16 @@ def _build_uc_section(uc, uc_rows: list[dict], uc_summary: dict) -> str:
         body_rows_html += f"<tr>{row_cells}</tr>\n"
 
     # Per-eval aggregate: a rate is uninterpretable without its interval and n.
+    # Keyed by (eval_id, tag): flattened on eval_id alone, a duplicated id took
+    # whichever tag's stats came last for both of its columns.
     stats_by_eval: dict = {}
-    for tag_stats in uc_summary.values():
-        stats_by_eval.update(tag_stats)
+    for tag_name, tag_stats in uc_summary.items():
+        for eid_, st in tag_stats.items():
+            stats_by_eval[(eid_, tag_name)] = st
 
     foot_cells = '<td class="fixture-col">all</td>'
-    for eid in eval_order:
-        stats = stats_by_eval.get(eid, {})
+    for eid, tag in eval_order:
+        stats = stats_by_eval.get((eid, tag), {})
         fr    = stats.get("failure_rate")
         ci    = stats.get("failure_rate_ci")
         n     = stats.get("total_runs") or 0
@@ -692,9 +701,13 @@ def _build_judge_tables(uc_summary: dict) -> str:
 
     html = ""
 
+    # Sort on the id alone. `sorted(pairs)` falls through to comparing the stats
+    # dicts whenever two ids tie, and a use case that declares one id under two
+    # tags — which nothing validates against — made that tie: writing the HTML
+    # report raised TypeError and took the whole run's artifacts with it.
     if labelled:
         rows = ""
-        for eval_id, st in sorted(labelled):
+        for eval_id, st in sorted(labelled, key=lambda pair: pair[0]):
             agreement = st.get("judge_agreement")
             pct = "—" if agreement is None else "%.1f%%" % (agreement * 100)
             cls = "judge-low" if (agreement is not None and agreement < 0.8) else ""
@@ -720,7 +733,7 @@ def _build_judge_tables(uc_summary: dict) -> str:
 
     if repeats:
         rows = ""
-        for eval_id, st in sorted(repeats):
+        for eval_id, st in sorted(repeats, key=lambda pair: pair[0]):
             dis = st.get("judge_disagreement_rate")
             sys_sd, jdg_sd = st.get("system_stddev"), st.get("judge_stddev")
             # A binary eval reports disagreement; a scored one reports the two
@@ -747,7 +760,9 @@ def _build_judge_tables(uc_summary: dict) -> str:
             "For a scored eval, compare the two spreads: system spread is your outputs "
             "differing from each other, judge spread is the judge differing from itself on "
             "the same output. Judge spread approaching system spread means the criteria are "
-            "ambiguous, not that the system is noisy.</p>\n"
+            "ambiguous, not that the system is noisy. Disagreement covers only outputs "
+            "that kept more than one verdict — an output whose repetitions were lost to "
+            "judge errors had nothing to disagree with and is not in the denominator.</p>\n"
             "  </div>"
         )
 

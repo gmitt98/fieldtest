@@ -36,6 +36,32 @@ def resolve_judge_runs(config: Config, use_case: UseCase) -> int:
     return use_case.fixtures.judge_runs
 
 
+def validate_run_counts(config: Config) -> None:
+    """
+    Reject runs/judge_runs below 1.
+
+    runs: 0 would write a green result set that measured nothing, and
+    judge_runs: 0 would silently drop every LLM eval from the run. Shared by
+    score() and the validate command so `validate` cannot bless a config that
+    `score` immediately refuses.
+    """
+    for uc in config.use_cases:
+        runs_v = resolve_runs(config, uc)
+        if runs_v < 1:
+            raise ConfigError(
+                f"Config error at use_cases.{uc.id}.fixtures.runs: must be at "
+                f"least 1, got {runs_v}. A run that scores zero outputs would "
+                f"report a green, empty result set."
+            )
+        judge_runs_v = resolve_judge_runs(config, uc)
+        if judge_runs_v < 1:
+            raise ConfigError(
+                f"Config error at use_cases.{uc.id}.fixtures.judge_runs: must be "
+                f"at least 1, got {judge_runs_v}. judge_runs below 1 would "
+                f"silently drop every LLM eval from the run."
+            )
+
+
 def resolve_dataset_version(config: Config) -> Optional[str]:
     """
     Return the dataset version from the first use_case's fixtures.version, or None.

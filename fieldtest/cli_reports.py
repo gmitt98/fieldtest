@@ -116,8 +116,14 @@ def history(config_path: Optional[str]):
 
         def _tag_rate(tag: str) -> str:
             """
-            Pass rate for the tag, pooled over outputs — the same number the
-            report's Tag Health table shows under the same heading.
+            Pass rate for the tag, pooled over every output in the run.
+
+            One figure per tag for the whole run, across all use cases. The
+            markdown report emits a Tag Health table per use case instead, so
+            this is not "the same number under the same heading" — with two use
+            cases passing 2 of 4 and 0 of 2, the report shows 50% and 0% and
+            this shows 33%. Whole and parts, both correct; the doc sentence
+            that called them identical was the wrong side.
 
             This printed the mean *failure* rate. A run the report called
             "RIGHT 95%" appeared here as "RIGHT 12%", so `history` said a system
@@ -257,8 +263,20 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     # `.get(..., '—')` default is unreachable and the line read "Baseline:
     # None" — the literal string, as though a run were named that.
     base_run_id = delta.get("baseline_run_id")
+    # Why there is no baseline was already worked out at score time and stored
+    # on the delta; report.py and html.py both print it. `diff` used to assert
+    # "no earlier run to compare against" instead, which is false whenever the
+    # baseline was rejected rather than absent — a different set, a bumped
+    # dataset version, a changed judge.
+    no_baseline_reason = delta.get("no_baseline_reason")
     if base_run_id:
         click.echo(f"Baseline:  {base_run_id}")
+    elif no_baseline_reason:
+        click.echo(f"Baseline:  none — {no_baseline_reason}")
+    elif len(result_files) > 1:
+        # No stored reason is not evidence of a first run either — older result
+        # files predate the field. Say what is known.
+        click.echo("Baseline:  none — no baseline recorded for this run")
     else:
         click.echo("Baseline:  none — no earlier run to compare against")
     click.echo("")
@@ -341,32 +359,109 @@ def diff(run_id: Optional[str], baseline_id: Optional[str], config_path: Optiona
     decreased = delta.get("decreased", [])
     unchanged = delta.get("unchanged", [])
 
+    unchanged_keys = delta.get("unchanged_keys") or []
+
+    # Which eval ids need their use case spelled out. Ids are unique within a
+    # use case, not across them, so `shared: 0.500 → 0.000` printed twice with
+    # nothing to say which use case moved.
+    seen_use_cases: dict = {}
+    for item in increased + decreased + unchanged_keys:
+        if isinstance(item, dict) and item.get("eval_id"):
+            seen_use_cases.setdefault(item["eval_id"], set()).add(item.get("use_case"))
+
+    def _label(item: dict) -> str:
+        eval_id = item["eval_id"]
+        uc = item.get("use_case")
+        if uc and len(seen_use_cases.get(eval_id, ())) > 1:
+            return f"{uc}/{eval_id}"
+        return eval_id
+
+    # A delta written by an older run carries no `metric`, so fall back to the
+    # summary it was computed from: a scored eval is the one with a mean.
+    summary_metric: dict = {}
+    for uc_id, tags in (current_data.get("summary") or {}).items():
+        if not isinstance(tags, dict):
+            continue
+        for evals in tags.values():
+            if not isinstance(evals, dict):
+                continue
+            for eval_id, st in evals.items():
+                if not isinstance(st, dict):
+                    continue
+                if st.get("mean") is not None:
+                    summary_metric[(uc_id, eval_id)] = "mean"
+                elif st.get("failure_rate") is not None:
+                    summary_metric[(uc_id, eval_id)] = "failure_rate"
+
+    def _metric(item: dict) -> Optional[str]:
+        m = item.get("metric")
+        if m in ("mean", "failure_rate"):
+            return m
+        return summary_metric.get((item.get("use_case"), item.get("eval_id")))
+
+    # Neutral names, deliberately: the README's stance is that the user decides
+    # what counts as a regression. What it cannot leave to the user is *which
+    # number* moved — a +2.000 on a 1-5 mean and a +0.500 on a failure rate are
+    # opposite news and were printed identically.
+    metric_names = {"failure_rate": "failure rate", "mean": "mean score"}
+
+    def _echo_bucket(name: str, items: list) -> None:
+        # Stable order, and one heading per metric present. Metrics not named
+        # above (a delta from a future version) group under a bare heading
+        # rather than being silently relabelled.
+        buckets: dict = {}
+        for item in items:
+            buckets.setdefault(_metric(item), []).append(item)
+        for metric in sorted(buckets, key=lambda m: (m is None, m or "")):
+            heading = name
+            if metric in metric_names:
+                heading = f"{name} — {metric_names[metric]}"
+            click.echo(f"{heading}:")
+            for item in buckets[metric]:
+                click.echo(
+                    f"  {_label(item)}: {item['previous']:.3f} → "
+                    f"{item['current']:.3f} ({item['delta']:+.3f})"
+                )
+            click.echo("")
+
     if increased:
-        click.echo("Increased:")
-        for item in increased:
-            click.echo(
-                f"  {item['eval_id']}: {item['previous']:.3f} → {item['current']:.3f} "
-                f"({item['delta']:+.3f})"
-            )
+        _echo_bucket("Increased", increased)
 
     if decreased:
-        click.echo("Decreased:")
-        for item in decreased:
-            click.echo(
-                f"  {item['eval_id']}: {item['previous']:.3f} → {item['current']:.3f} "
-                f"({item['delta']:+.3f})"
-            )
+        _echo_bucket("Decreased", decreased)
 
     if unchanged:
-        click.echo(f"Unchanged: {', '.join(unchanged)}")
+        # unchanged is a list of bare ids kept for jq; unchanged_keys carries
+        # the use case, so print from that where it is available.
+        if unchanged_keys and len(unchanged_keys) == len(unchanged):
+            names = [_label(k) for k in unchanged_keys]
+        else:
+            names = list(unchanged)
+        click.echo(f"Unchanged: {', '.join(names)}")
 
     if not increased and not decreased and not unchanged:
         if not base_run_id:
             # "No comparable evals found between runs" reads as two runs that
-            # shared nothing. There is only one run.
-            click.echo(
-                f"Nothing to compare — {current_path.stem.removesuffix('-data')} "
-                f"is the only run in {results_dir}."
-            )
+            # shared nothing. Say why there is no baseline instead — and only
+            # claim this is the only run when the directory says so, since the
+            # usual cause is a baseline that was rejected, not one that is
+            # missing.
+            current_id = current_path.stem.removesuffix("-data")
+            if no_baseline_reason:
+                click.echo(
+                    f"Nothing to compare — no usable baseline: {no_baseline_reason}."
+                )
+            elif len(result_files) > 1:
+                others = len(result_files) - 1
+                click.echo(
+                    f"Nothing to compare — no baseline was recorded for "
+                    f"{current_id}, though {others} other run(s) are present in "
+                    f"{results_dir}."
+                )
+            else:
+                click.echo(
+                    f"Nothing to compare — {current_id} "
+                    f"is the only run in {results_dir}."
+                )
         else:
             click.echo("No comparable evals found between runs.")

@@ -20,9 +20,28 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from fieldtest.config import ResultRow, parse_and_validate          # noqa: E402
+from fieldtest.config import ResultRow, extract_labels, parse_and_validate  # noqa: E402
+from fieldtest.config import load_fixture, resolve_set               # noqa: E402
+from fieldtest.fixtures import find_fixture_path                     # noqa: E402
 from fieldtest.results.aggregator import build_summary               # noqa: E402
 from fieldtest.results.writer import write_results                   # noqa: E402
+
+
+def collect_labels(config, base_dir: Path, set_name: str) -> dict:
+    """
+    Human verdicts keyed (fixture_id, eval_id, run), exactly as the live run
+    collects them (runner.py). Omitting them here stripped the Judge vs Human
+    Labels section from the regenerated demo reports while the demo fixtures
+    ship labels.
+    """
+    labels: dict = {}
+    for uc in config.use_cases:
+        for fid in resolve_set(set_name, uc, base_dir):
+            fixture_file = find_fixture_path(base_dir / uc.fixtures.directory, fid)
+            fixture = load_fixture(fixture_file, base_dir)
+            for (eval_id, run_number), value in extract_labels(fixture).items():
+                labels[(fixture["id"], eval_id, run_number)] = value
+    return labels
 
 
 def regen(demo_dir: Path) -> str:
@@ -53,9 +72,13 @@ def regen(demo_dir: Path) -> str:
                     original_stamp = line.split(" | ")[0]
                     break
 
+        # Same labels the live path passes (runner.py score()); without them the
+        # summary loses labeled_runs/judge_agreement and the report loses its
+        # Judge vs Human Labels table.
+        labels = collect_labels(config, demo_dir, data.get("set", "full"))
         write_results(
             rows=rows,
-            summary=build_summary(rows, config),
+            summary=build_summary(rows, config, labels=labels),
             delta=data.get("delta", {}),
             config=config,
             run_id=file_stem,

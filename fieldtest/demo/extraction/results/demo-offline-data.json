@@ -1067,7 +1067,7 @@
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
-          "judge_calls": 9,
+          "judge_calls": 0,
           "outputs_attempted": 9
         },
         "required-fields-present": {
@@ -1080,7 +1080,7 @@
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
-          "judge_calls": 9,
+          "judge_calls": 0,
           "outputs_attempted": 9
         },
         "known-extraction": {
@@ -1093,7 +1093,7 @@
           "floor_hits": 0,
           "total_runs": 3,
           "error_count": 0,
-          "judge_calls": 3,
+          "judge_calls": 0,
           "outputs_attempted": 3
         }
       },
@@ -1108,7 +1108,7 @@
           "floor_hits": 0,
           "total_runs": 9,
           "error_count": 0,
-          "judge_calls": 9,
+          "judge_calls": 0,
           "outputs_attempted": 9
         },
         "no-fabrication": {

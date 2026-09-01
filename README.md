@@ -55,9 +55,9 @@ one `rule`, one `regex`, one `reference`, one more `rule` — and all four are
 deterministic, so the first run works before you have a key. Three more are
 `TODO` with the question each has to answer.
 
-Six of the nine outputs carry a deliberate fault. Two are catchable by
-arithmetic alone; the rest need a judge. Working out which is which is the
-exercise.
+Six of the nine outputs carry a deliberate fault. Three are catchable with
+no API call at all; the other three need a judge. Working out which is which
+is the exercise.
 
 `support-agent` is the other one: nine JSON agent traces — tool calls, tool
 results, and the message the agent sent. An output is text, so a rule eval
@@ -318,9 +318,9 @@ generator already wrote them — and the report gives you, per eval, pairwise ag
 kappa, and Fleiss' kappa across the panel. Scored evals get mean absolute deviation and Spearman
 correlation instead.
 
-**Kappa rather than raw agreement.** On a `safe` eval whose true failure rate is 5%,
-two judges that both always answer pass show 95% raw agreement and a kappa near zero. Raw
-agreement alone would certify a useless judge.
+**Kappa rather than raw agreement.** Two judges that both always answer pass agree with
+each other on every output — 100% raw agreement — and their kappa is exactly zero, because
+none of that agreement is beyond chance. Raw agreement alone would certify a useless judge.
 
 The actionable output is the ranked list: evals ordered by how much the panel disagreed, most
 contested first. Those are the evals whose `pass_criteria` need rewriting. Where your fixtures
@@ -466,7 +466,7 @@ fieldtest init --template rag         # RAG / Q&A config
 fieldtest init --template chatbot     # conversational assistant config
 ```
 
-Templates include all required sections with realistic evals already written. Swap in your system prompt and fixtures.
+Templates include all required sections with realistic evals already written — except each eval's `tag`, which ships blank on purpose: decide whether it is `right`, `good`, or `safe` before the config validates. Then swap in your system prompt and fixtures.
 
 ### 2. Fill out config.yaml
 
@@ -1047,7 +1047,7 @@ RUN ID                      TIMESTAMP           SET           FIXTURES    JUDGE 
 2026-03-23T18-52-00-79fb    2026-03-23 18:52    smoke         6           claude-haiku-4-5              0%        12%       0%
 ```
 
-The rates shown are **pass** rates per tag, pooled over outputs — the same figure the run's own Tag Health table gives. They used to be average failure rates, under the same RIGHT / GOOD / SAFE headings the report uses for pass rates, so `history` said 12% where the report for that run said 95%. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
+The rates shown are **pass** rates per tag, pooled over every output in the run — one figure per tag for the whole run, across all use cases. The `-report.md` breaks the same outputs down the other way, one Tag Health table per use case, so with more than one use case those tables are the parts and this is the whole: two use cases passing 2 of 4 and 0 of 2 read as `RIGHT 50%` and `RIGHT 0%` there and `RIGHT 33%` here. They used to be average failure rates, under the same RIGHT / GOOD / SAFE headings the report uses for pass rates, so `history` said 12% where the report for that run said 95%. Use this to spot when a change improved or hurt a whole category. Open the `-report.md` or run `fieldtest view [run-id]` for the specific run to see which evals moved.
 
 ---
 
@@ -1066,16 +1066,18 @@ fieldtest diff 2026-03-24T14-30-00-a3f9 \
 Comparing: 2026-03-24T14-30-00-a3f9
 Baseline:  2026-03-23T18-52-00-79fb
 
-Increased:
+Increased — failure rate:
   bullet_quality: 0.090 → 0.180 (+0.090)
 
-Decreased:
+Decreased — failure rate:
   education_placement: 0.240 → 0.180 (-0.060)
 
 Unchanged: no_fabrication, contact_preserved, format_compliance, no_preamble, no_horizontal_rules
 ```
 
-Deltas use neutral language — "increased" means the failure rate went up, "decreased" means it went down. You decide if a change is a regression. A decrease in `education_placement` failure rate after a prompt fix is expected. An increase in `no_fabrication` is always worth investigating.
+Deltas use neutral language, and the heading names the metric that moved. A binary eval's delta is its **failure rate**, so an increase means more failures. A scored eval's delta is its **mean score**, so an increase means a higher score — the two run in opposite directions and are never pooled under one heading. You decide if a change is a regression. A decrease in `education_placement` failure rate after a prompt fix is expected. An increase in `no_fabrication` is always worth investigating.
+
+Where two use cases declare the same eval id, the id is printed as `use_case/eval_id`.
 
 **Dataset versioning.** When the fixture set itself changes, a delta against runs from the old set measures the dataset, not the system. Tag the snapshot:
 

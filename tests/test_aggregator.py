@@ -686,6 +686,88 @@ def test_binary_tie_collapses_to_fail():
     assert stats["failure_rate"] == 1.0
 
 
+def _errored_reps(verdicts: list, fixture_id: str) -> list[ResultRow]:
+    """
+    One output at judge_runs 3 where "E" marks a repetition lost to the judge.
+
+    An errored repetition is a real row with error set and no verdict, which is
+    what the runner writes on a 429 after retries.
+    """
+    out = []
+    for i, v in enumerate(verdicts):
+        if v == "E":
+            out.append(_row(passed=None, error="429 rate limit",
+                            fixture_id=fixture_id, judge_run=i + 1, ev_type="llm"))
+        else:
+            out.append(_row(passed=v, fixture_id=fixture_id,
+                            judge_run=i + 1, ev_type="llm"))
+    return out
+
+
+def test_judge_disagreement_divides_by_outputs_that_kept_a_second_verdict():
+    """
+    An output whose extra repetitions were lost to judge errors has one
+    surviving verdict and cannot disagree with itself. Counting it in the
+    denominator scored it as a judge consulted twice that agreed.
+
+    judge_runs 3, four outputs, 6 of 12 calls lost: f1/f2/f3 keep one verdict
+    each, f4 is judged three times and splits 1-2. One output was ever judged
+    more than once and on it the judges disagreed, so the measurable rate is
+    1/1. Diluted by the three single-verdict outputs it read as 25%.
+    """
+    config = _make_config(judge_runs=3)
+    rows = (
+        _errored_reps([True, "E", "E"], "f1")
+        + _errored_reps([True, "E", "E"], "f2")
+        + _errored_reps([False, "E", "E"], "f3")
+        + _errored_reps([True, False, False], "f4")
+    )
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["judge_runs"] == 3
+    assert stats["error_count"] == 6
+    assert stats["judge_disagreement_rate"] == 1.0, (
+        "only f4 kept a second opinion and its judges split; the rate is 1/1"
+    )
+    assert stats["judge_repeated_outputs"] == 1
+    # The verdict-bearing figures are unchanged: all four outputs still carry a
+    # collapsed verdict — f3 fails outright and f4 collapses to fail 2-1.
+    assert stats["total_runs"] == 4
+    assert stats["failure_rate"] == 0.5
+
+
+def test_judge_disagreement_is_none_when_no_output_kept_a_second_verdict():
+    """
+    Nothing was measured, so there is no rate. 0.0% here claimed a repeatable
+    judge on the strength of repetitions that never returned — the reassuring
+    direction, printed beside the error banner that says they were lost.
+    """
+    config = _make_config(judge_runs=3)
+    rows = (
+        _errored_reps([True, "E", "E"], "f1")
+        + _errored_reps([False, "E", "E"], "f2")
+    )
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["judge_runs"] == 3
+    assert stats["judge_disagreement_rate"] is None
+    assert stats["judge_repeated_outputs"] == 0
+
+
+def test_judge_disagreement_unchanged_when_every_output_was_fully_judged():
+    """The clean case must be untouched: three outputs, one of them split."""
+    config = _make_config(judge_runs=3)
+    rows = (
+        _reps([True, True, True], run=1)
+        + _reps([True, False, True], run=2)
+        + _reps([False, False, False], run=3)
+    )
+    stats = build_summary(rows, config)["uc1"]["right"]["ev1"]
+
+    assert stats["judge_disagreement_rate"] == round(1 / 3, 6)
+    assert stats["judge_repeated_outputs"] == 3
+
+
 def test_failure_rate_denominator_unaffected_by_judge_runs():
     """judge_runs: 3 must not triple the denominator and skew every rate."""
     single = build_summary(
@@ -1940,3 +2022,416 @@ def test_history_and_the_report_agree_on_a_tag_rate(tmp_path):
     assert from_history[0] == from_report.group(1), (
         f"history says RIGHT {from_history[0]}%, the report says "
         f"{from_report.group(1)}% for the same run")
+
+
+def test_two_evals_cannot_share_an_id_within_a_use_case():
+    """
+    eval_meta, the delta index and the summary grouping all key on
+    (use_case, eval_id). Nothing enforced that it was a key, so a duplicate
+    merged the two evals' rows and the later definition's type won.
+    """
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError) as exc:
+        Config.model_validate({
+            "schema_version": 1, "system": {"name": "s", "domain": "d"},
+            "use_cases": [{"id": "uc1", "description": "d", "evals": [
+                {"id": "dup", "tag": "right", "type": "regex", "description": "a",
+                 "pattern": "a", "match": True},
+                {"id": "dup", "tag": "safe", "type": "regex", "description": "b",
+                 "pattern": "b", "match": False},
+            ], "fixtures": {"directory": "fixtures/", "sets": {"full": ["f"]}}}],
+        })
+    assert "declares eval 'dup' twice" in str(exc.value)
+
+
+def test_the_same_eval_id_in_two_use_cases_is_still_allowed():
+    """The sibling case, which is legitimate and must not be caught."""
+    Config.model_validate({
+        "schema_version": 1, "system": {"name": "s", "domain": "d"},
+        "use_cases": [
+            {"id": u, "description": "d",
+             "evals": [{"id": "shared", "tag": "right", "type": "regex",
+                        "description": "d", "pattern": "x", "match": True}],
+             "fixtures": {"directory": "fixtures/", "sets": {"full": [f"f-{u}"]}}}
+            for u in ("uc1", "uc2")
+        ],
+    })
+
+
+def test_disagreement_ignores_outputs_the_judge_answered_only_once():
+    """
+    An output whose other repetitions were lost to provider errors cannot
+    disagree with itself. Counting it as agreement let a flaky provider hide an
+    unreliable judge: one real disagreement out of one comparable output
+    reported 0.5.
+    """
+    config = _make_config([
+        Eval(id="ev", tag="right", type="llm", description="d",
+             pass_criteria="a", fail_criteria="b")], judge_runs=3)
+
+    rows = [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                      fixture_id="f1", run=1, judge_run=i + 1, passed=v, detail="")
+            for i, v in enumerate([True, True, False])]
+    rows.append(ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                          fixture_id="f2", run=1, judge_run=1, passed=True, detail=""))
+    rows += [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                       fixture_id="f2", run=1, judge_run=i, error="provider down")
+             for i in (2, 3)]
+
+    stats = build_summary(rows, config)["uc1"]["right"]["ev"]
+    assert stats["judge_disagreement_rate"] == 1.0, (
+        f"one comparable output, and it disagreed: got "
+        f"{stats['judge_disagreement_rate']}")
+
+
+def test_disagreement_is_none_when_no_output_was_judged_twice():
+    """Nothing to compare is not the same as perfect agreement."""
+    config = _make_config([
+        Eval(id="ev", tag="right", type="llm", description="d",
+             pass_criteria="a", fail_criteria="b")], judge_runs=3)
+    rows = [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                      fixture_id="f1", run=1, judge_run=1, passed=True, detail="")]
+    rows += [ResultRow(use_case="uc1", eval_id="ev", tag="right", type="llm",
+                       fixture_id="f1", run=1, judge_run=i, error="down")
+             for i in (2, 3)]
+    stats = build_summary(rows, config)["uc1"]["right"]["ev"]
+    assert stats["judge_disagreement_rate"] is None, (
+        f"no output was judged twice; a rate of "
+        f"{stats['judge_disagreement_rate']} claims agreement never measured")
+# `fieldtest diff` — which number moved (round-5 report audit)
+# ---------------------------------------------------------------------------
+
+def _diff_project(tmp_path, current_summary: dict, baseline_summary: dict,
+                  strip_metric: bool = False) -> str:
+    """Two runs on disk; returns what `fieldtest diff` prints."""
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    results = tmp_path / "evals" / "results"
+    results.mkdir(parents=True)
+    (tmp_path / "evals" / "config.yaml").write_text("stub\n", encoding="utf-8")
+
+    base_path = results / "2026-08-30T09-00-00-aaaa-data.json"
+    base_path.write_text(json.dumps({
+        "run_id": "2026-08-30T09-00-00-aaaa", "set": "full",
+        "summary": baseline_summary,
+    }), encoding="utf-8")
+
+    delta = build_delta(current_summary, base_path)
+    if strip_metric:
+        # A delta written by a version that predates the field.
+        for bucket in ("increased", "decreased"):
+            for item in delta[bucket]:
+                item.pop("metric", None)
+
+    (results / "2026-08-30T10-00-00-bbbb-data.json").write_text(json.dumps({
+        "run_id": "2026-08-30T10-00-00-bbbb", "set": "full",
+        "summary": current_summary, "delta": delta,
+    }), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main, ["diff", "--config", str(tmp_path / "evals" / "config.yaml")],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    return result.output
+
+
+def _two_metric_summary(mean: float, failure_rate: float) -> dict:
+    return {"uc1": {
+        "good": {"answer_quality": {
+            "failure_rate": None, "mean": mean, "total_runs": 4, "error_count": 0}},
+        "safe": {"no_hallucination": {
+            "failure_rate": failure_rate, "mean": None, "total_runs": 4,
+            "failure_rate_ci": [0.0, 0.5], "error_count": 0}},
+    }}
+
+
+def test_build_delta_records_which_metric_moved(tmp_path):
+    """The entry has to say what it measured; the printer cannot infer it."""
+    baseline = tmp_path / "old-data.json"
+    baseline.write_text(json.dumps({
+        "run_id": "old", "set": "full", "summary": _two_metric_summary(2.5, 0.5),
+    }), encoding="utf-8")
+
+    delta = build_delta(_two_metric_summary(4.5, 0.0), baseline)
+    metrics = {
+        e["eval_id"]: e["metric"] for e in delta["increased"] + delta["decreased"]
+    }
+    assert metrics == {"answer_quality": "mean", "no_hallucination": "failure_rate"}
+
+
+def test_diff_names_the_metric_so_a_score_is_not_read_as_a_failure_rate(tmp_path):
+    """
+    Both evals improved: the quality score rose 2.5 -> 4.5 on a 1-5 scale and
+    the failure rate fell 0.5 -> 0.0. Printed in one unlabelled bucket, the
+    score rise sat under `Increased:` — which the README defines as the failure
+    rate going up — and read as the regression it is the opposite of.
+    """
+    out = _diff_project(tmp_path, _two_metric_summary(4.5, 0.0),
+                        _two_metric_summary(2.5, 0.5))
+
+    assert "Increased — mean score:" in out, out
+    assert "Decreased — failure rate:" in out, out
+    # And the two are not pooled under one unlabelled heading.
+    assert "Increased:" not in out, out
+    assert "Decreased:" not in out, out
+    assert "  answer_quality: 2.500 → 4.500 (+2.000)" in out
+    assert "  no_hallucination: 0.500 → 0.000 (-0.500)" in out
+
+
+def test_diff_labels_both_metrics_when_both_moved_the_same_way(tmp_path):
+    """
+    The sibling case: two increases, one a mean and one a rate. A single
+    `Increased:` heading naming one metric would mislabel the other.
+    """
+    out = _diff_project(tmp_path, _two_metric_summary(4.5, 0.75),
+                        _two_metric_summary(2.5, 0.25))
+
+    assert "Increased — failure rate:" in out, out
+    assert "Increased — mean score:" in out, out
+    assert "  answer_quality: 2.500 → 4.500 (+2.000)" in out
+    assert "  no_hallucination: 0.250 → 0.750 (+0.500)" in out
+
+
+def test_diff_falls_back_to_the_summary_when_the_delta_predates_the_metric_field(tmp_path):
+    """A stored delta from an older run still gets labelled, not mislabelled."""
+    out = _diff_project(tmp_path, _two_metric_summary(4.5, 0.0),
+                        _two_metric_summary(2.5, 0.5), strip_metric=True)
+
+    assert "Increased — mean score:" in out, out
+    assert "Decreased — failure rate:" in out, out
+
+
+def _shared_id_summary(fr1: float, fr2: float) -> dict:
+    return {
+        "uc1": {"right": {"shared": {
+            "failure_rate": fr1, "mean": None, "total_runs": 4,
+            "failure_rate_ci": [0.0, 0.5], "error_count": 0}}},
+        "uc2": {"right": {"shared": {
+            "failure_rate": fr2, "mean": None, "total_runs": 4,
+            "failure_rate_ci": [0.0, 0.5], "error_count": 0}}},
+    }
+
+
+def test_diff_qualifies_an_eval_id_that_two_use_cases_share(tmp_path):
+    """
+    Eval ids are unique within a use case, not across them. Two use cases both
+    declaring `shared` printed two lines named `shared` with nothing to say
+    which one moved.
+    """
+    out = _diff_project(tmp_path, _shared_id_summary(0.0, 0.0),
+                        _shared_id_summary(0.5, 1.0))
+
+    assert "  uc1/shared: 0.500 → 0.000 (-0.500)" in out, out
+    assert "  uc2/shared: 1.000 → 0.000 (-1.000)" in out, out
+
+
+def test_diff_leaves_an_unambiguous_eval_id_bare(tmp_path):
+    """The qualifier is for collisions only; one use case keeps the short name."""
+    out = _diff_project(tmp_path, _two_metric_summary(4.5, 0.0),
+                        _two_metric_summary(2.5, 0.5))
+
+    assert "  answer_quality:" in out, out
+    assert "uc1/answer_quality" not in out, out
+
+
+# ---------------------------------------------------------------------------
+# `fieldtest history` tag rates vs the report's Tag Health tables (round 5)
+# ---------------------------------------------------------------------------
+
+def _two_use_case_project(tmp_path, monkeypatch):
+    """
+    Two use cases both declaring eval `shared`, scored with no API key.
+
+    uc1: a1 passes both runs, a2 fails both  -> 2 of 4 outputs pass.
+    uc2: b1 fails both runs                  -> 0 of 2 outputs pass.
+    Pooled over the run that is 2 of 6.
+    """
+    from click.testing import CliRunner
+
+    from fieldtest.cli import main
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    evals = tmp_path / "evals"
+    (evals / "fixtures").mkdir(parents=True)
+    ev = ("      - {id: shared, tag: right, type: regex, description: h, "
+          "pattern: 'ok', match: true}\n")
+    (evals / "config.yaml").write_text(
+        "schema_version: 2\n"
+        "system: {name: t, domain: t}\n"
+        "use_cases:\n"
+        "  - id: uc1\n    description: t\n    evals:\n" + ev
+        + "    fixtures:\n      sets: {full: [a1, a2]}\n      runs: 2\n"
+        "  - id: uc2\n    description: t\n    evals:\n" + ev
+        + "    fixtures:\n      sets: {full: [b1]}\n      runs: 2\n"
+        "defaults: {provider: anthropic, model: claude-haiku-4-5, runs: 2}\n",
+        encoding="utf-8",
+    )
+    outputs = {"a1": "ok", "a2": "no", "b1": "no"}
+    for fid, text in outputs.items():
+        (evals / "fixtures" / f"{fid}.yaml").write_text(
+            f"id: {fid}\ndescription: g\ninputs: {{a: b}}\n", encoding="utf-8")
+        (evals / "outputs" / fid).mkdir(parents=True)
+        for run in (1, 2):
+            (evals / "outputs" / fid / f"run-{run}.txt").write_text(
+                text + "\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(
+        main, ["score", "--set", "full"], catch_exceptions=False).exit_code == 0
+    return runner, main, evals
+
+
+def test_history_pools_tag_rates_across_use_cases_and_the_readme_says_so(
+        tmp_path, monkeypatch):
+    """
+    `history` pools every output in the run; the markdown emits one Tag Health
+    table per use case. With more than one use case they cannot be the same
+    number, and the README claimed they were — sending a reader to reconcile
+    33% against tables reading 50% and 0%.
+    """
+    from fieldtest.cli import main as _main  # noqa: F401
+
+    runner, main, evals = _two_use_case_project(tmp_path, monkeypatch)
+
+    history = runner.invoke(main, ["history"], catch_exceptions=False)
+    assert history.exit_code == 0, history.output
+    # RIGHT is the first tag column: 2 of 6 outputs pass.
+    assert "33%" in history.output, history.output
+
+    md = sorted((evals / "results").glob("*-report.md"))[0].read_text()
+    assert "| RIGHT | 50% | 2 / 4 |" in md, md
+    assert "| RIGHT | 0% | 0 / 2 |" in md, md
+    assert "| RIGHT | 33%" not in md, (
+        "history's pooled figure is not in any Tag Health table")
+
+    doc = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    assert "the same figure the run's own Tag Health table gives" not in doc, (
+        "the README still claims history and the report's Tag Health table "
+        "give the same figure; they differ whenever there is more than one "
+        "use case")
+    start = doc.index("### `fieldtest history`")
+    section = doc[start:doc.index("\n### ", start + 1)]
+    assert "across all use cases" in section, section
+    assert "one Tag Health table per use case" in section, section
+
+
+# ---------------------------------------------------------------------------
+# One use case declaring an eval id twice (round 5)
+#
+# `validate` accepts it — nothing checks within-use-case id uniqueness — so the
+# report has to keep the two evals apart rather than adding them together.
+# ---------------------------------------------------------------------------
+
+def _duplicate_id_config() -> Config:
+    """One use case, two regex evals both called `no_pii`, different tags."""
+    return _make_config([
+        Eval(id="no_pii", tag="safe", type="regex", description="no ssn",
+             pattern=r"\d{3}-\d{2}-\d{4}", match=False),
+        Eval(id="no_pii", tag="right", type="regex", description="says hello",
+             pattern="hello", match=True),
+    ])
+
+
+def _duplicate_id_rows() -> list[ResultRow]:
+    """Output "greetings friend": the safe eval passes, the right eval fails."""
+    return [
+        ResultRow(use_case="uc1", eval_id="no_pii", tag="safe", type="regex",
+                  fixture_id="f1", run=1, passed=True),
+        ResultRow(use_case="uc1", eval_id="no_pii", tag="right", type="regex",
+                  fixture_id="f1", run=1, passed=False),
+    ]
+
+
+def _matrix_block(report: str) -> str:
+    """The matrix's own lines — up to the blank line, or the end of the report."""
+    block = report[report.index("### Fixture × Eval Matrix"):]
+    end = block.find("\n\n")
+    return block if end == -1 else block[:end]
+
+
+
+
+
+
+def test_an_ordinary_eval_id_keeps_a_bare_matrix_column():
+    """The tag qualifier is for collisions only."""
+    from fieldtest.results.report import format_report
+
+    config = _make_config([
+        _make_eval_def("ev1", is_scored=False),
+        Eval(id="ev2", tag="safe", type="regex", description="d",
+             pattern="y", match=True),
+    ])
+    rows = [
+        _row(passed=True, eval_id="ev1", tag="right"),
+        ResultRow(use_case="uc1", eval_id="ev2", tag="safe", type="regex",
+                  fixture_id="f1", run=1, passed=True),
+    ]
+    report = format_report(rows, build_summary(rows, config), {}, config, "r", "full")
+
+    block = _matrix_block(report)
+    assert "| fixture | ev1 | ev2 |" in block, block
+    assert "(right)" not in block and "(safe)" not in block, block
+    assert "declares eval id" not in report
+
+
+
+
+
+
+def test_duplicate_eval_id_does_not_crash_the_html_judge_tables():
+    """
+    `sorted(pairs)` fell through to comparing the stats dicts when two eval ids
+    tied, which a use case declaring one id under two tags does. Writing the
+    HTML report raised TypeError and took the run's artifacts with it.
+    """
+    from fieldtest.results.html import _build_judge_tables
+
+    uc_summary = {
+        "right": {"q": {"judge_runs": 2, "judge_disagreement_rate": 0.0,
+                        "labeled_runs": 1, "judge_agreement": 1.0}},
+        "good":  {"q": {"judge_runs": 2, "system_stddev": 1.0,
+                        "judge_stddev": 0.0, "labeled_runs": 1,
+                        "judge_agreement": 1.0}},
+    }
+
+    html = _build_judge_tables(uc_summary)
+    assert "Judge repeatability" in html
+    assert html.count("<td>q</td>") == 4, html
+
+
+def test_duplicate_eval_ids_are_refused_rather_than_rendered_around():
+    """
+    Two designs were possible: teach every renderer to disambiguate a duplicated
+    eval id, or refuse the config. Refusing wins — an eval has exactly one tag by
+    the taxonomy's own premise, results are keyed by eval id in eight places, and
+    a duplicate is a copy-paste mistake in every case anyone can name. Handling
+    it downstream meant four renderers coping with a state that should not exist.
+
+    This pins the decision so the handling does not creep back in.
+    """
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        Config.model_validate({
+            "schema_version": 1, "system": {"name": "s", "domain": "d"},
+            "use_cases": [{"id": "uc1", "description": "d", "evals": [
+                {"id": "q", "tag": "right", "type": "regex", "description": "a",
+                 "pattern": "a", "match": True},
+                {"id": "q", "tag": "safe", "type": "regex", "description": "b",
+                 "pattern": "b", "match": False},
+            ], "fixtures": {"directory": "fixtures/", "sets": {"full": ["f"]}}}],
+        })
+
+    root = Path(__file__).resolve().parent.parent / "fieldtest"
+    for name in ("results/report.py", "results/html.py"):
+        assert "dup_ids" not in (root / name).read_text(), (
+            f"{name} disambiguates duplicate eval ids; the config layer refuses "
+            f"them, so that code cannot run")

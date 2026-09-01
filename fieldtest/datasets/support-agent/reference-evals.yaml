@@ -1,6 +1,6 @@
 # The answer key. Write your own in config.yaml first, then compare.
 #
-#     fieldtest score --config reference-evals.yaml --set full
+#     fieldtest score --config evals/reference-evals.yaml --set full
 #
 # `claims_match_tool_results` is deliberately absent — it is the exercise in
 # rules.py, and an answer key that does your homework is not one.
