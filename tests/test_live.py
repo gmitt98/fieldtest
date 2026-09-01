@@ -364,6 +364,12 @@ def test_the_site_repeatability_figures_still_match_a_real_run(tmp_path, monkeyp
         m.group(1): [c.strip() for c in m.group(2).split("|") if c.strip()]
         for m in re.finditer(r"\|\s*(\w+)\s*\|([^\n]*)\|", shown)
     }
+    # The header matches this regex like any other row, so it lands in the dict
+    # as "eval". Written without that, the assertion below could never hold: it
+    # has been in the tree since 34ce982 and, because the live tier is opt-in,
+    # had never once run. The figures it exists to check were never checked.
+    header = site_rows.pop("eval", None)
+    assert header is not None, f"the site block lost its header row: {site_rows}"
     assert len(site_rows) == 3, f"the site block changed shape: {site_rows}"
 
     src = Path(fieldtest.__file__).resolve().parent / "datasets" / "expense-report"
