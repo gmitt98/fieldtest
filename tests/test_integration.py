@@ -3452,3 +3452,106 @@ use_cases:
     labels = collect_human_labels(config, evals, "full")
     assert labels, "calibrate found no labels for a fixture in fixtures/golden/"
     assert labels[("uc1", "is_polite")] == {("g1", 1): "pass", ("g1", 2): "fail"}
+
+
+# ---------------------------------------------------------------------------
+# The HTML delta table (round five)
+# ---------------------------------------------------------------------------
+
+def _delta_html(delta: dict) -> str:
+    import tempfile
+
+    from fieldtest.config import Config
+    from fieldtest.results.html import write_html
+
+    config = Config.model_validate({
+        "schema_version": 1, "system": {"name": "s", "domain": "d"},
+        "use_cases": [{"id": "uc1", "description": "d", "evals": [
+            {"id": "binary_eval", "tag": "right", "type": "llm", "description": "d",
+             "pass_criteria": "a", "fail_criteria": "b"},
+            {"id": "scored_eval", "tag": "good", "type": "llm", "description": "d",
+             "binary": False, "scale": [1, 5], "anchors": {1: "x", 5: "y"}},
+        ], "fixtures": {"directory": "fixtures/", "sets": {"full": ["f"]}}}],
+    })
+    out = Path(tempfile.mkdtemp()) / "r.html"
+    write_html({
+        "run_id": "r", "set": "full", "fixture_count": 1, "runs": 1, "judge_runs": 1,
+        "rows": [], "summary": {}, "partial": False, "partial_details": [],
+        "judge": {"provider": "a", "model": "m", "fingerprint": "ff"},
+        "delta": delta,
+    }, config, out)
+    return out.read_text()
+
+
+def test_the_html_delta_paints_a_regression_red_not_green():
+    """
+    `delta` is a change in FAILURE rate, so positive is worse. The markdown
+    negates it to speak in pass rates; this table did not, and coloured every
+    regression green and every improvement red.
+    """
+    import re
+
+    html = _delta_html({
+        "baseline_run_id": "prev", "unchanged": [], "decreased": [],
+        "increased": [{"eval_id": "binary_eval", "previous": 0.10,
+                       "current": 0.40, "delta": 0.30}],
+    })
+    row = re.search(r"<tr><td>binary_eval</td><td class=\"(delta-[a-z]+)\">([^<]+)</td>", html)
+    assert row, html
+    assert row.group(1) == "delta-down", (
+        f"a failure rate rising 10% → 40% is a regression; it is painted "
+        f"{row.group(1)}")
+    assert row.group(2).startswith("-"), (
+        f"the change should read as a pass-rate drop, got {row.group(2)!r}")
+
+
+def test_the_html_delta_does_not_call_a_mean_score_a_percentage():
+    """A 4.75 → 3.50 mean is a 1.25-point drop; it rendered as -125%."""
+    import re
+
+    html = _delta_html({
+        "baseline_run_id": "prev", "unchanged": [], "increased": [],
+        "decreased": [{"eval_id": "scored_eval", "previous": 4.75,
+                       "current": 3.50, "delta": -1.25}],
+    })
+    row = re.search(
+        r"<tr><td>scored_eval</td><td class=\"delta-[a-z]+\">([^<]+)</td><td>([^<]+)</td><td>([^<]+)</td>",
+        html)
+    assert row, html
+    assert "%" not in row.group(1), f"a mean-score delta is not a percentage: {row.group(1)!r}"
+    assert row.group(1) == "-1.25", row.group(1)
+    assert row.group(2) == "4.75" and row.group(3) == "3.5", (
+        f"the before/after should be the means themselves: {row.group(2)} → {row.group(3)}")
+
+
+def test_the_html_delta_agrees_with_the_markdown_on_direction():
+    """Two artifacts of one run must not disagree about which way is better."""
+    import re
+
+    from fieldtest.config import Config
+    from fieldtest.results.report import format_report
+
+    delta = {"baseline_run_id": "prev", "unchanged": [], "decreased": [],
+             "increased": [{"eval_id": "binary_eval", "previous": 0.10,
+                            "current": 0.40, "delta": 0.30}]}
+    html = _delta_html(delta)
+    html_change = re.search(
+        r"<tr><td>binary_eval</td><td class=\"delta-[a-z]+\">([^<]+)</td>", html).group(1)
+
+    config = Config.model_validate({
+        "schema_version": 1, "system": {"name": "s", "domain": "d"},
+        "use_cases": [{"id": "uc1", "description": "d", "evals": [
+            {"id": "binary_eval", "tag": "right", "type": "llm", "description": "d",
+             "pass_criteria": "a", "fail_criteria": "b"}],
+            "fixtures": {"directory": "fixtures/", "sets": {"full": ["f"]}}}],
+    })
+    from fieldtest.config import ResultRow
+    rows = [ResultRow(use_case="uc1", eval_id="binary_eval", tag="right", type="llm",
+                      fixture_id="f", run=1, passed=False, detail="")]
+    from fieldtest.results.aggregator import build_summary
+    md = format_report(rows, build_summary(rows, config), delta, config, "r", "full")
+    md_change = re.search(r"\| binary_eval \|.*?\| (-?[\d.]+%) \|", md)
+
+    assert md_change, md
+    assert html_change.lstrip("+") == md_change.group(1).lstrip("+"), (
+        f"HTML says {html_change}, markdown says {md_change.group(1)}")

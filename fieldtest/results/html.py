@@ -142,7 +142,11 @@ def _build_html(run_data: dict, config) -> str:
             '<div class="meta">Judge: <span>' + _esc_py(" · ".join(bits)) + "</span></div>"
         )
 
-    delta_html = _build_delta_html(delta)
+    scored_eval_ids = {
+        ev.id for uc in config.use_cases for ev in uc.evals
+        if ev.type == "llm" and not ev.binary
+    }
+    delta_html = _build_delta_html(delta, scored_eval_ids)
 
     # Build use_case sections HTML
     uc_sections_html = ""
@@ -750,7 +754,8 @@ def _build_judge_tables(uc_summary: dict) -> str:
     return html
 
 
-def _build_delta_html(delta: dict) -> str:
+def _build_delta_html(delta: dict, scored_eval_ids: set | None = None) -> str:
+    scored_eval_ids = scored_eval_ids or set()
     """Build delta comparison section HTML. Returns empty string if no baseline."""
     baseline_id = delta.get("baseline_run_id")
     increased   = delta.get("increased", [])
@@ -793,21 +798,41 @@ def _build_delta_html(delta: dict) -> str:
   &#8212; against prior for that reason, not because nothing moved.</p>
 </div>"""
 
+    # `delta` is stored as a change in FAILURE rate, so a positive value is a
+    # regression. The markdown negates it to speak in pass rates ("positive =
+    # improvement"); this table did not, and painted every regression green and
+    # every improvement red — the exact inverse of the truth.
+    #
+    # And for a scored eval the delta is a difference of mean scores, not a
+    # rate: multiplying 4.75 → 3.50 by 100 rendered a 1.25-point drop as "-125%".
+    def _delta_row(item: dict) -> str:
+        eval_id = item["eval_id"]
+        scored  = eval_id in scored_eval_ids
+        d       = item["delta"]
+        prev    = item.get("previous", 0)
+        cur     = item.get("current", 0)
+
+        if scored:
+            better = d > 0                      # a higher mean is better
+            change = f"{'+' if d > 0 else ''}{round(d, 2)}"
+            prev_s, cur_s = round(prev, 2), round(cur, 2)
+        else:
+            pass_delta = -d                     # failure down = pass up
+            better = pass_delta > 0
+            change = f"{'+' if pass_delta > 0 else ''}{round(pass_delta * 100, 1)}%"
+            prev_s = f"{round((1 - prev) * 100, 1)}%"
+            cur_s  = f"{round((1 - cur) * 100, 1)}%"
+
+        cls = "delta-up" if better else "delta-down"
+        return (
+            f'<tr><td>{_esc_py(eval_id)}</td>'
+            f'<td class="{cls}">{change}</td>'
+            f'<td>{prev_s}</td><td>{cur_s}</td></tr>'
+        )
+
     rows_html = ""
-    for item in increased:
-        rows_html += (
-            f'<tr><td>{_esc_py(item["eval_id"])}</td>'
-            f'<td class="delta-up">+{round(item["delta"] * 100, 1)}%</td>'
-            f'<td>{round(item.get("previous", 0) * 100, 1)}%</td>'
-            f'<td>{round(item.get("current", 0) * 100, 1)}%</td></tr>'
-        )
-    for item in decreased:
-        rows_html += (
-            f'<tr><td>{_esc_py(item["eval_id"])}</td>'
-            f'<td class="delta-down">{round(item["delta"] * 100, 1)}%</td>'
-            f'<td>{round(item.get("previous", 0) * 100, 1)}%</td>'
-            f'<td>{round(item.get("current", 0) * 100, 1)}%</td></tr>'
-        )
+    for item in increased + decreased:
+        rows_html += _delta_row(item)
     for eid in unchanged:
         rows_html += (
             f'<tr><td>{_esc_py(eid)}</td><td class="no-change">↔</td><td>—</td><td>—</td></tr>'

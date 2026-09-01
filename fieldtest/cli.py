@@ -418,8 +418,13 @@ def score(
     # nothing, and exiting 0 told CI it had. This is not the "high failure rate"
     # case the README declines to fail on — there is no rate, only a judge that
     # never answered. A run with SOME errors still exits 0 and reports them.
-    scored = [r for r in rows if r.passed is not None or r.score is not None]
-    errored = [r for r in rows if r.error]
+    # Scoped to llm rows. The gate asked "did anything score at all", so one
+    # passing regex disarmed it while every call to the judge failed — and the
+    # README promises the opposite. A deterministic-only project has no judge
+    # calls to fail and is never caught by this.
+    judged  = [r for r in rows if r.type == "llm"]
+    scored  = [r for r in judged if r.passed is not None or r.score is not None]
+    errored = [r for r in judged if r.error]
     if errored and not scored:
         click.echo("")
         click.echo(

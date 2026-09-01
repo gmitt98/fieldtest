@@ -353,7 +353,15 @@ def build_summary(
                 # judge call is one repetition; an output is one generator run
                 # that may have been judged several times. At judge_runs: 1 they
                 # coincide, which is why the distinction went unnoticed.
-                judge_calls       = len(valid_rows) + len(error_rows)
+                # Only llm rows are judge calls. A regex, rule or reference
+                # eval makes no provider call, and counting those inflated the
+                # denominator: a total judge outage on the bundled demo read as
+                # "27 of 48 calls failed" when validate had just projected 27.
+                # calibrate fixed this same conflation (test_panel_calls_count_
+                # judge_calls_only); score was left with it.
+                judge_calls       = sum(
+                    1 for r in valid_rows + error_rows if r.type == "llm"
+                )
                 outputs_attempted = len(
                     {(r.fixture_id, r.run) for r in valid_rows + error_rows}
                 )
@@ -501,9 +509,15 @@ def summarize_judge_errors(summary: dict) -> Optional[dict]:
             for eval_id, stats in tag_stats.items():
                 errors = stats.get("error_count") or 0
                 scored = stats.get("total_runs") or 0
-                # Summaries written before judge repetitions existed carry
-                # neither field, and there scored + errors is the call count.
-                calls     = stats.get("judge_calls") or (scored + errors)
+                # `or` treats a legitimate 0 as absent. A regex or rule eval
+                # now reports judge_calls: 0 — correctly, it makes no provider
+                # call — and the fallback turned that back into its row count,
+                # which is how a 27-of-27 outage printed as "27 of 48".
+                calls = stats.get("judge_calls")
+                if calls is None:
+                    # Summaries written before judge repetitions existed carry
+                    # neither field; there scored + errors is the call count.
+                    calls = scored + errors
                 attempted = stats.get("outputs_attempted") or (scored + errors)
                 failed   += errors
                 total    += calls
