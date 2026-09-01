@@ -2430,8 +2430,13 @@ def test_duplicate_eval_ids_are_refused_rather_than_rendered_around():
             ], "fixtures": {"directory": "fixtures/", "sets": {"full": ["f"]}}}],
         })
 
+    # Nothing downstream may carry handling for a state the config refuses:
+    # unreachable code that claims validate accepts duplicates is worse than
+    # none, because the next reader believes it.
     root = Path(__file__).resolve().parent.parent / "fieldtest"
     for name in ("results/report.py", "results/html.py"):
-        assert "dup_ids" not in (root / name).read_text(), (
-            f"{name} disambiguates duplicate eval ids; the config layer refuses "
-            f"them, so that code cannot run")
+        text = (root / name).read_text()
+        for leftover in ("dup_ids", "declared_twice"):
+            assert leftover not in text, (
+                f"{name} still handles duplicate eval ids ({leftover}); the "
+                f"config layer refuses them, so that code cannot run")
