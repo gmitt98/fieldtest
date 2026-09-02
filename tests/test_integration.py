@@ -4036,3 +4036,34 @@ def test_the_site_advertises_the_shipped_version():
     wheels = sorted(set(re.findall(r"fieldtest-(\d+\.\d+\.\d+)-py3", site)))
     assert wheels in ([], [version]), (
         f"the site's install block shows wheel(s) {wheels}, not {version}")
+
+
+def test_the_site_pins_no_exact_llm_derived_figure():
+    """
+    Two figures on the site were exact means produced by an LLM judge, and both
+    went stale: the repeatability system spread read 1.633, 1.7321 and 1.8028
+    across three days on unchanged outputs, and the scored-eval mean was
+    published as 3.1111/5 where a real run gives 4.0/5.
+
+    Deterministic figures are fine to publish — pass rates over rule evals,
+    floor-hit counts, agreement against human labels. A judged mean is not: it
+    moves between sessions, so pinning one dates the page.
+    """
+    import re
+    from pathlib import Path
+
+    import fieldtest
+
+    site = (Path(fieldtest.__file__).resolve().parent.parent
+            / "docs" / "index.html").read_text()
+
+    # `N.NNNN/5` and `N.NNNN` beside "system spread" are the two shapes that bit.
+    scored_means = re.findall(r"\b\d+\.\d{3,}\s*/\s*5\b", site)
+    assert not scored_means, (
+        f"the site pins an exact judged mean, which drifts between sessions: "
+        f"{scored_means}")
+
+    spreads = re.findall(r"system spread\s*<?/?[a-z]*>?\s*(\d+\.\d{3,})", site)
+    assert not spreads, (
+        f"the site pins an exact system spread, which drifts between sessions: "
+        f"{spreads}")
