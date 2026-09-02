@@ -429,19 +429,42 @@ def test_the_site_repeatability_figures_still_match_a_real_run(tmp_path, monkeyp
                 f"{name}: judges disagreed ({disagreement}), which the site's "
                 f"repeatability claim says they do not")
         if system_spread != "—":
+            # A tripwire, not the invariant. The derived invariant is simply
+            # "> 0 while judge spread is 0"; 1.0 is a floor calibrated to the
+            # observed history (lowest seen 1.633), so a run beneath it should
+            # wake somebody rather than pass quietly.
             assert float(system_spread) >= 1.0, (
-                f"{name}: system spread {system_spread} on a 1-5 scale is too "
-                f"small to support the site's claim that the outputs genuinely "
-                f"differ")
+                f"{name}: system spread {system_spread} on a 1-5 scale is far "
+                f"below anything previously observed")
 
     # The site must show the same shape, without its numbers being pinned to a
-    # given day's run.
+    # given day's run. Which cells carry a figure and which carry a dash is
+    # derived from the run, not hardcoded — a scored eval reports spreads and no
+    # disagreement, a binary one the reverse. Guarding each site assertion on
+    # `!= "—"` alone let two mutations through: dashing out every site figure
+    # skipped all of them, and publishing a system spread of 0.0 passed a check
+    # that only parsed the number.
     for name, values in site_rows.items():
-        disagreement, system_spread, judge_spread = values
-        if judge_spread != "—":
-            assert float(judge_spread) == 0.0, (
-                f"the site publishes a non-zero judge spread for {name}")
-        if disagreement != "—":
-            assert float(disagreement.rstrip("%")) == 0.0
-        if system_spread != "—":
-            float(system_spread)   # a real figure, not a placeholder
+        site_dis, site_sys, site_judge = values
+        run_dis, run_sys, run_judge = real[name]
+
+        for label, site_cell, run_cell in (
+            ("disagreement", site_dis, run_dis),
+            ("system spread", site_sys, run_sys),
+            ("judge spread", site_judge, run_judge),
+        ):
+            assert (site_cell == "—") == (run_cell == "—"), (
+                f"{name}: the site shows {label} as {site_cell!r} where the run "
+                f"gives {run_cell!r} — one of them is a placeholder the other "
+                f"is not")
+
+        if site_judge != "—":
+            assert float(site_judge) == 0.0, (
+                f"the site publishes a non-zero judge spread for {name}, "
+                f"contradicting its own repeatability claim")
+        if site_dis != "—":
+            assert float(site_dis.rstrip("%")) == 0.0
+        if site_sys != "—":
+            assert float(site_sys) >= 1.0, (
+                f"the site publishes system spread {site_sys} for {name}, which "
+                f"does not support its claim that the outputs genuinely differ")
