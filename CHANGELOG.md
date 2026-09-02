@@ -11,7 +11,7 @@ Judges ran at whatever sampling temperature the provider defaulted to — usuall
 on a scored eval and `failure_rate` on a binary eval both moved between runs for reasons that had
 nothing to do with your system, and nothing in the report told you which was which.
 
-Temperature is now pinned to 0.0 unless you say otherwise. Score the same `outputs/` twice and you
+Temperature is now pinned to 0.0 unless you say otherwise. Score the same `outputs/` twice and you should
 get the same answer twice.
 
 ```yaml
@@ -41,9 +41,7 @@ and named.
 
 ### The judge sees what your system was answering
 
-LLM judges previously saw the output and nothing else — not the question, not the retrieved
-context. A grounding eval asking whether every claim traces to the source was answering without the
-source. Fixture `inputs` now go to the judge alongside the output:
+Fixture `inputs` now go to the judge alongside the output:
 
 ```
 System input:
@@ -106,6 +104,10 @@ hundred. At `runs: 5`, one flipped judgment moves it by 0.2.
 The interval is Wilson score; at five runs with zero failures the normal approximation gives
 [0, 0]. `defaults.confidence_level` sets the level, default 0.95. Delta entries gain an `overlapping`
 flag when the two intervals overlap.
+See: https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval
+https://en.wikipedia.org/wiki/Cohen%27s_kappa
+https://en.wikipedia.org/wiki/Fleiss%27s_kappa
+https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient
 
 For CI, `failure_rate_ci[0]` is the rate your sample actually supports:
 
