@@ -1544,7 +1544,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       </div>
     </div>
 
-    <p class="section-sub">The middle row is the whole argument. <code>explanation_clarity</code> is a scored eval, and its two numbers say the outputs genuinely differ from one another (<strong>system spread 1.7321</strong>) while the judge scores each one identically every time (<strong>judge spread 0.0</strong>). Without the repetition you get one <code>stddev</code> and no way to tell which of those produced it.</p>
+    <p class="section-sub">The middle row is the whole argument. <code>explanation_clarity</code> is a scored eval, and its two numbers say the outputs genuinely differ from one another (a non-zero <strong>system spread</strong>) while the judge scores each one identically within the run (<strong>judge spread 0.0</strong>). Without the repetition you get one <code>stddev</code> and no way to tell which of those produced it. The figures below are one run's; <code>judge_runs</code> compares repeated calls inside a single run, so a judge that is steady here can still answer differently on another day — and that variance shows up as system spread.</p>
 
     <p class="section-sub">Judge spread climbing toward system spread is the signal to rewrite the <code>pass_criteria</code>: the judge is disagreeing with itself, which is a fact about the words, not about your system. Binary evals report disagreement instead — the share of outputs where repeated verdicts differed. It costs <code>runs × judge_runs</code> judge calls, so <code>--dry-run</code> first.</p>
 
