@@ -78,7 +78,7 @@ DATA=$(ls -t evals/results/*-data.json | head -1)
 jq '[.summary[][][].failure_rate_ci[0] | select(. != null)] | max // 0' "$DATA"
 ```
 
-Widen the interval by raising `runs`, not by loosening the threshold. `total_runs` sits beside the
+Tighten the interval by raising `runs`, not by loosening the threshold. `total_runs` sits beside the
 rate in the report for exactly this reason: an interval means nothing without its n.
 
 If your gate compares against a prior run, note that fieldtest will not auto-select a baseline

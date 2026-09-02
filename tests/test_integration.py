@@ -4010,3 +4010,29 @@ def test_the_readme_documents_that_clean_prunes_calibration_runs():
         "the clean section does not state that a file you named yourself is safe")
     assert "own `--keep` pool" in section or "their own" in section, (
         "the clean section does not say calibrations have a separate keep pool")
+
+
+def test_the_site_advertises_the_shipped_version():
+    """
+    docs/index.html carried "v0.3.0" in a nav pill, the hero eyebrow and the
+    footer, and its pip-install block showed the 0.3.0 wheel, while 0.3.1 was
+    the published release. A version badge is the first thing a visitor reads
+    and nothing checked it.
+    """
+    import re
+    import tomllib
+    from pathlib import Path
+
+    import fieldtest
+
+    root = Path(fieldtest.__file__).resolve().parent.parent
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    site = (root / "docs" / "index.html").read_text()
+
+    stale = sorted(set(re.findall(r"v(\d+\.\d+\.\d+)", site)) - {version})
+    assert not stale, (
+        f"the site advertises version(s) {stale} while pyproject ships {version}")
+
+    wheels = sorted(set(re.findall(r"fieldtest-(\d+\.\d+\.\d+)-py3", site)))
+    assert wheels in ([], [version]), (
+        f"the site's install block shows wheel(s) {wheels}, not {version}")

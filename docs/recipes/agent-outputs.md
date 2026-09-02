@@ -12,7 +12,7 @@ Capture the full agent trace as a single text file:
 
 ```python
 # evals/runner.py
-import json
+from pathlib import Path
 
 for fixture in fixtures:
     for n in range(1, 4):

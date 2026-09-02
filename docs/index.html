@@ -626,14 +626,14 @@ hr.divider {
       <a class="nav-link" href="#judge">Judge</a>
       <a class="nav-link" href="#philosophy">Philosophy</a>
     </div>
-    <span class="nav-pill">v0.3.0</span>
+    <span class="nav-pill">v0.3.1</span>
   </div>
 </nav>
 
 <!-- ── Hero ── -->
 <div class="hero">
   <div class="container">
-    <div class="hero-eyebrow">fieldtest v0.3.0 release</div>
+    <div class="hero-eyebrow">fieldtest v0.3.1 release</div>
     <h1>Eval practice,<br><span>not just eval tooling.</span></h1>
     <p class="hero-sub">
       Drop <code style="color:#7ec8e3;font-size:16px;">fieldtest</code> into any AI project. Write one config file.
@@ -677,9 +677,9 @@ hr.divider {
       <div class="terminal-body">
 <pre><span class="t-prompt">$</span> <span class="t-cmd">pip install fieldtest</span>
 <span class="t-dim">Collecting fieldtest</span>
-<span class="t-dim">  Downloading fieldtest-0.3.0-py3-none-any.whl</span>
+<span class="t-dim">  Downloading fieldtest-0.3.1-py3-none-any.whl</span>
 <span class="t-dim">Installing collected packages: fieldtest</span>
-<span class="t-green">Successfully installed fieldtest-0.3.0</span>
+<span class="t-green">Successfully installed fieldtest-0.3.1</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest demo --example rag --offline</span>
 <span class="t-dim"># Eval Report</span>
@@ -699,7 +699,7 @@ hr.divider {
 <span class="t-out">Files saved to fieldtest-demo/. To explore:</span>
 <span class="t-out">  cd fieldtest-demo</span>
 <span class="t-out">  fieldtest view            # open the HTML report</span>
-<span class="t-out">  fieldtest score           # re-score after editing evals/outputs/</span>
+<span class="t-out">  fieldtest score           # re-score after editing evals/outputs/  (needs ANTHROPIC_API_KEY)</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">cd fieldtest-demo</span>
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest view</span>
@@ -806,7 +806,9 @@ hr.divider {
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset list</span>
 <span class="t-out">Bundled datasets:
   expense-report — A dataset to write evals against.
-  support-agent — A dataset of agent traces to write evals against.</span>
+  support-agent — A dataset of agent traces to write evals against.
+
+Copy one into this project with:  fieldtest dataset use &lt;name&gt;</span>
 
 <span class="t-prompt">$</span> <span class="t-cmd">fieldtest dataset use expense-report</span>
 <span class="t-out">Copied 'expense-report' to evals/
@@ -1487,7 +1489,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
         <div class="of-icon">🔖</div>
         <div class="of-body">
           <div class="of-name">Recorded on every run</div>
-          <div class="of-desc">Provider, model, temperature, seed, per-eval overrides, and a fingerprint over all of it. Swapping the judge and rescoring used to produce a diff indistinguishable from a regression. Runs with different fingerprints are no longer compared.</div>
+          <div class="of-desc">Provider, model, temperature, seed, per-eval overrides, and a fingerprint over all of it. Swapping the judge and rescoring used to produce a diff indistinguishable from a regression. Runs with different fingerprints are no longer compared automatically.</div>
         </div>
       </div>
       <div class="of-card">
@@ -1694,7 +1696,7 @@ Total reimbursable: <span class="t-red">$886.10</span></span></pre>
       </div>
       <div class="principle">
         <div class="p-key">The judge is an instrument too.</div>
-        <div class="p-val">Spread across runs has two sources: your system, and the model scoring it. fieldtest pins the judge at temperature 0, records which judge produced every run, and will not compare runs scored by different ones. <strong>Set <code>judge_runs</code></strong> to measure how much of the spread is the judge.</div>
+        <div class="p-val">Spread across runs has two sources: your system, and the model scoring it. fieldtest pins the judge at temperature 0, records which judge produced every run, and will not automatically compare runs scored by different ones. <strong>Set <code>judge_runs</code></strong> to measure how much of the spread is the judge.</div>
       </div>
       <div class="principle">
         <div class="p-key">Runner decoupled from scoring.</div>
@@ -1803,7 +1805,7 @@ Next steps:
       <a href="https://pypi.org/project/fieldtest/">PyPI</a>
       <a href="https://fieldtest.run">fieldtest.run</a>
     </div>
-    <div>v0.3.0 · MIT License · 2026</div>
+    <div>v0.3.1 · MIT License · 2026</div>
     <div style="margin-top: 6px; font-size: 12px; color: #555;">fieldtest is open source. Built for engineers, PM, and other builders who need measurement, not magic.</div>
   </div>
 </div>
