@@ -3099,21 +3099,43 @@ def test_no_test_module_imports_a_python_311_only_stdlib_module():
     import ast
 
     ONLY_311_PLUS = {"tomllib"}
-    offenders = []
-    for path in sorted((Path(fieldtest.__file__).resolve().parent.parent / "tests").glob("*.py")):
-        tree = ast.parse(path.read_text())
-        for node in tree.body:            # module level only; guarded imports are fine
-            names = []
-            if isinstance(node, ast.Import):
-                names = [a.name.split(".")[0] for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module.split(".")[0]]
+    GUARD_EXCEPTIONS = {"ImportError", "ModuleNotFoundError", "Exception"}
+
+    def _handler_guards(h: ast.ExceptHandler) -> bool:
+        if h.type is None:                          # bare except
+            return True
+        names = [h.type] if not isinstance(h.type, ast.Tuple) else list(h.type.elts)
+        return any(isinstance(n, ast.Name) and n.id in GUARD_EXCEPTIONS for n in names)
+
+    def _walk(node: ast.AST, guarded: bool, path, offenders: list) -> None:
+        # The first version of this test only looked at module level, so a
+        # bare `import tomllib` inside a function walked straight past it and
+        # took the 3.10 matrix down — the third time for this one module.
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and not guarded:
+            names = ([a.name.split(".")[0] for a in node.names]
+                     if isinstance(node, ast.Import)
+                     else [node.module.split(".")[0]] if node.module else [])
             for n in names:
                 if n in ONLY_311_PLUS:
-                    offenders.append(f"{path.name}:{node.lineno} imports {n}")
+                    offenders.append(f"{path.name}:{node.lineno} imports {n} unguarded")
+        if isinstance(node, ast.Try):
+            inner = guarded or any(_handler_guards(h) for h in node.handlers)
+            for child in node.body:
+                _walk(child, inner, path, offenders)
+            for grp in (node.handlers, node.orelse, node.finalbody):
+                for child in grp:
+                    _walk(child, guarded, path, offenders)
+            return
+        for child in ast.iter_child_nodes(node):
+            _walk(child, guarded, path, offenders)
+
+    offenders: list = []
+    for path in sorted((Path(fieldtest.__file__).resolve().parent.parent / "tests").glob("*.py")):
+        _walk(ast.parse(path.read_text()), False, path, offenders)
 
     assert not offenders, (
-        "these are 3.11+ and the package supports 3.10:\n  " + "\n  ".join(offenders))
+        "these are 3.11+ and the package supports 3.10; wrap in try/except "
+        "ImportError with a fallback, as _pyproject() does:\n  " + "\n  ".join(offenders))
 
 
 # ---------------------------------------------------------------------------
