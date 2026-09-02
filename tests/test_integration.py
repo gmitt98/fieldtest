@@ -4020,13 +4020,17 @@ def test_the_site_advertises_the_shipped_version():
     and nothing checked it.
     """
     import re
-    import tomllib
     from pathlib import Path
 
     import fieldtest
 
     root = Path(fieldtest.__file__).resolve().parent.parent
-    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    # A regex, not tomllib: tomllib is 3.11+ and this project supports 3.10.
+    # This exact import has now broken the 3.10 matrix three times.
+    m = re.search(r'^version\s*=\s*"(\d+\.\d+\.\d+)"',
+                  (root / "pyproject.toml").read_text(), re.M)
+    assert m, "cannot read version from pyproject.toml"
+    version = m.group(1)
     site = (root / "docs" / "index.html").read_text()
 
     stale = sorted(set(re.findall(r"v(\d+\.\d+\.\d+)", site)) - {version})
