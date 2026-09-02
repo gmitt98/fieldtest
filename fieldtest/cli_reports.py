@@ -18,7 +18,7 @@ from typing import Optional
 import click
 
 from fieldtest.cli_common import _default_config_path
-from fieldtest.results.writer import RESULT_SUFFIXES
+from fieldtest.results.writer import CALIBRATION_JSON, CALIBRATION_MD, RESULT_SUFFIXES
 from fieldtest.results.aggregator import (
     run_id_from_path,
     find_result_by_run_id,
@@ -71,13 +71,13 @@ def history(config_path: Optional[str]):
     # They are not old-format results — fieldtest wrote them in the current
     # format, moments ago — and calling them files that "predate the current
     # naming" sent people looking for a migration that does not exist.
-    calibrations = sorted(results_dir.glob("*-calibration.json"))
+    calibrations = sorted(results_dir.glob(f"*{CALIBRATION_JSON}"))
     unreadable: list = []
     saw_errors = False
     legacy = [
         f for f in results_dir.glob("*.json")
         if not f.name.endswith(RESULT_SUFFIXES[0])
-        and not f.name.endswith("-calibration.json")
+        and not f.name.endswith(CALIBRATION_JSON)
     ]
     if not result_files:
         click.echo(
@@ -93,7 +93,7 @@ def history(config_path: Optional[str]):
             click.echo(
                 f"\n  {len(calibrations)} calibration run(s) are here but not "
                 f"listed — they measure the judge, not the system. Read the "
-                f"-calibration.md beside each."
+                f"{CALIBRATION_MD} beside each."
             )
         if legacy:
             click.echo(
@@ -238,7 +238,7 @@ def history(config_path: Optional[str]):
         click.echo(
             f"\n  {len(calibrations)} calibration run(s) in this directory are "
             f"not listed — they measure the judge, not the system. Read the "
-            f"-calibration.md beside each."
+            f"{CALIBRATION_MD} beside each."
         )
 
 

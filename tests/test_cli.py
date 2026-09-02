@@ -3617,7 +3617,10 @@ def test_result_filenames_are_spelled_in_exactly_one_place():
     # extension — so the replacement passed on the exact spelling the original
     # was written to ban. The extension is optional here, which covers the stem
     # marker, the full filename, and any glob or fragment containing either.
-    LITERAL = re.compile(r'-(?:data|report)(?:\.(?:json|csv|md|html))?')
+    # `calibration` joined the alternation when clean learned to prune those
+    # artifacts: they are run artifacts too, and leaving them out would have
+    # been a fourth spelling this test could not see.
+    LITERAL = re.compile(r'-(?:data|report|calibration)(?:\.(?:json|csv|md|html))?')
 
     offenders = []
     for path in sorted(root.rglob("*.py")):
@@ -3975,3 +3978,117 @@ def test_history_names_calibration_and_legacy_files_when_there_are_no_runs(tmp_p
     out = CliRunner().invoke(main, ["history"], catch_exceptions=False).output
     assert "calibration run(s) are here but not listed" in out, out
     assert "older result file(s) are here but not listed" in out, out
+
+
+def _run_clean(evals_dir: Path, args: list) -> any:
+    """`clean` against a project, from its parent, as a user would run it."""
+    return CliRunner().invoke(
+        main, ["clean", "--config", str(evals_dir / "config.yaml"), *args],
+        catch_exceptions=False)
+
+
+def _calibration_pair(results: Path, run_id: str) -> None:
+    from fieldtest.results.writer import CALIBRATION_JSON, CALIBRATION_MD
+    (results / f"{run_id}{CALIBRATION_JSON}").write_text("{}")
+    (results / f"{run_id}{CALIBRATION_MD}").write_text("# report")
+
+
+def test_clean_leaves_a_file_you_named_yourself_that_looks_like_a_calibration(tmp_path):
+    """
+    THE reason the prune is anchored on the run-id pattern rather than on a
+    bare *-calibration.json glob. README's clean section promises "a file of
+    your own named after a run id is left alone", and `clean` is the command
+    that has already destroyed a user's work once in this project.
+    """
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    _calibration_pair(results, "2026-01-01T00-00-01-aaaa")
+    (results / "my-calibration.json").write_text('{"mine": true}')
+    (results / "my-calibration.md").write_text("# mine")
+
+    result = _run_clean(evals, ["--results", "--keep", "0"])
+    assert result.exit_code == 0, result.output
+
+    assert (results / "my-calibration.json").is_file(), (
+        "clean deleted a calibration-looking file the user named themselves")
+    assert (results / "my-calibration.md").is_file()
+    assert not (results / "2026-01-01T00-00-01-aaaa-calibration.json").exists(), (
+        "clean did not prune a real calibration run")
+
+
+def test_calibration_runs_are_pruned_in_their_own_keep_pool(tmp_path):
+    """
+    Merged into the score-run pool, a handful of cheap re-calibrations would
+    evict the baselines `diff` depends on — silent data loss, which is the
+    failure mode this command already had once.
+    """
+    import os
+
+    evals = _setup_project(tmp_path)
+    _write_outputs(evals, "fix1", runs=2)
+    _write_outputs(evals, "fix2", runs=2)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+
+    _run_score(evals)
+    scored = sorted(results.glob("*-data.json"))
+    assert len(scored) == 1, scored
+
+    # many newer calibration runs
+    for i in range(1, 6):
+        rid = f"2026-01-01T00-00-0{i}-aaa{i}"
+        _calibration_pair(results, rid)
+        for suffix in ("-calibration.json", "-calibration.md"):
+            os.utime(results / f"{rid}{suffix}", (9_000_000 + i, 9_000_000 + i))
+
+    result = _run_clean(evals, ["--results", "--keep", "2"])
+    assert result.exit_code == 0, result.output
+
+    assert scored[0].is_file(), (
+        "cheap calibration re-runs evicted the score baseline diff depends on")
+    from fieldtest.results.aggregator import calibration_files_newest_first
+    assert len(calibration_files_newest_first(results)) == 2
+
+
+def test_clean_leaves_an_orphan_calibration_md_alone(tmp_path):
+    """The .json is the anchor; the .md only ever rides along with one."""
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-09-dddd-calibration.md").write_text("# orphan")
+
+    result = _run_clean(evals, ["--results", "--keep", "0"])
+    assert result.exit_code == 0, result.output
+    assert (results / "2026-01-01T00-00-09-dddd-calibration.md").is_file(), (
+        "an orphan .md with no .json was treated as a prune candidate")
+
+
+def test_clean_prunes_a_corrupt_calibration_file_without_reading_it(tmp_path):
+    """Pruning is disk hygiene; a truncated file from any version still goes."""
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-01-aaaa-calibration.json").write_text("not json{{")
+
+    result = _run_clean(evals, ["--results", "--keep", "0"])
+    assert result.exit_code == 0 and "Traceback" not in result.output, result.output
+    assert not (results / "2026-01-01T00-00-01-aaaa-calibration.json").exists()
+
+
+def test_clean_prunes_a_calibration_json_whose_md_is_missing(tmp_path):
+    """
+    The other side of the pair guard, and the one the `md.is_file()` check
+    actually protects: without it the missing sibling is appended to the victim
+    list anyway and unlink raises. The orphan-.md test does not reach this
+    branch — it has no .json, so the loop never runs.
+    """
+    evals = _setup_project(tmp_path)
+    results = evals / "results"
+    results.mkdir(exist_ok=True)
+    (results / "2026-01-01T00-00-01-aaaa-calibration.json").write_text("{}")
+
+    result = _run_clean(evals, ["--results", "--keep", "0"])
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    assert not (results / "2026-01-01T00-00-01-aaaa-calibration.json").exists()
