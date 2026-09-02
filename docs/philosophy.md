@@ -14,7 +14,7 @@ But the fuzziness is exactly why upfront reasoning matters more, not less. When 
 
 The question *"what does right, good, and safe mean for this feature"* is not a research question. It doesn't require data. It requires twenty minutes and a room with the right people in it. Teams skip it not because it's hard but because it's uncomfortable — it surfaces disagreement about what the product is supposed to do.
 
-fieldtest makes that conversation unavoidable. The config asks — in order — what your system does, what right means, what good means, what safe means, and how you'll test each. You can't write the safe section without thinking through failure modes. You can't write the right section without aligning with the PM. The sequence is the practice. The tool makes you do the thinking by making the thinking the only path to measurement.
+fieldtest makes that conversation unavoidable. Every eval carries exactly one tag — right, good or safe — and the report groups by it, so a system with nothing tagged safe says so on its own front page. You can't write a safe eval without thinking through failure modes. You can't write a right eval without aligning with the PM. Choosing the tag is the practice. The tool makes you do the thinking by making the thinking the only path to measurement.
 
 Engineering teams that bring this discipline to LLM products will build more reliable systems than those that don't. The outputs are fuzzier than traditional software. The methodology is the same.
 
