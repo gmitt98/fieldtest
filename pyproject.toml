@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fieldtest"
-version = "0.3.0"
+version = "0.3.1"
 description = "LLM evaluation framework — define what correct, well-formed, and safe means before you measure"
 readme = "README.md"
 requires-python = ">=3.10"

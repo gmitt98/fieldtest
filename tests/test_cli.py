@@ -4035,12 +4035,19 @@ def test_calibration_runs_are_pruned_in_their_own_keep_pool(tmp_path):
     scored = sorted(results.glob("*-data.json"))
     assert len(scored) == 1, scored
 
-    # many newer calibration runs
+    # Genuinely newer than the score run, or the eviction this test is named
+    # for cannot happen and the assertion below can never fire. The first
+    # version of this used os.utime(9_000_000), which is April 1970.
+    newer = scored[0].stat().st_mtime + 1000
     for i in range(1, 6):
         rid = f"2026-01-01T00-00-0{i}-aaa{i}"
         _calibration_pair(results, rid)
         for suffix in ("-calibration.json", "-calibration.md"):
-            os.utime(results / f"{rid}{suffix}", (9_000_000 + i, 9_000_000 + i))
+            os.utime(results / f"{rid}{suffix}", (newer + i, newer + i))
+    assert all(
+        p.stat().st_mtime > scored[0].stat().st_mtime
+        for p in results.glob("*-calibration.json")
+    ), "fixture is wrong: the calibrations must outrank the score run by mtime"
 
     result = _run_clean(evals, ["--results", "--keep", "2"])
     assert result.exit_code == 0, result.output
@@ -4092,3 +4099,45 @@ def test_clean_prunes_a_calibration_json_whose_md_is_missing(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Traceback" not in result.output
     assert not (results / "2026-01-01T00-00-01-aaaa-calibration.json").exists()
+
+
+def test_the_prune_pattern_matches_what_make_run_id_produces():
+    """
+    The run-id shape has two homes: make_run_id() writes it, and _RUN_ID_RE
+    decides which calibration files `clean` may prune. Nothing connected them.
+
+    Widening the id — token_hex(3) instead of (2) — leaves all 853 other tests
+    green while `clean` silently stops recognising every new calibration file,
+    which is the original defect, recreated invisibly. Verified by mutation.
+    """
+    from fieldtest.results.aggregator import _RUN_ID_RE
+    from fieldtest.runner import make_run_id
+
+    for _ in range(20):
+        rid = make_run_id()
+        assert _RUN_ID_RE.fullmatch(rid), (
+            f"make_run_id() produced {rid!r}, which the calibration prune "
+            f"pattern does not recognise — clean would silently skip it")
+
+
+def test_a_calibration_file_the_tool_just_wrote_is_prunable(tmp_path):
+    """
+    The end-to-end form of the pin above: not "the regex matches the generator"
+    but "a file write_calibration actually produced is a prune candidate", so a
+    change to either side or to the filename shape fails here.
+    """
+    from fieldtest.calibrate import write_calibration
+    from fieldtest.results.aggregator import calibration_files_newest_first
+    from fieldtest.runner import make_run_id
+
+    run_id = make_run_id()
+    write_calibration(
+        {"run_id": run_id, "set": "full", "panel": [], "evals": {},
+         "ranked_by_disagreement": [], "has_labels": False},
+        tmp_path, run_id,
+    )
+
+    candidates = [p.name for p in calibration_files_newest_first(tmp_path)]
+    assert candidates == [f"{run_id}-calibration.json"], (
+        f"a calibration file fieldtest just wrote is not a prune candidate: "
+        f"{candidates}")

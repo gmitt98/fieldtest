@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 (unreleased)
+## 0.3.1
 
 **`fieldtest clean` prunes calibration runs.** A calibration run writes no
 `-data.json`, so `clean` never counted it and its two files stayed on disk at
@@ -9,6 +9,12 @@ They now prune in their own `--keep` pool, counted separately: calibrations are
 cheap to repeat, and sharing a pool would let a few re-runs evict the score
 history `fieldtest diff` compares against. Only names fieldtest generated are
 candidates, so a file of your own called `my-calibration.json` is left alone.
+
+**Still deferred.** An eval that keeps its id while changing between `llm` and
+`rule` is compared across two instruments with no flag. 0.3.0's notes deferred
+this to 0.3.1 alongside the calibration prune; the prune landed and this did
+not. The guard written for it marked every eval of every pre-0.3 baseline as
+changed, so it was reverted rather than shipped.
 
 **A rejected baseline says what actually differs.** `fieldtest score` reported
 "the judge changed since the last run (was anthropic claude-haiku-4-5)" from a
@@ -506,7 +512,7 @@ tracking" about a run whose judge it had recorded minutes earlier and that
 - Default judge is `claude-haiku-4-5`; all bundled model ids updated
 - `fieldtest validate` reports label coverage and projects judge calls before you spend them
 - `fieldtest score` refuses a set that resolves to no fixtures
-- Test suite: 130 → 864, in three tiers (`unit`, `integration`, opt-in `live`),
+- Test suite: 130 → 866, in three tiers (`unit`, `integration`, opt-in `live`),
   plus `scripts/verify_tiers.py`, which reintroduces five defects that shipped
   and checks each is still caught
 - Known, deferred to 0.3.1: `fieldtest clean` does not prune `-calibration.json`
