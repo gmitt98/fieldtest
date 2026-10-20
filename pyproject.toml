@@ -69,6 +69,18 @@ dependencies = [
     "pydantic>=2.9; python_version == '3.13'",
     "pydantic>=2.12; python_version >= '3.14'",
     "click>=8.0",
+    # Not imported directly: a security floor on the CA bundle that httpx and
+    # requests trust. That covers google-genai (every release), anthropic
+    # < 1.0 and openai < 2.47; later anthropic and openai use httpx2, which
+    # trusts the OS store and never reads certifi. 2026.10.19 drops emSign
+    # ECC Root CA - G3, the root above eight eMudhra intermediates whose
+    # private keys were compromised (https://emudhra.we-have-a-problem.com/).
+    # Neither client checks revocation, so removal from the bundle is the
+    # only fix they get, and judge calls carry provider API keys. Without
+    # this floor, upgrading fieldtest leaves a stale certifi in place.
+    # 2026.10.18 dropped every emSign root, unaffected ones included;
+    # 10.19 restores those.
+    "certifi>=2026.10.19",
 ]
 
 [project.urls]
