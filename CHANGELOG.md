@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+**fieldtest now requires certifi 2026.10.19 or later.** The private keys of
+eight eMudhra intermediate CAs were compromised
+([disclosure](https://emudhra.we-have-a-problem.com/)), and anyone holding one
+can issue a certificate for any host, including the model APIs your judge
+calls send their keys to. Browsers blocked them through revocation. httpx and
+requests do not check revocation and trust whatever certifi ships, and
+2026.10.19 removes the root above them. pip leaves an installed dependency
+alone on upgrade unless the new version requires more, so this floor is what
+moves existing environments.
+
+Whether certifi is your trust store depends on the SDK. The `gemini` extra
+(google-genai), anthropic before 1.0 and openai before 2.47 use it. Current
+anthropic and openai use httpx2, which trusts your operating system's store
+instead. macOS and Windows have already blocked these intermediates; on Linux
+you need your distribution's ca-certificates update, which some distributions
+had not shipped as of 20 October. The same applies if you set `SSL_CERT_FILE`.
+
 ## 0.3.1
 
 **`fieldtest clean` prunes calibration runs.** A calibration run writes no
